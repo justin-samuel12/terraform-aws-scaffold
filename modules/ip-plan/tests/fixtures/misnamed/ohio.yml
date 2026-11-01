@@ -1,0 +1,12 @@
+zones:
+  - use2-az1
+  - use2-az2
+  - use2-az3
+hub:
+  cidr: 10.70.0.0/20
+  amazon_side_asn: 64514
+vpcs:
+  staging:
+    cidr: 10.62.0.0/16
+    segment: standard
+    public: true

@@ -1,0 +1,8 @@
+description: Grafana servers
+services:
+  - ec2
+managed_policies:
+  - AmazonSSMManagedInstanceCore
+  - CloudWatchAgentServerPolicy
+policies:
+  - read-tags

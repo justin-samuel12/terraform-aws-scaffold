@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# Plans every stack's own files (or the stacks named) against a mocked AWS: no credentials, no state -- docs/configuration.md.
+# Your config/ is copied with blank account IDs and teams filled in, so files can be checked before any account exists.
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "${REPO_ROOT}"
+command -v yq >/dev/null || { echo "check-files: yq is required (brew install yq)" >&2; exit 1; }
+
+WORK="$(mktemp -d)"
+TEST_DIR=".check-files"
+cleanup() {
+    rm -rf "${WORK:?}"
+    for d in live/*/*/*/"${TEST_DIR}"; do [[ -d "${d}" ]] && rm -rf "${d:?}"; done
+    return 0
+}
+trap cleanup EXIT
+
+mkdir -p "${WORK}/config"
+cp config/*.yml "${WORK}/config/"
+for f in "${WORK}"/config/*.yml; do
+    [[ "$(basename "${f}")" == global.yml ]] && continue
+    yq -i '(.hub, .vpcs[]) |= (.account_id = (.account_id // "" | select(. != "") // "111111111111") | .team = (.team // "platform"))' "${f}"
+done
+
+stacks=()
+if [[ $# -gt 0 ]]; then
+    for s in "$@"; do stacks+=("live/${s#live/}"); done
+else
+    while IFS= read -r d; do stacks+=("${d%/main.tf}"); done < <(find live -mindepth 4 -maxdepth 4 -name main.tf | sort)
+fi
+
+primary=""
+for f in config/*-*-[0-9].yml; do [[ "$(yq -r '.hub.primary // false' "${f}")" == true ]] && primary="$(basename "${f}" .yml)"; done
+
+export TF_PLUGIN_CACHE_DIR="${TF_PLUGIN_CACHE_DIR:-${REPO_ROOT}/.terraform.d/plugin-cache}"
+mkdir -p "${TF_PLUGIN_CACHE_DIR}"
+failed=0
+for stack in "${stacks[@]}"; do
+    [[ -f "${stack}/main.tf" ]] || { echo "check-files: ${stack} is not a stack" >&2; failed=1; continue; }
+    # The mock answers with the stack's own region and zones, from config/.
+    region="$(cut -d/ -f2 <<<"${stack}")"
+    [[ "${region}" == global ]] && region="${primary}"
+    zones="$(yq -o=json -I=0 '.zones // []' "config/${region}.yml" 2>/dev/null | sed 's/,/, /g')"
+    mkdir -p "${stack}/${TEST_DIR}"
+    sed -e "s/zone_ids = \[[^]]*\]/zone_ids = ${zones:-[]}/" -e "s/region = \"us-east-1\", name = \"us-east-1\"/region = \"${region}\", name = \"${region}\"/" \
+        tests/mock/files.tftest.hcl > "${stack}/${TEST_DIR}/files.tftest.hcl"
+    if out="$(cd "${stack}" && terraform init -backend=false -input=false >/dev/null && TF_VAR_config_dir="${WORK}/config" terraform test -no-color -test-directory="${TEST_DIR}" 2>&1)"; then
+        echo "ok    ${stack#live/}"
+    else
+        echo "FAIL  ${stack#live/}"
+        grep -E "Error:" -A8 <<<"${out}" | sed 's/^/      /' | head -40
+        failed=1
+    fi
+    rm -rf "${stack:?}/${TEST_DIR}"
+done
+exit "${failed}"

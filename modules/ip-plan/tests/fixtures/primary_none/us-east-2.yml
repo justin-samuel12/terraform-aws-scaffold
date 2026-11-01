@@ -1,0 +1,7 @@
+zones:
+  - use2-az1
+  - use2-az2
+  - use2-az3
+hub:
+  cidr: 10.40.0.0/20
+  amazon_side_asn: 64512

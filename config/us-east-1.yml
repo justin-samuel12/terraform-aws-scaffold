@@ -1,0 +1,19 @@
+# N. Virginia: the hub and every environment in this region. Every account must exist before anything here runs.
+# Quote account IDs: YAML drops a leading zero. Add a region by adding a file like this one.
+zones:
+  - use1-az1
+  - use1-az2
+  - use1-az4
+hub:
+  account_id: ""
+  team: platform
+  cidr: 10.40.0.0/20
+  amazon_side_asn: 64512
+  primary: true
+vpcs:
+  development:
+    account_id: ""
+    team: platform
+    cidr: 10.41.0.0/16
+    segment: standard
+    public: true

@@ -1,0 +1,6 @@
+description: Read CodeDeploy revisions, for every application CodeDeploy deploys
+statements:
+  - actions:
+      - s3:GetObject
+    resources:
+      - arn:aws:s3:::*-revisions-*/*

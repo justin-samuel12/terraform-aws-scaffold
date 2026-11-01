@@ -1,0 +1,6 @@
+description: The shared file system's mount targets
+ingress:
+  - description: NFS from the web application
+    port: 2049
+    from:
+      - web

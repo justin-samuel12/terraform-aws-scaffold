@@ -1,0 +1,29 @@
+#!/bin/bash
+# Commit message format -- CONTRIBUTING.md.
+
+COMMIT_MSG=$(cat "$1")
+HEADER=$(echo "$COMMIT_MSG" | head -n 1)
+VALID_TYPES=(terraform infra docs ci)
+
+# git's own messages for reverts and merges pass as written.
+if [[ "$HEADER" =~ ^(Revert|Merge)\  ]]; then
+    exit 0
+fi
+
+if [[ ! "$HEADER" =~ ^[a-z]+(\([a-zA-Z0-9_-]+\))?:\ .+ ]]; then
+    echo "Commit message must be: <type>(<optional-scope>): <description>"
+    echo "  e.g. terraform(network): add the us-east-1 hub"
+    echo "       docs: record the account decision"
+    exit 1
+fi
+
+TYPE=${HEADER%%[(:]*}
+if [[ ! " ${VALID_TYPES[*]} " =~ " $TYPE " ]]; then
+    echo "Invalid commit type '$TYPE'. Valid types: ${VALID_TYPES[*]}"
+    exit 1
+fi
+
+if [[ ${#HEADER} -gt 72 ]]; then
+    echo "Commit header is ${#HEADER} characters; the limit is 72."
+    exit 1
+fi

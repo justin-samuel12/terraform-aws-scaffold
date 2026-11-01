@@ -1,0 +1,6 @@
+description: Grafana servers
+ingress:
+  - description: HTTPS from a public tier development does not have
+    port: 443
+    from:
+      - tier:public

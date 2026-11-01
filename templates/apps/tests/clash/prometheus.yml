@@ -1,0 +1,20 @@
+servers:
+  count: 2
+  type: t3.medium
+  image: ami-0123456789abcdef0
+  tier: ops
+  role: prometheus
+  security_groups:
+    - prometheus
+port: 9090
+health: /api/health
+routes:
+  - load_balancer: internal
+    hosts:
+      - prometheus.example.com
+    priority: 1010
+deploy: one-at-a-time
+names:
+  - name: prometheus
+    zone: example.com
+    private: true

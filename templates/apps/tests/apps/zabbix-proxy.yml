@@ -1,0 +1,8 @@
+servers:
+  count: 1
+  type: t3.small
+  image: ami-0123456789abcdef0
+  tier: ops
+  role: zabbix-proxy
+targets:
+  internal-nlb/zabbix: 10051

@@ -1,0 +1,22 @@
+servers:
+  count: 2
+  type: t3.medium
+  image: ami-0123456789abcdef0
+  tier: ops
+  role: grafana
+  security_groups:
+    - grafana
+port: 3000
+health: /api/health
+target:
+  slow_start: 30
+routes:
+  - load_balancer: internal
+    hosts:
+      - grafana.example.com
+    priority: 1010
+deploy: one-at-a-time
+names:
+  - name: grafana
+    zone: example.com
+    private: true

@@ -1,0 +1,8 @@
+tier: data
+security_groups:
+  - accesscontrol-efs
+access_points:
+  uploads:
+    path: /uploads
+    uid: 1001
+    gid: 1001

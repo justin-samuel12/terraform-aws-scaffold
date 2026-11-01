@@ -1,0 +1,11 @@
+zones:
+  - use2-az1
+hub:
+  cidr: 10.40.0.0/20
+  amazon_side_asn: 64512
+  primary: true
+vpcs:
+  production:
+    cidr: 10.41.0.0/16
+    segment: restricted
+    public: true

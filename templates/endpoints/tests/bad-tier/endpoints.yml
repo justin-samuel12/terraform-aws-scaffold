@@ -1,0 +1,3 @@
+tier: public
+interface:
+  - ssm

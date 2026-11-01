@@ -1,0 +1,4 @@
+count: 1
+type: t3.medium
+image: ami-0123456789abcdef0
+tier: ops

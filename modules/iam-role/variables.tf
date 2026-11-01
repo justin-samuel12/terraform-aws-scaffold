@@ -1,0 +1,66 @@
+variable "policies" {
+  description = "Customer-managed policy name -> what it is for and its statements; several roles can share one."
+  type = map(object({
+    description = string
+    statements = list(object({
+      effect    = optional(string, "Allow")
+      actions   = list(string)
+      resources = list(string)
+    }))
+  }))
+  default = {}
+
+  validation {
+    condition     = alltrue([for name in keys(var.policies) : can(regex("^[a-z][a-z0-9-]{0,127}$", name))])
+    error_message = "Policy names are lowercase letters, digits and hyphens."
+  }
+
+  validation {
+    condition = alltrue(flatten([for p in var.policies : concat([trimspace(p.description) != "" && length(p.statements) > 0], [
+      for s in p.statements : !(contains(s.actions, "*") && contains(s.resources, "*")) && contains(["Allow", "Deny"], s.effect)
+    ])]))
+    error_message = "Every policy needs a description and statements, and none may allow every action on every resource (SKILLS.md)."
+  }
+}
+
+variable "roles" {
+  description = "Role name -> what it is for, which AWS services may assume it, AWS managed policies by name, our own policies by name, and statements only it needs."
+  type = map(object({
+    description      = string
+    services         = set(string)
+    managed_policies = optional(list(string), [])
+    policies         = optional(list(string), [])
+    statements = optional(list(object({
+      effect    = optional(string, "Allow")
+      actions   = list(string)
+      resources = list(string)
+    })), [])
+  }))
+
+  validation {
+    condition     = alltrue([for name in keys(var.roles) : can(regex("^[a-z][a-z0-9-]{0,63}$", name))])
+    error_message = "Role names are lowercase letters, digits and hyphens."
+  }
+
+  validation {
+    condition     = alltrue([for r in var.roles : length(r.services) > 0 && alltrue([for s in r.services : can(regex("^[a-z0-9.-]+$", s))])])
+    error_message = "Every role is assumed by at least one AWS service, named without .amazonaws.com (ec2, lambda)."
+  }
+
+  validation {
+    condition = alltrue(flatten([for r in var.roles : [
+      for s in r.statements : !(contains(s.actions, "*") && contains(s.resources, "*")) && contains(["Allow", "Deny"], s.effect)
+    ]]))
+    error_message = "No statement may allow every action on every resource; scope actions and resources (SKILLS.md)."
+  }
+
+  validation {
+    condition     = alltrue([for r in var.roles : trimspace(r.description) != ""])
+    error_message = "Every role needs a description."
+  }
+
+  validation {
+    condition     = alltrue(flatten([for r in var.roles : [for p in r.policies : contains(keys(var.policies), p)]]))
+    error_message = "A role's policies must be policies defined here (policies/<name>.yml); AWS's own go under managed_policies."
+  }
+}

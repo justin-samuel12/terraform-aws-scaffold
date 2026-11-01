@@ -1,0 +1,16 @@
+# Stack tests: a region with no accounts or teams yet, which every stack must refuse to plan.
+zones:
+  - use1-az1
+  - use1-az2
+  - use1-az4
+hub:
+  account_id: ""
+  cidr: 10.40.0.0/20
+  amazon_side_asn: 64512
+  primary: true
+vpcs:
+  development:
+    account_id: ""
+    cidr: 10.41.0.0/16
+    segment: standard
+    public: true

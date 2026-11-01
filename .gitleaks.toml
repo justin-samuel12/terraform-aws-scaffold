@@ -1,0 +1,5 @@
+# gitleaks configuration -- SECURITY.md.
+title = "terraform-aws-scaffold"
+
+[extend]
+useDefault = true

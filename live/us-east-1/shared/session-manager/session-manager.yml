@@ -1,0 +1,3 @@
+idle_timeout_minutes: 20
+max_session_minutes: 480
+log_retention_days: 365

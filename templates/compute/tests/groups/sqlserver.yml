@@ -1,0 +1,24 @@
+count: 2
+type: r6i.2xlarge
+image: ami-0123456789abcdef0
+role: sqlserver
+security_groups:
+  - sqlserver
+protect: true
+volumes:
+  data:
+    device: /dev/sdf
+    size: 1000
+members:
+  sqlserver-01:
+    subnet: data-az1
+    ips:
+      primary: 70
+      cluster: 71
+      listener: 72
+  sqlserver-02:
+    subnet: data-az2
+    ips:
+      primary: 70
+      cluster: 71
+      listener: 72

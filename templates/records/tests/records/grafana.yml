@@ -1,0 +1,3 @@
+zone: internal.example.com
+private: true
+server: grafana-01

@@ -1,0 +1,25 @@
+type: application
+scheme: internal
+security_groups:
+  - grafana-lb
+certificate: grafana.example.com
+listeners:
+  "443":
+    protocol: HTTPS
+    target: web
+  "80":
+    protocol: HTTP
+    redirect: true
+targets:
+  web:
+    port: 3000
+    protocol: HTTP
+    health_check_path: /api/health
+rules:
+  old-name:
+    listener: 443
+    priority: 10
+    hosts:
+      - metrics.example.com
+    redirect:
+      host: grafana.example.com

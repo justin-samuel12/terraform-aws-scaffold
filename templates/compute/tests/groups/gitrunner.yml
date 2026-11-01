@@ -1,0 +1,5 @@
+count: 3
+type: c6i.large
+image: ami-0123456789abcdef0
+role: gitrunner
+tier: ops

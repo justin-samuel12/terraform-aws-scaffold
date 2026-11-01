@@ -1,0 +1,5 @@
+web:
+  domain: app.example.com
+  alternative_names:
+    - www.example.com
+  zone: example.com

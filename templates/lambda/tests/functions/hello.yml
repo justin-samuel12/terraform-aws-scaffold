@@ -1,0 +1,5 @@
+runtime: python3.12
+handler: app.handler
+schedule: rate(1 day)
+environment:
+  LEVEL: info

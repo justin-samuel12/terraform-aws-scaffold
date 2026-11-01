@@ -1,0 +1,8 @@
+description: The web application's servers
+services:
+  - ec2
+managed_policies:
+  - AmazonSSMManagedInstanceCore
+  - CloudWatchAgentServerPolicy
+policies:
+  - read-revisions

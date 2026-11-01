@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# Run Terraform in one stack with the machine's config and state settings -- docs/configuration.md.
+set -euo pipefail
+
+if [[ $# -lt 2 ]]; then
+    echo "usage: bin/tf <stack directory> <terraform command> [args...]" >&2
+    exit 2
+fi
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+STACK="$(cd "$1" && pwd)"; shift
+COMMAND="$1"
+REL="${STACK#"${REPO_ROOT}/"}"
+
+if [[ "${REL}" != live/* || "${REL}" == live/common* ]]; then
+    echo "bin/tf: ${STACK} is not a stack under live/." >&2
+    exit 2
+fi
+
+# Deleting resources or rewriting state is done by a person, by hand, never through here.
+case "${COMMAND} ${2:-}" in
+    "destroy "* | "state rm" | "state mv" | "state push" | "state replace-provider" | "force-unlock "*)
+        echo "bin/tf: '${COMMAND}${2:+ $2}' is not run through this wrapper." >&2
+        exit 1 ;;
+esac
+
+command -v yq >/dev/null || { echo "bin/tf: yq is required (brew install yq)." >&2; exit 1; }
+
+CONFIG="${INFRA_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/infra/$(basename "${REPO_ROOT}").yml}"
+export TF_VAR_config_file="${CONFIG}"
+export TF_PLUGIN_CACHE_DIR="${TF_PLUGIN_CACHE_DIR:-${REPO_ROOT}/.terraform.d/plugin-cache}"
+mkdir -p "${TF_PLUGIN_CACHE_DIR}"
+ENVIRONMENT="$(cut -d/ -f3 <<<"${REL}")"
+
+# Formatting, validating and initialising without a backend need no account and no state.
+case "${COMMAND}" in
+    fmt | validate | version | providers) exec terraform -chdir="${STACK}" "$@" ;;
+    init) [[ " $* " == *" -backend=false "* ]] && exec terraform -chdir="${STACK}" "$@" ;;
+esac
+
+# The account and the state bucket are made before this repository is used; without them nothing runs.
+refuse() {
+    echo "bin/tf: $1" >&2
+    echo "bin/tf: the AWS account and the S3 state bucket must exist first and be written in config/ -- docs/configuration.md." >&2
+    exit 1
+}
+LOCATION="$(cut -d/ -f2 <<<"${REL}")"
+if [[ "${LOCATION}" == global ]]; then
+    REGION=""
+    for f in "${REPO_ROOT}"/config/*.yml; do
+        [[ "$(yq -r '.hub.primary // false' "${f}")" == true ]] && REGION="$(basename "${f}" .yml)"
+    done
+    [[ -n "${REGION}" ]] || refuse "no hub in config/ says primary: true, so a global stack has no region."
+else
+    REGION="${LOCATION}"
+fi
+REGION_FILE="${REPO_ROOT}/config/${REGION}.yml"
+[[ -f "${REGION_FILE}" ]] || refuse "there is no config/${REGION}.yml."
+if [[ "${ENVIRONMENT}" == shared ]]; then ENTRY=".hub"; else ENTRY=".vpcs[\"${ENVIRONMENT}\"]"; fi
+[[ "$(yq -r "${ENTRY} | tag" "${REGION_FILE}")" == "!!map" ]] || refuse "config/${REGION}.yml has no entry for ${ENVIRONMENT}."
+ACCOUNT_ID="$(yq -r "${ENTRY}.account_id // \"\"" "${REGION_FILE}")"
+[[ "${ACCOUNT_ID}" =~ ^[0-9]{12}$ && "$(yq -r "${ENTRY}.account_id | tag" "${REGION_FILE}")" == "!!str" ]] \
+    || refuse "config/${REGION}.yml has no quoted 12-digit account_id for ${ENVIRONMENT} (unquoted, YAML drops a leading zero)."
+BUCKET="$(yq -r '.state.bucket // ""' "${REPO_ROOT}/config/global.yml")"
+BUCKET_REGION="$(yq -r '.state.region // ""' "${REPO_ROOT}/config/global.yml")"
+[[ -n "${BUCKET}" && -n "${BUCKET_REGION}" ]] || refuse "config/global.yml has no state.bucket and state.region."
+PROFILE=""
+[[ -f "${CONFIG}" ]] && PROFILE="$(yq -r ".profiles[\"${ENVIRONMENT}\"] // \"\"" "${CONFIG}")"
+
+if [[ "${COMMAND}" == init ]]; then
+    if ! aws s3api head-bucket --bucket "${BUCKET}" --region "${BUCKET_REGION}" ${PROFILE:+--profile "${PROFILE}"} >/dev/null 2>&1; then
+        refuse "the state bucket ${BUCKET} (${BUCKET_REGION}) does not exist or is not reachable${PROFILE:+ with profile ${PROFILE}}."
+    fi
+fi
+
+# The stack's committed backend.tf must say what config/global.yml says, or state could go somewhere else.
+"${REPO_ROOT}/bin/backends" --check "${REL}" || refuse "${REL}/backend.tf does not match config/global.yml."
+
+# The same profile for the AWS CLI as for the provider: destroying a server calls the CLI to power it off at once.
+[[ -n "${PROFILE}" ]] && export AWS_PROFILE="${PROFILE}"
+
+exec terraform -chdir="${STACK}" "$@"

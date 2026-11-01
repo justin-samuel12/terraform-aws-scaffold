@@ -1,0 +1,7 @@
+tier: private
+interface:
+  - ssm
+  - ssmmessages
+  - ec2messages
+gateway:
+  - s3

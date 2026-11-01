@@ -1,0 +1,194 @@
+#!/usr/bin/env bash
+# Guided setup: prerequisites, then config/ and stacks (bin/configure), then this machine's profiles -- docs/configuration.md.
+# Stops before anything is created in AWS: the next step it prints is make bootstrap.
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CONFIG="${INFRA_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/infra/$(basename "${REPO_ROOT}").yml}"
+INTERACTIVE="${SETUP_INTERACTIVE:-$([[ -t 0 ]] && echo 1 || echo 0)}"
+
+ok()   { printf '  \033[32m✓\033[0m %s\n' "$*"; }
+warn() { printf '  \033[33m!\033[0m %s\n' "$*"; }
+fail() { printf '  \033[31m✗\033[0m %s\n' "$*"; MISSING=1; }
+
+# ask <prompt> <default> -> the answer, or the default on an empty line.
+ask() {
+    local answer
+    read -r -p "  $1${2:+ [$2]}: " answer || true
+    echo "${answer:-$2}"
+}
+
+# ask_yes <prompt> <default y|n> -> success for yes.
+ask_yes() {
+    local answer
+    answer="$(ask "$1 (y/n)" "$2")"
+    [[ "${answer}" =~ ^[Yy] ]]
+}
+
+version_at_least() { [[ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -n1)" == "$2" ]]; }
+
+echo "== Prerequisites"
+MISSING=0
+
+if command -v terraform >/dev/null; then
+    tf_version="$(terraform version -json | jq -r .terraform_version 2>/dev/null || terraform version | head -n1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
+    if version_at_least "${tf_version}" 1.12.0; then ok "terraform ${tf_version}"; else fail "terraform ${tf_version}: 1.12.0 or later is required"; fi
+else
+    fail "terraform: not installed (brew install hashicorp/tap/terraform)"
+fi
+
+if command -v aws >/dev/null; then
+    aws_version="$(aws --version 2>&1 | grep -oE 'aws-cli/[0-9.]+' | cut -d/ -f2)"
+    if [[ "${aws_version}" != 2.* ]]; then fail "aws cli ${aws_version}: version 2 is required"
+    elif ! aws ec2 terminate-instances help 2>/dev/null | grep -q skip-os-shutdown; then warn "aws cli ${aws_version}: too old for --skip-os-shutdown; destroyed servers shut down slowly (brew upgrade awscli)"
+    else ok "aws cli ${aws_version}"; fi
+else
+    fail "aws cli: not installed (brew install awscli)"
+fi
+
+if command -v jq >/dev/null; then ok "jq $(jq --version | tr -d 'jq-')"; else fail "jq: not installed (brew install jq)"; fi
+if command -v yq >/dev/null && yq --version 2>&1 | grep -q mikefarah; then ok "yq $(yq --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"; else fail "yq: not installed, or not mikefarah's yq v4 (brew install yq)"; fi
+if command -v gitleaks >/dev/null; then ok "gitleaks $(gitleaks version 2>/dev/null)"; else fail "gitleaks: not installed (brew install gitleaks); commits are refused without it"; fi
+if command -v tflint >/dev/null; then ok "tflint $(tflint --version | head -n1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"; else warn "tflint: not installed (optional; Homebrew does not carry it: see docs/configuration.md)"; fi
+
+if [[ "${MISSING}" == 1 ]]; then
+    echo "Install what is missing, then run make setup again." >&2
+    exit 1
+fi
+
+echo "== Provider cache"
+mkdir -p "${REPO_ROOT}/.terraform.d/plugin-cache"
+ok "providers are downloaded once, into .terraform.d/plugin-cache"
+
+echo "== Git hooks"
+if [[ -d "${REPO_ROOT}/.git" ]]; then
+    cp "${REPO_ROOT}"/.github/hooks/* "${REPO_ROOT}/.git/hooks/" && chmod +x "${REPO_ROOT}"/.git/hooks/*
+    ok "installed"
+else
+    warn "not a git repository yet; run make hooks once it is"
+fi
+
+profile_accounts=""
+if [[ "${INTERACTIVE}" == 1 ]]; then
+    echo "== AWS profiles on this machine"
+    profiles="$(aws configure list-profiles 2>/dev/null | tr '\n' ' ')"
+    say_profiles="${profiles:-none}"
+    echo "  ${say_profiles}"
+    echo "  Asking each one which account it is (read-only sts calls); a profile you are not logged in to is skipped."
+    for p in ${profiles}; do
+        if a="$(aws sts get-caller-identity --profile "${p}" --query Account --output text 2>/dev/null)"; then
+            profile_accounts+="${p} ${a}"$'\n'
+        fi
+    done
+    echo
+    if ask_yes "Walk through config/ (regions, environments, accounts, state bucket, office VPN) and create the stacks?" y; then
+        PROFILE_ACCOUNTS="${profile_accounts}" "${REPO_ROOT}/bin/configure"
+    else
+        echo "  Skipped: config/ is as it was. Run bin/configure any time."
+    fi
+    echo
+fi
+
+echo "== Accounts and state buckets in config/"
+# Each environment's account, from every region file; the IP plan already refuses one that differs between regions.
+accounts="$(for f in "${REPO_ROOT}"/config/*-*-[0-9].yml; do
+    yq -r '[{"environment": "shared", "account_id": (.hub.account_id // "")}] + [.vpcs // {} | to_entries | .[] | {"environment": .key, "account_id": (.value.account_id // "")}] | .[] | .environment + " " + .account_id' "${f}"
+done | sort -u)"
+environments="$(cut -d' ' -f1 <<<"${accounts}" | sort -u)"
+account_for() { awk -v e="$1" '$1 == e && $2 != "" {print $2; exit}' <<<"${accounts}"; }
+for env in ${environments}; do
+    if [[ "$(account_for "${env}")" =~ ^[0-9]{12}$ ]]; then ok "${env}: account $(account_for "${env}")"; else warn "${env}: no account_id in config/ yet; its stacks refuse to run"; fi
+done
+bucket="$(yq -r '.state.bucket // ""' "${REPO_ROOT}/config/global.yml")"
+bucket_region="$(yq -r '.state.region // ""' "${REPO_ROOT}/config/global.yml")"
+if [[ -n "${bucket}" && -n "${bucket_region}" ]]; then ok "state bucket ${bucket} (${bucket_region})"; else warn "no state bucket yet: make bootstrap creates one once the shared account is in config/; until then every stack refuses to run"; fi
+
+echo "== This machine's profiles: ${CONFIG}"
+if [[ "${INTERACTIVE}" != 1 ]]; then
+    if [[ -f "${CONFIG}" ]]; then ok "present"; else warn "absent: stacks use whatever credentials are active"; fi
+    exit 0
+fi
+
+current='{}'
+if [[ -f "${CONFIG}" ]]; then
+    current="$(yq -o=json '. // {}' "${CONFIG}")" || { echo "  ${CONFIG} is not valid YAML; fix or remove it first." >&2; exit 1; }
+fi
+
+
+chosen='{}'
+for env in ${environments}; do
+    account="$(account_for "${env}")"
+    suggestion="$(jq -r --arg e "${env}" '.profiles[$e] // empty' <<<"${current}")"
+    if [[ -n "${account}" ]]; then
+        matches="$(awk -v a="${account}" '$2 == a {print $1}' <<<"${profile_accounts}" | xargs)"
+        [[ -z "${suggestion}" && -n "${matches}" ]] && suggestion="$(awk '{print $1}' <<<"${matches}")"
+        echo
+        echo "  -- ${env} (account ${account}${matches:+; matching profiles: ${matches}})"
+    else
+        echo
+        echo "  -- ${env} (no account in config/ yet)"
+    fi
+    profile="$(ask "Profile" "${suggestion}")"
+    if [[ -n "${profile}" && -n "${account}" ]]; then
+        actual="$(awk -v p="${profile}" '$1 == p {print $2}' <<<"${profile_accounts}")"
+        if [[ -n "${actual}" && "${actual}" != "${account}" ]]; then
+            warn "profile '${profile}' is account ${actual}, not ${account}; plans for ${env} will refuse to run with it"
+        fi
+    fi
+    [[ -n "${profile}" ]] && chosen="$(jq --arg e "${env}" --arg p "${profile}" '. + {($e): $p}' <<<"${chosen}")"
+done
+
+new="$(jq -n --argjson p "${chosen}" '{profiles: $p}')"
+
+echo
+echo "== State buckets (read-only checks, with the shared environment's profile)"
+bucket_profile="$(jq -r '.shared // empty' <<<"${chosen}")"
+if [[ -n "${bucket}" && -n "${bucket_region}" ]]; then
+    aws_bucket() { aws s3api "$@" --bucket "${bucket}" --region "${bucket_region}" ${bucket_profile:+--profile "${bucket_profile}"} 2>/dev/null; }
+    if ! aws_bucket head-bucket >/dev/null; then
+        warn "${bucket} (${bucket_region}): does not exist or is not reachable; every stack refuses to run"
+    else
+        if [[ "$(aws_bucket get-bucket-versioning --query Status --output text)" == Enabled ]]; then
+            ok "${bucket}: versioning on"
+        else
+            warn "${bucket}: versioning is off; an overwritten or deleted state cannot be recovered"
+        fi
+        if aws_bucket get-bucket-encryption >/dev/null; then
+            ok "${bucket}: default encryption on"
+        else
+            warn "${bucket}: no default encryption found"
+        fi
+        if aws_bucket get-bucket-replication >/dev/null; then
+            ok "${bucket}: replicated to another region"
+        else
+            warn "${bucket}: not replicated; if ${bucket_region} is down, no stack can plan"
+        fi
+    fi
+fi
+
+echo
+echo "== Summary"
+yq -p=json -o=yaml -P <<<"${new}" | sed 's/^/  /'
+if ! ask_yes "Write this to ${CONFIG}?" "y"; then
+    echo "  Nothing written."
+    exit 0
+fi
+
+mkdir -p "$(dirname "${CONFIG}")" && chmod 700 "$(dirname "${CONFIG}")"
+if [[ -f "${CONFIG}" ]]; then
+    cp -p "${CONFIG}" "${CONFIG}.$(date +%Y%m%d%H%M%S).bak"
+    ok "previous file backed up"
+fi
+umask 077
+yq -p=json -o=yaml -P <<<"${new}" > "${CONFIG}"
+ok "written"
+echo
+primary_region="$(for f in "${REPO_ROOT}"/config/*-*-[0-9].yml; do [[ "$(yq -r '.hub.primary // false' "${f}")" == true ]] && basename "${f}" .yml; done | head -n1)"
+if ! [[ "$(account_for shared)" =~ ^[0-9]{12}$ ]]; then
+    echo "Next: once the AWS accounts exist, add them to config/ (run make setup again, or edit config/${primary_region}.yml), then make bootstrap."
+    echo "      Meanwhile, make check-files checks every stack's files without any account."
+elif [[ -z "${bucket}" ]]; then
+    echo "Next: make bootstrap, to create the state bucket in the shared account."
+else
+    echo "Next: make init STACK=${primary_region}/shared/hub, then make plan STACK=${primary_region}/shared/hub (docs/day-one.md)."
+fi

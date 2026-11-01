@@ -1,0 +1,16 @@
+description: Grafana servers
+ingress:
+  - description: HTTPS from the Grafana load balancer
+    port: 443
+    from:
+      - grafana-lb
+  - description: Metrics between Grafana servers
+    ports:
+      - 9090
+      - 9100-9110
+    from:
+      - self
+  - description: SSH from the ops tier
+    port: 22
+    from:
+      - tier:ops

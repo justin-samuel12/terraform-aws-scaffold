@@ -1,0 +1,3 @@
+object_lock:
+  mode: COMPLIANCE
+  days: 2555

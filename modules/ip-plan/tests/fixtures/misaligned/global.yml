@@ -1,0 +1,35 @@
+# The subnet layout every VPC uses, in every region. Each tier reserves room for six zones:
+# zone azN always takes the Nth block from start, so adding a zone only adds subnets.
+subnets:
+  environment:
+    private:
+      size: 19
+      start: 0
+      route: hub
+    data:
+      size: 22
+      start: 193
+      route: internal
+    public:
+      size: 23
+      start: 216
+      route: internet
+    ops:
+      size: 23
+      start: 228
+      route: hub
+    transit:
+      size: 28
+      start: 252
+      route: none
+  hub:
+    public:
+      size: 24
+      start: 0
+    transit:
+      size: 28
+      start: 15
+hq:
+  ip_address:
+  bgp_asn: 65010
+  cidrs: []

@@ -1,0 +1,13 @@
+type: Command
+content:
+  schemaVersion: "2.2"
+  description: Install the CloudWatch agent
+  mainSteps:
+    - action: aws:runDocument
+      name: install
+      inputs:
+        documentType: SSMDocument
+        documentPath: AWS-ConfigureAWSPackage
+        documentParameters:
+          action: Install
+          name: AmazonCloudWatchAgent

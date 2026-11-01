@@ -1,0 +1,7 @@
+description: Read instance tags, for service discovery
+statements:
+  - actions:
+      - ec2:DescribeInstances
+      - ec2:DescribeTags
+    resources:
+      - "*"

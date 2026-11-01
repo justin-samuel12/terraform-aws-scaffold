@@ -1,0 +1,299 @@
+#!/usr/bin/env bash
+# Asks the questions that fill in config/ and creates each environment's stacks -- docs/configuration.md.
+# Shows every change and asks before writing. Never creates anything in AWS: its only AWS calls are read-only lookups.
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "${REPO_ROOT}"
+
+ok()   { printf '  \033[32m✓\033[0m %s\n' "$*"; }
+warn() { printf '  \033[33m!\033[0m %s\n' "$*"; }
+say()  { printf '  %s\n' "$*"; }
+ask() {
+    local answer
+    read -r -p "  $1${2:+ [$2]}: " answer || true
+    echo "${answer:-$2}"
+}
+ask_yes() { [[ "$(ask "$1 (y/n)" "$2")" =~ ^[Yy] ]]; }
+# ask_valid <prompt> <default> <regex> <what it must be> -> asks until the answer matches (an empty regex accepts anything).
+ask_valid() {
+    local answer tries=0
+    while [[ "${tries}" -lt 5 ]]; do
+        answer="$(ask "$1" "$2")"
+        [[ -z "$3" || "${answer}" =~ $3 ]] && { echo "${answer}"; return 0; }
+        warn "$4" >&2
+        tries=$((tries + 1))
+    done
+    warn "giving up after five answers that were not $4" >&2
+    return 1
+}
+var()  { local name; name="$(tr -c 'a-zA-Z0-9\n' '_' <<<"$1")"; echo "V_${name}"; }
+put()  { printf -v "$(var "$1")" '%s' "$2"; }
+get()  { local v; v="$(var "$1")"; echo "${!v:-}"; }
+
+RE_REGION='^[a-z]{2}(-[a-z]+)+-[0-9]$'
+RE_ACCOUNT='^([0-9]{12})?$'
+RE_CIDR16='^10\.[0-9]{1,3}\.0\.0/16$'
+RE_CIDR20='^10\.[0-9]{1,3}\.(0|16|32|48|64|80|96|112|128|144|160|176|192|208|224|240)\.0/20$'
+RE_ASN='^(6[4-5][0-9]{3})$'
+RE_ENV='^[a-z][a-z0-9-]{0,19}$'
+RESERVED_ENVS=" shared global common "
+ENV_COMPONENTS="network security-groups endpoints keys backups certificates load-balancers waf databases storage buckets access patching compute apps records lambda"
+SHARED_COMPONENTS="hub logging session-manager documents"
+PROFILE_ACCOUNTS="${PROFILE_ACCOUNTS:-}"
+
+# What is there now, as defaults.
+region_files=""
+for f in config/*-*-[0-9].yml; do [[ -f "${f}" ]] && region_files+="$(basename "${f}" .yml) "; done
+old_primary=""
+for r in ${region_files}; do [[ "$(yq -r '.hub.primary // false' "config/${r}.yml")" == true ]] && old_primary="${r}"; done
+old_second=""
+for r in ${region_files}; do [[ "${r}" != "${old_primary}" ]] && old_second="${r}"; done
+cur() { [[ -n "$1" && -f "config/$1.yml" ]] && yq -r "$2 // \"\"" "config/$1.yml" || echo ""; }
+
+accounts_hint() {
+    [[ -n "${PROFILE_ACCOUNTS}" ]] || return 0
+    say "Accounts your logged-in profiles reach: $(awk '{printf "%s (%s)  ", $2, $1}' <<<"${PROFILE_ACCOUNTS}")"
+}
+
+zones_for() { # zones_for <region> <default> -> comma-separated zone IDs, looked up read-only when credentials allow
+    local found="" p
+    for p in "" $(awk '{print $1}' <<<"${PROFILE_ACCOUNTS}"); do
+        found="$(aws ec2 describe-availability-zones --region "$1" ${p:+--profile "${p}"} --filters Name=zone-type,Values=availability-zone \
+            --query 'AvailabilityZones[].ZoneId' --output text 2>/dev/null | tr '\t' '\n' | sort | head -n 3 | paste -sd, - || true)"
+        [[ -n "${found}" ]] && break
+    done
+    [[ -n "${found}" ]] && say "${1}'s zone IDs, from AWS: ${found}" >&2
+    ask_valid "Zone IDs, comma-separated (2 to 6)" "${found:-$2}" '^[a-z0-9]+-az[1-6](,[a-z0-9]+-az[1-6]){1,5}$' "zone IDs look like use1-az1, from aws ec2 describe-availability-zones"
+}
+
+used_octets=" 40 60 "
+next_cidr() { # next_cidr <preferred second octet> -> a /16 not yet used
+    local o="$1"
+    while [[ "${used_octets}" == *" ${o} "* ]]; do o=$((o + 1)); done
+    echo "10.${o}.0.0/16"
+}
+take_cidr() { used_octets+="$(cut -d. -f2 <<<"$1") "; }
+
+echo "== The network and environments (config/)"
+say "Enter keeps the value in brackets. Nothing is written until you have seen every change."
+echo
+
+say "-- Primary region: its hub runs the global stacks and the state bucket's account"
+primary="$(ask_valid "Region" "${old_primary:-us-east-1}" "${RE_REGION}" "a region name, such as us-east-1")"
+default_zones=""; [[ "${primary}" == "${old_primary}" ]] && default_zones="$(cur "${primary}" '.zones | join(",")')"
+primary_zones="$(zones_for "${primary}" "${default_zones}")"
+accounts_hint
+hub_account="$(ask_valid "Shared (hub) account ID, blank if it does not exist yet" "$(cur "${old_primary}" .hub.account_id)" "${RE_ACCOUNT}" "12 digits, or blank")"
+hub_team="$(ask "Team that owns the network (the Team tag)" "$(cur "${old_primary}" .hub.team)")"
+default_hub="$(cur "${old_primary}" .hub.cidr)"
+hub_cidr="$(ask_valid "Hub CIDR (a /20)" "${default_hub:-10.40.0.0/20}" "${RE_CIDR20}" "a /20 inside 10.0.0.0/8, such as 10.40.0.0/20")"
+take_cidr "${hub_cidr}"
+default_asn="$(cur "${old_primary}" .hub.amazon_side_asn)"
+hub_asn="$(ask_valid "Hub BGP ASN" "${default_asn:-64512}" "${RE_ASN}" "a private ASN, 64512 to 65534")"
+
+echo
+say "-- Environments in ${primary}"
+old_envs="$(cur "${old_primary}" '.vpcs // {} | keys | join(" ")')"
+while true; do
+    envs="$(ask "Environment names, space-separated" "${old_envs:-development staging production}")"
+    bad=""
+    for e in ${envs}; do [[ "${e}" =~ ${RE_ENV} && "${RESERVED_ENVS}" != *" ${e} "* ]] || bad+="${e} "; done
+    [[ -z "${bad}" ]] && break
+    warn "not allowed: ${bad}(lowercase, start with a letter, not shared, global or common)"
+done
+for e in ${envs}; do
+    old_cidr="$(cur "${old_primary}" ".vpcs.\"${e}\".cidr")"
+    [[ -n "${old_cidr}" ]] && take_cidr "${old_cidr}"
+done
+i=0
+for e in ${envs}; do
+    echo
+    say "   ${e}"
+    accounts_hint
+    put "${e}_account" "$(ask_valid "${e} account ID, blank if it does not exist yet" "$(cur "${old_primary}" ".vpcs.\"${e}\".account_id")" "${RE_ACCOUNT}" "12 digits, or blank")"
+    put "${e}_team" "$(ask "${e} team (the Team tag)" "$(cur "${old_primary}" ".vpcs.\"${e}\".team")")"
+    old_cidr="$(cur "${old_primary}" ".vpcs.\"${e}\".cidr")"
+    [[ -n "${old_cidr}" ]] || { old_cidr="$(next_cidr $((41 + i)))"; take_cidr "${old_cidr}"; }
+    put "${e}_cidr" "$(ask_valid "${e} CIDR (a /16)" "${old_cidr}" "${RE_CIDR16}" "a /16 inside 10.0.0.0/8, such as 10.41.0.0/16")"
+    default_segment="$(cur "${old_primary}" ".vpcs.\"${e}\".segment")"
+    [[ -n "${default_segment}" ]] || { [[ "${e}" == prod* ]] && default_segment=restricted || default_segment=standard; }
+    say "Segments: restricted (production: reaches only itself and shared), standard (non-production), shared (tooling every environment reaches)"
+    put "${e}_segment" "$(ask_valid "${e} segment" "${default_segment}" '^(restricted|standard|shared)$' "restricted, standard or shared")"
+    default_public="$(cur "${old_primary}" ".vpcs.\"${e}\".public")"
+    if ask_yes "${e}: internet-facing load balancers (a public tier)?" "$([[ "${default_public:-true}" == true ]] && echo y || echo n)"; then put "${e}_public" true; else put "${e}_public" false; fi
+    i=$((i + 1))
+done
+
+echo
+say "-- A second region, for disaster recovery (optional)"
+second=""
+if ask_yes "Add a second region?" "$([[ -n "${old_second}" ]] && echo y || echo n)"; then
+    second="$(ask_valid "Region" "${old_second:-us-west-2}" "${RE_REGION}" "a region name, such as us-west-2")"
+    [[ "${second}" != "${primary}" ]] || { warn "the second region must differ from ${primary}"; exit 1; }
+    default_zones=""; [[ "${second}" == "${old_second}" ]] && default_zones="$(cur "${second}" '.zones | join(",")')"
+    second_zones="$(zones_for "${second}" "${default_zones}")"
+    default_hub="$(cur "${old_second}" .hub.cidr)"
+    second_hub_cidr="$(ask_valid "Hub CIDR (a /20)" "${default_hub:-10.60.0.0/20}" "${RE_CIDR20}" "a /20 inside 10.0.0.0/8, such as 10.60.0.0/20")"
+    take_cidr "${second_hub_cidr}"
+    default_asn="$(cur "${old_second}" .hub.amazon_side_asn)"
+    while true; do
+        second_asn="$(ask_valid "Hub BGP ASN" "${default_asn:-$((hub_asn + 1))}" "${RE_ASN}" "a private ASN, 64512 to 65534")"
+        [[ "${second_asn}" != "${hub_asn}" ]] && break
+        warn "each hub needs its own ASN; ${hub_asn} is the primary's"
+    done
+    second_envs="$(ask "Environments with a copy there, space-separated, from: ${envs}" "$(cur "${old_second}" '.vpcs // {} | keys | join(" ")')")"
+    for e in ${second_envs}; do
+        [[ " ${envs} " == *" ${e} "* ]] || { warn "${e} is not one of: ${envs}"; exit 1; }
+        primary_octet="$(cut -d. -f2 <<<"$(get "${e}_cidr")")"
+        default_cidr="$(cur "${old_second}" ".vpcs.\"${e}\".cidr")"
+        [[ -n "${default_cidr}" ]] || default_cidr="$(next_cidr $((primary_octet + 20)))"
+        take_cidr "${default_cidr}"
+        put "${e}_second_cidr" "$(ask_valid "${e} CIDR in ${second} (a /16)" "${default_cidr}" "${RE_CIDR16}" "a /16 inside 10.0.0.0/8")"
+    done
+fi
+
+echo
+say "-- Terraform state"
+state_bucket="$(ask_valid "State bucket, blank for make bootstrap to name it terraform-state-<account>-<region>" "$(yq -r '.state.bucket // ""' config/global.yml)" '^([a-z0-9][a-z0-9.-]{1,61}[a-z0-9])?$' "a valid S3 bucket name, or blank")"
+state_region="$(ask_valid "State bucket region" "${primary}" "${RE_REGION}" "a region name")"
+replica_default="$(yq -r '.state.replica_region // ""' config/global.yml)"; [[ -n "${second}" ]] && replica_default="${second}"
+replica_region="$(ask_valid "Replicate state to (blank for no replica)" "${replica_default}" "^(${RE_REGION:1:${#RE_REGION}-2})?$" "a region name, or blank")"
+
+echo
+say "-- Your office (HQ), over a site-to-site VPN (optional)"
+hq_ip="$(yq -r '.hq.ip_address // ""' config/global.yml)"; hq_asn="$(yq -r '.hq.bgp_asn // "65010"' config/global.yml)"; hq_cidrs="$(yq -r '.hq.cidrs // [] | join(" ")' config/global.yml)"
+if ask_yes "Connect an office?" "$([[ -n "${hq_ip}" ]] && echo y || echo n)"; then
+    hq_ip="$(ask_valid "Its VPN device's public IP" "${hq_ip}" '^[0-9]{1,3}(\.[0-9]{1,3}){3}$' "an IPv4 address")"
+    hq_asn="$(ask_valid "Its BGP ASN" "${hq_asn}" '^[0-9]{1,10}$' "a number")"
+    hq_cidrs="$(ask "Its ranges, space-separated" "${hq_cidrs}")"
+else
+    hq_ip=""
+fi
+
+# ---- Build the new config in a scratch copy.
+WORK="$(mktemp -d)"
+trap 'rm -rf "${WORK:?}"' EXIT
+mkdir -p "${WORK}/config"
+cp config/global.yml "${WORK}/config/global.yml"
+G="${WORK}/config/global.yml"
+STATE_BUCKET="${state_bucket}" STATE_REGION="${state_region}" yq -i '.state.bucket = strenv(STATE_BUCKET) | .state.region = strenv(STATE_REGION)' "${G}"
+if [[ -n "${replica_region}" ]]; then REPLICA="${replica_region}" yq -i '.state.replica_region = strenv(REPLICA)' "${G}"; else yq -i 'del(.state.replica_region)' "${G}"; fi
+if [[ -n "${hq_ip}" ]]; then HQ_IP="${hq_ip}" yq -i '.hq.ip_address = strenv(HQ_IP)' "${G}"; else yq -i '.hq.ip_address = null' "${G}"; fi
+HQ_ASN="${hq_asn}" yq -i '.hq.bgp_asn = (strenv(HQ_ASN) | to_number)' "${G}"
+cidr_list="[]"; for c in ${hq_cidrs}; do cidr_list="$(jq -c --arg c "${c}" '. + [$c]' <<<"${cidr_list}")"; done
+HQ_CIDRS="${cidr_list}" yq -i '.hq.cidrs = (strenv(HQ_CIDRS) | from_json)' "${G}"
+yq -i '... style=""' "${G}"
+
+write_region() { # write_region <region> <zones> <hub cidr> <asn> <primary true|false> <envs> <cidr suffix>
+    local file="${WORK}/config/$1.yml" e
+    {
+        echo "# $1. Every account must exist before anything here runs. Quote account IDs: YAML drops a leading zero."
+        echo "zones:"
+        tr ',' '\n' <<<"$2" | sed 's/^/  - /'
+        echo "hub:"
+        echo "  account_id: \"${hub_account}\""
+        echo "  team: ${hub_team}"
+        echo "  cidr: $3"
+        echo "  amazon_side_asn: $4"
+        [[ "$5" == true ]] && echo "  primary: true"
+        if [[ -n "$6" ]]; then
+            echo "vpcs:"
+            for e in $6; do
+                echo "  ${e}:"
+                echo "    account_id: \"$(get "${e}_account")\""
+                echo "    team: $(get "${e}_team")"
+                echo "    cidr: $(get "${e}$7")"
+                echo "    segment: $(get "${e}_segment")"
+                echo "    public: $(get "${e}_public")"
+            done
+        fi
+    } > "${file}"
+}
+write_region "${primary}" "${primary_zones}" "${hub_cidr}" "${hub_asn}" true "${envs}" "_cidr"
+[[ -n "${second}" ]] && write_region "${second}" "${second_zones}" "${second_hub_cidr}" "${second_asn}" false "${second_envs}" "_second_cidr"
+
+# ---- Folder changes: moves, removals (each asked for), and stacks to create.
+moves=""; removals=""; creates=""
+if [[ -n "${old_primary}" && "${primary}" != "${old_primary}" && -d "live/${old_primary}" && ! -e "live/${primary}" ]]; then
+    moves+="live/${old_primary} live/${primary}"$'\n'
+fi
+region_dir() { [[ "$1" == "${old_primary}" && -n "${moves}" ]] && echo "live/${primary}" || echo "live/$1"; }
+
+reference="$(region_dir "${old_primary}")"; ref_env=""
+for e in ${old_envs}; do [[ -d "live/${old_primary}/${e}" ]] && { ref_env="${e}"; break; }; done
+
+echo
+for e in ${old_envs}; do
+    if [[ " ${envs} " != *" ${e} "* && -d "live/${old_primary}/${e}" ]]; then
+        if ask_yes "${e} is no longer an environment in ${primary}. Delete its stacks, live/${old_primary}/${e}?" n; then
+            removals+="$(region_dir "${old_primary}")/${e}"$'\n'
+        else
+            warn "keeping live/${old_primary}/${e}; its stacks refuse to plan without a VPC entry"
+        fi
+    fi
+done
+for r in ${region_files}; do
+    [[ "${r}" == "${primary}" || "${r}" == "${second}" || "${r}" == "${old_primary}" ]] && continue
+    warn "config/${r}.yml is no longer a region here; it will be removed"
+    [[ -d "live/${r}" ]] && ask_yes "Delete its stacks, live/${r}?" n && removals+="live/${r}"$'\n'
+done
+
+exists_after_moves() { # exists_after_moves <live path> : there now, or will be once the moves are done
+    [[ -e "$1" ]] && return 0
+    [[ -n "${moves}" && "$1" == "live/${primary}/"* && -e "live/${old_primary}/${1#live/${primary}/}" ]]
+}
+plan_env() { # plan_env <region> <env> <components> : stacks to create, copying the reference's files when asked
+    local copy="" c
+    exists_after_moves "live/$1/$2" && return 0
+    if [[ -n "${ref_env}" ]] && ask_yes "New environment $2 in $1: copy ${ref_env}'s example files into it (no for empty stacks)?" n; then copy="${reference}/${ref_env}"; fi
+    for c in $3; do creates+="$1/$2/${c} ${copy:+${copy}/${c}}"$'\n'; done
+}
+for e in ${envs}; do plan_env "${primary}" "${e}" "${ENV_COMPONENTS}"; done
+for c in ${SHARED_COMPONENTS}; do exists_after_moves "live/${primary}/shared/${c}" || creates+="${primary}/shared/${c}"$'\n'; done
+if [[ -n "${second}" ]]; then
+    for c in ${SHARED_COMPONENTS}; do [[ -d "live/${second}/shared/${c}" ]] || creates+="${second}/shared/${c}"$'\n'; done
+    for e in ${second_envs}; do plan_env "${second}" "${e}" "${ENV_COMPONENTS}"; done
+fi
+
+# ---- Show everything, then ask.
+echo
+echo "== What will change"
+if diff -ruN config "${WORK}/config" >/dev/null; then say "config/: no changes"; else diff -ruN config "${WORK}/config" | sed 's/^/  /' || true; fi
+[[ -n "${moves}" ]] && while read -r a b; do [[ -n "${a}" ]] && say "move    ${a} -> ${b}"; done <<<"${moves}"
+[[ -n "${removals}" ]] && while read -r d; do [[ -n "${d}" ]] && say "delete  ${d}"; done <<<"${removals}"
+if [[ -n "${creates}" ]]; then
+    while read -r s from; do [[ -n "${s}" ]] && say "create  live/${s}${from:+ (files from ${from})}"; done <<<"${creates}"
+fi
+echo
+if ! ask_yes "Make these changes?" y; then
+    say "Nothing changed."
+    exit 0
+fi
+
+# ---- Write.
+for f in config/*-*-[0-9].yml; do [[ -f "${WORK}/${f}" ]] || rm -f "${f}"; done
+cp "${WORK}"/config/*.yml config/
+[[ -n "${moves}" ]] && while read -r a b; do [[ -n "${a}" ]] && mv "${a}" "${b}" && ok "moved ${a} -> ${b}"; done <<<"${moves}"
+[[ -n "${removals}" ]] && while read -r d; do [[ -n "${d}" && "${d}" == live/* ]] && rm -rf "${d:?}" && ok "deleted ${d}"; done <<<"${removals}"
+created=""
+if [[ -n "${creates}" ]]; then
+    while read -r s from; do
+        [[ -n "${s}" ]] || continue
+        bin/stack "${s}" >/dev/null
+        if [[ -n "${from}" && -d "${from}" ]]; then
+            find "${from}" -maxdepth 1 -name '*.yml' -exec cp {} "live/${s}/" \;
+            [[ -d "${from}/src" ]] && cp -R "${from}/src" "live/${s}/"
+            [[ -d "${from}/policies" ]] && cp -R "${from}/policies" "live/${s}/"
+        fi
+        created+="${s} "
+    done <<<"${creates}"
+    ok "created $(wc -w <<<"${created}" | tr -d ' ') stacks"
+fi
+bin/backends >/dev/null && ok "every stack's backend.tf written"
+bin/diagram >/dev/null 2>&1 && ok "docs/diagram.md regenerated" || warn "docs/diagram.md not regenerated: run make diagram"
+
+echo
+if ask_yes "Check every stack's files now, against a mocked AWS (a few minutes)?" y; then
+    bin/check-files || warn "fix what is listed above, then run make check-files"
+fi

@@ -1,0 +1,11 @@
+type: application
+scheme: internet-facing
+certificate: www.example.com
+listeners:
+  "443":
+    protocol: HTTPS
+    target: web
+targets:
+  web:
+    port: 8080
+    protocol: HTTP

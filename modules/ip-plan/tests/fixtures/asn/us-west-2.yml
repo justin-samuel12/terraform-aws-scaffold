@@ -1,0 +1,7 @@
+zones:
+  - usw2-az1
+  - usw2-az2
+  - usw2-az3
+hub:
+  cidr: 10.60.0.0/20
+  amazon_side_asn: 64512

@@ -1,0 +1,3 @@
+schedule: cron(0 7 ? * SUN *)
+duration_hours: 3
+approve_after_days: 7

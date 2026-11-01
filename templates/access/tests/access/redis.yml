@@ -1,0 +1,3 @@
+description: Port forwarding to the staging Redis database
+host: redis.staging.example.com
+port: 10701
