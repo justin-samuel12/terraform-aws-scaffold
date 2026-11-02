@@ -16,7 +16,7 @@ run "defaults" {
   }
 
   assert {
-    condition     = one(aws_wafv2_web_acl_logging_configuration.web_acl.redacted_fields).single_header[0].name == "authorization"
+    condition     = toset([for f in aws_wafv2_web_acl_logging_configuration.web_acl.redacted_fields : f.single_header[0].name]) == toset(["authorization", "cookie"])
     error_message = "Every request is logged, without the Authorization header."
   }
 

@@ -31,6 +31,24 @@ run "hub" {
     condition     = aws_ec2_transit_gateway_route.routes["standard-no-prod"].blackhole
     error_message = "A blackhole route drops traffic for its destination."
   }
+
+  assert {
+    condition     = aws_ec2_transit_gateway.transit_gateway.security_group_referencing_support == "disable"
+    error_message = "Security groups cannot reference each other across VPCs unless asked for."
+  }
+}
+
+run "security_group_referencing" {
+  command = plan
+
+  variables {
+    security_group_referencing = true
+  }
+
+  assert {
+    condition     = aws_ec2_transit_gateway.transit_gateway.security_group_referencing_support == "enable"
+    error_message = "Turned on, VPCs attached to the hub may reference each other's security groups."
+  }
 }
 
 run "rejects_unknown_route_table" {

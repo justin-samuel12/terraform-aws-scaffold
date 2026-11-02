@@ -14,12 +14,12 @@ run "grafana" {
   }
 
   assert {
-    condition     = local.roles.grafana.services == toset(["ec2"]) && length(local.roles.grafana.managed_policies) == 2 && local.roles.grafana.policies == tolist(["read-tags"])
+    condition     = local.roles.grafana.services == toset(["ec2"]) && length(local.roles.grafana.managed_policies) == 2 && local.roles.grafana.policies == tolist(["read-tags", "session-manager"])
     error_message = "One role per file, with its trust, AWS managed policies and our own policies by name."
   }
 
   assert {
-    condition     = toset(keys(output.policy_arns)) == toset(["read-tags"])
+    condition     = toset(keys(output.policy_arns)) == toset(["read-tags", "session-manager"])
     error_message = "One customer-managed policy per file in policies/."
   }
 

@@ -1,0 +1,15 @@
+description: Read CodeDeploy revisions, for every group CodeDeploy deploys; the bucket is encrypted with the data key
+statement:
+  - actions:
+      - s3:GetObject
+    resources:
+      - arn:aws:s3:::*-revisions-*/*
+  - actions:
+      - kms:Decrypt
+    resources:
+      - "*"
+    condition:
+      - test: StringLike
+        variable: kms:ViaService
+        values:
+          - s3.*.amazonaws.com

@@ -7,11 +7,13 @@ resource "aws_backup_vault" "vault" {
   tags = { Name = var.environment }
 }
 
-# No backup can be deleted, by anyone, before it is a week old; nothing is kept past ten years.
+# No backup is deleted before it is a week old; nothing is kept past ten years. Governance mode lets a principal allowed to bypass
+# the lock remove it; compliance mode lets nobody, and becomes permanent after changeable_for_days -- docs/data.md.
 resource "aws_backup_vault_lock_configuration" "vault" {
-  backup_vault_name  = aws_backup_vault.vault.name
-  min_retention_days = 7
-  max_retention_days = 3650
+  backup_vault_name   = aws_backup_vault.vault.name
+  min_retention_days  = 7
+  max_retention_days  = 3650
+  changeable_for_days = var.vault_lock == "compliance" ? 3 : null
 }
 
 resource "aws_backup_vault" "copy" {
@@ -27,10 +29,11 @@ resource "aws_backup_vault" "copy" {
 resource "aws_backup_vault_lock_configuration" "copy" {
   count = var.copy == null ? 0 : 1
 
-  region             = var.copy.region
-  backup_vault_name  = aws_backup_vault.copy[0].name
-  min_retention_days = 7
-  max_retention_days = 3650
+  region              = var.copy.region
+  backup_vault_name   = aws_backup_vault.copy[0].name
+  min_retention_days  = 7
+  max_retention_days  = 3650
+  changeable_for_days = var.vault_lock == "compliance" ? 3 : null
 }
 
 resource "aws_backup_plan" "plan" {
@@ -95,7 +98,12 @@ resource "aws_iam_role" "backup" {
 }
 
 resource "aws_iam_role_policy_attachment" "backup" {
-  for_each = toset(["service-role/AWSBackupServiceRolePolicyForBackup", "service-role/AWSBackupServiceRolePolicyForRestores"])
+  for_each = toset([
+    "service-role/AWSBackupServiceRolePolicyForBackup",
+    "service-role/AWSBackupServiceRolePolicyForRestores",
+    "AWSBackupServiceRolePolicyForS3Backup",
+    "AWSBackupServiceRolePolicyForS3Restore",
+  ])
 
   role       = aws_iam_role.backup.name
   policy_arn = "arn:${data.aws_partition.current.partition}:iam::aws:policy/${each.key}"

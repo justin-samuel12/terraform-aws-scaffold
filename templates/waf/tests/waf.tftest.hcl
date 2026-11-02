@@ -12,7 +12,8 @@ override_data {
 }
 
 variables {
-  region = "us-east-2"
+  environment = "operations"
+  region      = "us-east-2"
 }
 
 run "web" {

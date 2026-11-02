@@ -1,2 +1,0 @@
-# CodeDeploy revisions: the build uploads each release here; read by roles with the read-revisions policy.
-expire_days: 90

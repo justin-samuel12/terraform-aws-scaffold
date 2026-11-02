@@ -1,4 +1,8 @@
 # Record files turned into Route 53 records, against a mocked AWS -- docs/compute.md.
+mock_provider "aws" {
+  alias = "hub"
+}
+
 mock_provider "aws" {}
 
 override_data {
@@ -22,7 +26,7 @@ override_data {
 }
 
 variables {
-  environment = "development"
+  environment = "operations"
 }
 
 run "alias_and_server" {

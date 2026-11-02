@@ -33,3 +33,14 @@ variable "copy" {
   })
   default = null
 }
+
+variable "vault_lock" {
+  description = "governance: no backup is deleted before min_retention_days except by a principal allowed to bypass the lock. compliance: nobody, ever, can; it becomes permanent 3 days after the first apply, and cannot be undone."
+  type        = string
+  default     = "governance"
+
+  validation {
+    condition     = contains(["governance", "compliance"], var.vault_lock)
+    error_message = "vault_lock is governance or compliance."
+  }
+}

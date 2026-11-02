@@ -20,11 +20,11 @@ variables {
   config_path = "../../tests/config"
 }
 
-run "development" {
+run "operations" {
   command = plan
 
   variables {
-    environment = "development"
+    environment = "operations"
     region      = "us-east-2"
   }
 

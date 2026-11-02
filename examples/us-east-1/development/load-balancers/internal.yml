@@ -1,0 +1,17 @@
+# Answers 404 to anything no rule or group claims; compute/dashboards.yml claims dashboards.example.com.
+load_balancer_type: application
+internal: true
+security_groups:
+  - dashboards-lb
+certificate: dashboards.example.com
+listeners:
+  "443":
+    protocol: HTTPS
+rules:
+  old-name:
+    listener: 443
+    priority: 10
+    host_header:
+      - grafana.example.com
+    redirect:
+      host: dashboards.example.com

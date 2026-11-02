@@ -1,7 +1,0 @@
-description: The public load balancer in front of the web application
-load_balancer: true
-ingress:
-  - description: HTTPS from anywhere
-    port: 443
-    from:
-      - internet

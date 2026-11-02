@@ -1,0 +1,7 @@
+backup: true
+noncurrent_version_expiration:
+  noncurrent_days: 30
+object_lock_configuration:
+  default_retention:
+    mode: GOVERNANCE
+    days: 30

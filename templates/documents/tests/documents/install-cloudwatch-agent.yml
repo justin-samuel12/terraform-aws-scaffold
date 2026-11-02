@@ -1,4 +1,4 @@
-type: Command
+document_type: Command
 content:
   schemaVersion: "2.2"
   description: Install the CloudWatch agent

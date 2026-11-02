@@ -23,5 +23,6 @@ module "backup_plan" {
   kms_key_arn            = data.aws_kms_key.backup.arn
   daily_retention_days   = local.settings.daily_retention_days
   monthly_retention_days = local.settings.monthly_retention_days
+  vault_lock             = local.settings.vault_lock
   copy                   = local.copy_region == null ? null : { region = local.copy_region, kms_key_arn = data.aws_kms_key.backup_copy[0].arn }
 }

@@ -1,0 +1,138 @@
+#!/usr/bin/env bash
+# Where you are, from a fresh clone to a first plan, and the next command -- docs/configuration.md.
+# Works everything out from what exists; nothing is remembered, nothing is written. AWS calls are read-only;
+# --offline skips them.
+set -uo pipefail
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
+cd "${REPO_ROOT}"
+
+OFFLINE=0; [[ "${1:-}" == --offline ]] && OFFLINE=1
+NEXT=""
+next() { [[ -z "${NEXT}" ]] && NEXT="$*"; }
+blocked=0
+
+head1 "Setup: $(basename "${REPO_ROOT}")"
+
+# 1. Tools
+missing=""
+for t in terraform aws jq yq gitleaks; do command -v "${t}" >/dev/null || missing+="${t} "; done
+if [[ -n "${missing}" ]]; then
+    bad "Tools          missing: ${missing}"; next "install ${missing}(make setup lists how)"; blocked=1
+elif ! yq --version 2>&1 | grep -q mikefarah; then
+    bad "Tools          yq is not mikefarah's yq v4"; next "brew install yq"; blocked=1
+else
+    ok "Tools          terraform $(terraform version -json 2>/dev/null | jq -r .terraform_version), aws $(aws --version 2>&1 | grep -oE 'aws-cli/[0-9.]+' | cut -d/ -f2), yq, jq, gitleaks$(command -v tflint >/dev/null && echo ', tflint')"
+fi
+
+# 2. Config: the IP plan's own rules
+primary="$(primary_region)"
+regions="$(region_files | xargs)"
+if [[ -z "${regions}" ]]; then
+    bad "Config         no config/<region>.yml"; next "make setup"; blocked=1
+else
+    problems="$(ip_plan_problems)"
+    if [[ -n "${problems}" ]]; then
+        bad "Config         $(wc -l <<<"${problems}" | tr -d ' ') problem(s) in config/:"
+        sed 's/^/                   /' <<<"${problems}"
+        next "fix config/ (or make setup to answer the questions again)"; blocked=1
+    else
+        ok "Config         ${regions// /, } (primary ${primary:-none}); $(environments | grep -vc '^shared$') environment(s); ranges checked"
+    fi
+fi
+
+# 2b. What setup left for a person: every TODO(you) in config/
+n_todos="$(grep -c "TODO(you):" "${CONFIG_DIR}"/*.yml 2>/dev/null | awk -F: '{n += $NF} END {print n + 0}')"
+if [[ "${n_todos}" -gt 0 ]]; then
+    bad "Your edits     ${n_todos} thing(s) in config/ marked TODO(you)"; next "make config, then edit config/*.yml where it says TODO(you)"; blocked=1
+fi
+
+# 3. Accounts: every environment has one, its own or the global one
+no_account=""
+for env in $(environments); do [[ "$(account_for "${env}")" =~ ^[0-9]{12}$ ]] || no_account+="${env} "; done
+if [[ -n "${no_account}" ]]; then
+    bad "Accounts       none yet for: ${no_account}"; next "once the accounts exist, make setup (or set account_id in config/)"; blocked=1
+else
+    ok "Accounts       every environment has one$([[ -n "$(global_account)" ]] && echo ", $(global_account) by default")"
+fi
+
+# 3b. Accounts of their own need a few stacks of their own (logging, baseline, iam, Session Manager)
+missing_stacks="$(missing_account_stacks)"
+if [[ -n "${missing_stacks}" ]]; then
+    bad "Account stacks $(wc -l <<<"${missing_stacks}" | tr -d ' ') missing for environments in their own accounts: $(head -n 3 <<<"${missing_stacks}" | xargs)$( [[ $(wc -l <<<"${missing_stacks}") -gt 3 ]] && echo ' …')"
+    next "make stack STACK=$(head -n 1 <<<"${missing_stacks}") (and the rest: make status lists them)"
+elif [[ -n "${no_account}" ]]; then
+    todo "Account stacks waiting on accounts"
+else
+    mode="one account"
+    for env in $(environments); do [[ "$(account_for "${env}")" != "$(account_for shared)" ]] && mode="an account per environment"; done
+    ok "Account stacks ${mode}: every account has its own stacks"
+fi
+
+# 4. Profiles: this machine can reach each account
+if [[ "${OFFLINE}" == 1 ]]; then
+    todo "Profiles       not checked (--offline)"
+elif [[ ! -f "${MACHINE_CONFIG}" ]]; then
+    warn "Profiles       none chosen on this machine: active credentials are used"; next "make setup"
+else
+    wrong=""; reached=0
+    for env in $(environments); do
+        want="$(account_for "${env}")"; p="$(profile_for "${env}")"
+        [[ -n "${p}" && "${want}" =~ ^[0-9]{12}$ ]] || continue
+        got="$(caller_account "${p}")"
+        if [[ "${got}" == "${want}" ]]; then reached=$((reached + 1)); else wrong+="${env}(${p}) "; fi
+    done
+    if [[ -n "${no_account}" && "${reached}" == 0 && -z "${wrong}" ]]; then
+        todo "Profiles       waiting on accounts"
+    elif [[ -n "${wrong}" ]]; then
+        bad "Profiles       not logged in, or the wrong account: ${wrong}"; next "aws sso login, or make setup to choose profiles again"
+    else
+        ok "Profiles       ${reached} environment(s) reachable"
+    fi
+fi
+
+# 5. State bucket
+bucket="$(yq -r '.state.bucket // ""' "${CONFIG_DIR}/global.yml")"; bucket_region="$(yq -r '.state.region // ""' "${CONFIG_DIR}/global.yml")"
+if [[ -z "${bucket}" ]]; then
+    if [[ "${blocked}" == 1 ]]; then todo "State bucket   waiting on the steps above"; else bad "State bucket   none yet"; next "make bootstrap"; fi
+    blocked=1
+elif [[ "${OFFLINE}" == 1 ]]; then
+    todo "State bucket   ${bucket} (${bucket_region}), not checked (--offline)"
+else
+    p="$(profile_for shared)"
+    s3() { aws s3api "$@" --bucket "${bucket}" --region "${bucket_region}" ${p:+--profile "${p}"} 2>/dev/null; }
+    if ! s3 head-bucket >/dev/null; then
+        bad "State bucket   ${bucket} does not exist or is not reachable with $(profile_for shared || echo 'the active credentials')"; next "make bootstrap"; blocked=1
+    else
+        notes=""
+        [[ "$(s3 get-bucket-versioning --query Status --output text)" == Enabled ]] || notes+="not versioned; "
+        s3 get-bucket-encryption >/dev/null || notes+="no default encryption; "
+        s3 get-bucket-replication >/dev/null || notes+="not replicated; "
+        if [[ "${notes}" == *versioned* || "${notes}" == *encryption* ]]; then bad "State bucket   ${bucket}: ${notes%; }"; next "fix the bucket (make bootstrap explains)"; blocked=1
+        elif [[ -n "${notes}" ]]; then warn "State bucket   ${bucket}: ${notes%; }"
+        else ok "State bucket   ${bucket} (${bucket_region}): versioned, encrypted, replicated"; fi
+    fi
+fi
+
+# 6. Backends
+if [[ -z "${bucket}" ]]; then
+    todo "Backends       waiting on the bucket"
+elif bin/backends --check >/dev/null 2>&1; then
+    ok "Backends       every stack's backend.tf matches config/"
+else
+    bad "Backends       out of date"; next "make backends"; blocked=1
+fi
+
+# 7. The first stack
+hub="${primary:+${primary}/shared/hub}"
+if [[ -n "${hub}" && "${blocked}" == 0 ]]; then
+    if [[ -d "live/${hub}/.terraform" ]] && grep -q '"s3"' "live/${hub}/.terraform/terraform.tfstate" 2>/dev/null; then
+        ok "First stack    ${hub} is initialised"; next "make plan STACK=${hub}, then the apply order in docs/day-one.md"
+    else
+        todo "First stack    ${hub}"; next "make init STACK=${hub}"
+    fi
+else
+    todo "First stack    ${hub:-the primary hub}"
+fi
+
+echo
+printf '  %sNext:%s %s\n\n' "${C_BOLD}" "${C_END}" "${NEXT:-everything is in place: docs/day-one.md has the apply order}"

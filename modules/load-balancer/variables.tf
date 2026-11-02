@@ -3,8 +3,8 @@ variable "name" {
   type        = string
 
   validation {
-    condition     = can(regex("^[a-z][a-z0-9-]{0,27}$", var.name)) && var.name != "app"
-    error_message = "name is lowercase letters, digits and hyphens, 28 characters at most, and not app (applications' target groups start app-)."
+    condition     = can(regex("^[a-z][a-z0-9-]{0,31}$", var.name))
+    error_message = "name is lowercase letters, digits and hyphens, 32 characters at most (AWS's limit): <environment>-<load balancer>."
   }
 }
 
@@ -60,7 +60,7 @@ variable "targets" {
   }))
 
   validation {
-    condition     = alltrue([for name in keys(var.targets) : can(regex("^[a-z][a-z0-9-]*$", name)) && length("${var.name}-${name}") <= 27])
+    condition     = alltrue([for name in keys(var.targets) : can(regex("^[a-z][a-z0-9-]*$", name)) && length(name) <= 32])
     error_message = "Target names are lowercase with hyphens, and <load balancer>-<target> must fit in 27 characters (AWS allows 32; five go to the suffix that lets a group be rebuilt in place)."
   }
 

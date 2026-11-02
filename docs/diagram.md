@@ -6,13 +6,23 @@ Solid boxes have a stack in `live/`; dashed boxes are in the IP plan with no sta
 ```mermaid
 flowchart TB
   hq["HQ<br/>on-premises"]
-  subgraph us_east_1["N. Virginia · us-east-1"]
+  subgraph us_east_2["Ohio · us-east-2"]
     direction TB
-    hub_us_east_1["Hub<br/>Transit Gateway · egress 10.40.0.0/20"]:::built
-    development_us_east_1["development<br/>10.41.0.0/16"]:::built
+    hub_us_east_2["Hub<br/>Transit Gateway · egress 10.40.0.0/20"]:::built
+    operations_us_east_2["operations<br/>10.42.0.0/16"]:::built
+    production_us_east_2["production<br/>10.41.0.0/16"]:::planned
   end
-  hq ---|VPN| hub_us_east_1
-  hub_us_east_1 --- development_us_east_1
+  subgraph us_west_2["Oregon · us-west-2"]
+    direction TB
+    hub_us_west_2["Hub<br/>Transit Gateway · egress 10.60.0.0/20"]:::planned
+    staging_us_west_2["staging<br/>10.62.0.0/16"]:::planned
+  end
+  hq ---|VPN| hub_us_east_2
+  hub_us_east_2 --- operations_us_east_2
+  hub_us_east_2 --- production_us_east_2
+  hq ---|VPN| hub_us_west_2
+  hub_us_west_2 --- staging_us_west_2
+  hub_us_east_2 <-->|peering| hub_us_west_2
   classDef built fill:#e8f1fb,stroke:#2f6fb3,stroke-width:2px
   classDef planned fill:#ffffff,stroke:#999999,stroke-dasharray:5 4
 ```
@@ -23,65 +33,115 @@ flowchart TB
 |---|---|---|
 | `global/shared/baseline` | `templates/baseline` | account-baseline, ip-plan |
 | `global/shared/cloudfront` | `templates/cloudfront` | cloudfront-distribution, waf-web-acl |
-| `global/shared/dns` | `templates/dns` | ip-plan, route53-zone |
+| `global/shared/dns` | `templates/dns` | ip-plan, route |
 | `global/shared/iam` | `templates/iam` | iam-role |
-| `us-east-1/development/access` | `templates/access` | ssm-document |
-| `us-east-1/development/apps` | `templates/apps` | application, iam-role, ip-plan, placement |
-| `us-east-1/development/backups` | `templates/backups` | backup-plan, ip-plan |
-| `us-east-1/development/buckets` | `templates/buckets` | s3-bucket |
-| `us-east-1/development/certificates` | `templates/certificates` | acm-certificate |
-| `us-east-1/development/compute` | `templates/compute` | ec2-instance, ip-plan, placement |
-| `us-east-1/development/databases` | `templates/databases` | iam-role, rds-instance |
-| `us-east-1/development/endpoints` | `templates/endpoints` | ip-plan, vpc-endpoint |
-| `us-east-1/development/keys` | `templates/keys` | ip-plan, kms-key |
-| `us-east-1/development/lambda` | `templates/lambda` | lambda-function |
-| `us-east-1/development/load-balancers` | `templates/load-balancers` | ip-plan, load-balancer |
-| `us-east-1/development/network` | `templates/network` | ip-plan, vpc |
-| `us-east-1/development/patching` | `templates/patching` | patch-management |
-| `us-east-1/development/records` | `templates/records` | route53-record |
-| `us-east-1/development/security-groups` | `templates/security-groups` | ip-plan, security-group |
-| `us-east-1/development/storage` | `templates/storage` | efs-file-system |
-| `us-east-1/development/waf` | `templates/waf` | waf-web-acl |
-| `us-east-1/shared/documents` | `templates/documents` | ssm-document |
-| `us-east-1/shared/ecr` | `templates/ecr` | ecr-repository, ip-plan |
-| `us-east-1/shared/hub` | `templates/hub` | ip-plan, prefix-list, route53-resolver, transit-gateway, vpc, vpn |
-| `us-east-1/shared/logging` | `templates/logging` | log-bucket |
-| `us-east-1/shared/session-manager` | `templates/session-manager` | ip-plan, kms-key, session-manager-preferences |
+| `us-east-2/operations/access` | `templates/access` | ssm-document |
+| `us-east-2/operations/backups` | `templates/backups` | backup-plan, ip-plan |
+| `us-east-2/operations/buckets` | `templates/buckets` | s |
+| `us-east-2/operations/certificates` | `templates/certificates` | acm-certificate |
+| `us-east-2/operations/compute` | `templates/compute` | iam-role, ip-plan, placement, server-group |
+| `us-east-2/operations/databases` | `templates/databases` | iam-role, rds-instance |
+| `us-east-2/operations/endpoints` | `templates/endpoints` | ip-plan, vpc-endpoint |
+| `us-east-2/operations/keys` | `templates/keys` | ip-plan, kms-key |
+| `us-east-2/operations/lambda` | `templates/lambda` | lambda-function |
+| `us-east-2/operations/load-balancers` | `templates/load-balancers` | ip-plan, load-balancer |
+| `us-east-2/operations/network` | `templates/network` | ip-plan, vpc |
+| `us-east-2/operations/patching` | `templates/patching` | patch-management |
+| `us-east-2/operations/records` | `templates/records` | route |
+| `us-east-2/operations/security-groups` | `templates/security-groups` | ip-plan, security-group |
+| `us-east-2/operations/storage` | `templates/storage` | efs-file-system |
+| `us-east-2/operations/waf` | `templates/waf` | waf-web-acl |
+| `us-east-2/shared/documents` | `templates/documents` | ssm-document |
+| `us-east-2/shared/ecr` | `templates/ecr` | ecr-repository, ip-plan |
+| `us-east-2/shared/hub` | `templates/hub` | ip-plan, prefix-list, route, transit-gateway, vpc, vpn |
+| `us-east-2/shared/logging` | `templates/logging` | log-bucket |
+| `us-east-2/shared/session-manager` | `templates/session-manager` | ip-plan, kms-key, session-manager-preferences |
 
 ## Subnets
 
 Every VPC's subnets, from `config/`, in address order. A stack refers to a subnet by its `Subnet` tag.
 
-### us-east-1 / shared (`10.40.0.0/20`)
+### us-east-2 / shared (`10.40.0.0/20`)
 
 | Subnet tag | Zone | CIDR |
 |---|---|---|
-| `public-az1` | use1-az1 | 10.40.0.0/24 |
-| `public-az2` | use1-az2 | 10.40.1.0/24 |
-| `public-az4` | use1-az4 | 10.40.3.0/24 |
-| `dns-az1` | use1-az1 | 10.40.14.0/28 |
-| `dns-az2` | use1-az2 | 10.40.14.16/28 |
-| `dns-az4` | use1-az4 | 10.40.14.48/28 |
-| `transit-az1` | use1-az1 | 10.40.15.0/28 |
-| `transit-az2` | use1-az2 | 10.40.15.16/28 |
-| `transit-az4` | use1-az4 | 10.40.15.48/28 |
+| `public-az1` | use2-az1 | 10.40.0.0/24 |
+| `public-az2` | use2-az2 | 10.40.1.0/24 |
+| `public-az3` | use2-az3 | 10.40.2.0/24 |
+| `dns-az1` | use2-az1 | 10.40.14.0/28 |
+| `dns-az2` | use2-az2 | 10.40.14.16/28 |
+| `dns-az3` | use2-az3 | 10.40.14.32/28 |
+| `transit-az1` | use2-az1 | 10.40.15.0/28 |
+| `transit-az2` | use2-az2 | 10.40.15.16/28 |
+| `transit-az3` | use2-az3 | 10.40.15.32/28 |
 
-### us-east-1 / development (`10.41.0.0/16`)
+### us-east-2 / operations (`10.42.0.0/16`)
 
 | Subnet tag | Zone | CIDR |
 |---|---|---|
-| `private-az1` | use1-az1 | 10.41.0.0/19 |
-| `private-az2` | use1-az2 | 10.41.32.0/19 |
-| `private-az4` | use1-az4 | 10.41.96.0/19 |
-| `data-az1` | use1-az1 | 10.41.192.0/22 |
-| `data-az2` | use1-az2 | 10.41.196.0/22 |
-| `data-az4` | use1-az4 | 10.41.204.0/22 |
-| `public-az1` | use1-az1 | 10.41.216.0/23 |
-| `public-az2` | use1-az2 | 10.41.218.0/23 |
-| `public-az4` | use1-az4 | 10.41.222.0/23 |
-| `ops-az1` | use1-az1 | 10.41.228.0/23 |
-| `ops-az2` | use1-az2 | 10.41.230.0/23 |
-| `ops-az4` | use1-az4 | 10.41.234.0/23 |
-| `transit-az1` | use1-az1 | 10.41.252.0/28 |
-| `transit-az2` | use1-az2 | 10.41.252.16/28 |
-| `transit-az4` | use1-az4 | 10.41.252.48/28 |
+| `private-az1` | use2-az1 | 10.42.0.0/19 |
+| `private-az2` | use2-az2 | 10.42.32.0/19 |
+| `private-az3` | use2-az3 | 10.42.64.0/19 |
+| `data-az1` | use2-az1 | 10.42.192.0/22 |
+| `data-az2` | use2-az2 | 10.42.196.0/22 |
+| `data-az3` | use2-az3 | 10.42.200.0/22 |
+| `ops-az1` | use2-az1 | 10.42.228.0/23 |
+| `ops-az2` | use2-az2 | 10.42.230.0/23 |
+| `ops-az3` | use2-az3 | 10.42.232.0/23 |
+| `transit-az1` | use2-az1 | 10.42.252.0/28 |
+| `transit-az2` | use2-az2 | 10.42.252.16/28 |
+| `transit-az3` | use2-az3 | 10.42.252.32/28 |
+
+### us-east-2 / production (`10.41.0.0/16`)
+
+| Subnet tag | Zone | CIDR |
+|---|---|---|
+| `private-az1` | use2-az1 | 10.41.0.0/19 |
+| `private-az2` | use2-az2 | 10.41.32.0/19 |
+| `private-az3` | use2-az3 | 10.41.64.0/19 |
+| `data-az1` | use2-az1 | 10.41.192.0/22 |
+| `data-az2` | use2-az2 | 10.41.196.0/22 |
+| `data-az3` | use2-az3 | 10.41.200.0/22 |
+| `public-az1` | use2-az1 | 10.41.216.0/23 |
+| `public-az2` | use2-az2 | 10.41.218.0/23 |
+| `public-az3` | use2-az3 | 10.41.220.0/23 |
+| `ops-az1` | use2-az1 | 10.41.228.0/23 |
+| `ops-az2` | use2-az2 | 10.41.230.0/23 |
+| `ops-az3` | use2-az3 | 10.41.232.0/23 |
+| `transit-az1` | use2-az1 | 10.41.252.0/28 |
+| `transit-az2` | use2-az2 | 10.41.252.16/28 |
+| `transit-az3` | use2-az3 | 10.41.252.32/28 |
+
+### us-west-2 / shared (`10.60.0.0/20`)
+
+| Subnet tag | Zone | CIDR |
+|---|---|---|
+| `public-az1` | usw2-az1 | 10.60.0.0/24 |
+| `public-az2` | usw2-az2 | 10.60.1.0/24 |
+| `public-az3` | usw2-az3 | 10.60.2.0/24 |
+| `dns-az1` | usw2-az1 | 10.60.14.0/28 |
+| `dns-az2` | usw2-az2 | 10.60.14.16/28 |
+| `dns-az3` | usw2-az3 | 10.60.14.32/28 |
+| `transit-az1` | usw2-az1 | 10.60.15.0/28 |
+| `transit-az2` | usw2-az2 | 10.60.15.16/28 |
+| `transit-az3` | usw2-az3 | 10.60.15.32/28 |
+
+### us-west-2 / staging (`10.62.0.0/16`)
+
+| Subnet tag | Zone | CIDR |
+|---|---|---|
+| `private-az1` | usw2-az1 | 10.62.0.0/19 |
+| `private-az2` | usw2-az2 | 10.62.32.0/19 |
+| `private-az3` | usw2-az3 | 10.62.64.0/19 |
+| `data-az1` | usw2-az1 | 10.62.192.0/22 |
+| `data-az2` | usw2-az2 | 10.62.196.0/22 |
+| `data-az3` | usw2-az3 | 10.62.200.0/22 |
+| `public-az1` | usw2-az1 | 10.62.216.0/23 |
+| `public-az2` | usw2-az2 | 10.62.218.0/23 |
+| `public-az3` | usw2-az3 | 10.62.220.0/23 |
+| `ops-az1` | usw2-az1 | 10.62.228.0/23 |
+| `ops-az2` | usw2-az2 | 10.62.230.0/23 |
+| `ops-az3` | usw2-az3 | 10.62.232.0/23 |
+| `transit-az1` | usw2-az1 | 10.62.252.0/28 |
+| `transit-az2` | usw2-az2 | 10.62.252.16/28 |
+| `transit-az3` | usw2-az3 | 10.62.252.32/28 |

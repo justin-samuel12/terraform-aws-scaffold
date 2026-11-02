@@ -67,12 +67,6 @@ variable "volumes" {
   default = {}
 }
 
-variable "protect" {
-  description = "Servers that hold state (databases, domain controllers): termination and stop protection, and no plan may destroy them or their disks."
-  type        = bool
-  default     = false
-}
-
 variable "backup" {
   description = "Back the servers up with the environment's AWS Backup plan."
   type        = bool

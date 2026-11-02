@@ -1,6 +1,0 @@
-description: The web application's servers
-ingress:
-  - description: The application, from its load balancer
-    port: 3000
-    from:
-      - web-lb

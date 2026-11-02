@@ -6,6 +6,11 @@ variable "policies" {
       effect    = optional(string, "Allow")
       actions   = list(string)
       resources = list(string)
+      condition = optional(list(object({
+        test     = string
+        variable = string
+        values   = list(string)
+      })), [])
     }))
   }))
   default = {}
@@ -34,6 +39,11 @@ variable "roles" {
       effect    = optional(string, "Allow")
       actions   = list(string)
       resources = list(string)
+      condition = optional(list(object({
+        test     = string
+        variable = string
+        values   = list(string)
+      })), [])
     })), [])
   }))
 

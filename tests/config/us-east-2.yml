@@ -9,8 +9,9 @@ hub:
   cidr: 10.40.0.0/20
   amazon_side_asn: 64512
   primary: true
+  security_group_referencing: false
 vpcs:
-  development:
+  operations:
     account_id: ""
     team:
     cidr: 10.42.0.0/16

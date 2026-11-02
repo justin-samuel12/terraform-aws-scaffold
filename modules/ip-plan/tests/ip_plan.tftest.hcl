@@ -42,7 +42,7 @@ run "segments" {
   }
 
   assert {
-    condition     = !contains(keys(output.networks["development/us-east-2"].subnets), "public") && contains(keys(output.networks["staging/us-west-2"].subnets), "public")
+    condition     = !contains(keys(output.networks["operations/us-east-2"].subnets), "public") && contains(keys(output.networks["staging/us-west-2"].subnets), "public")
     error_message = "Only networks with public = true get a public tier."
   }
 
@@ -131,6 +131,17 @@ run "refuses_asn" {
   # Two hubs with the same Amazon-side ASN are refused.
   variables {
     config_path = "tests/fixtures/asn"
+  }
+
+  expect_failures = [output.networks]
+}
+
+run "refuses_referencing_that_is_not_a_bool" {
+  command = plan
+
+  # security_group_referencing is true or false.
+  variables {
+    config_path = "tests/fixtures/referencing"
   }
 
   expect_failures = [output.networks]

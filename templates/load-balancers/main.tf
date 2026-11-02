@@ -52,7 +52,7 @@ module "load_balancer" {
   source   = "../../modules/load-balancer"
   for_each = { for name, lb in local.load_balancers : name => lb if contains(local.usable_tiers, lb.tier) }
 
-  name               = each.key
+  name               = "${var.environment}-${each.key}"
   type               = each.value.type
   internal           = each.value.internal
   vpc_id             = data.aws_vpc.vpc.id

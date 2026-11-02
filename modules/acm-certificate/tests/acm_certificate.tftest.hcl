@@ -1,4 +1,8 @@
 # What the module builds and refuses, against a mocked AWS -- docs/global.md.
+mock_provider "aws" {
+  alias = "dns"
+}
+
 mock_provider "aws" {}
 
 override_data {

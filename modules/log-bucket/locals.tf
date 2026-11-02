@@ -12,6 +12,9 @@ locals {
     Condition = { Bool = { "aws:SecureTransport" = "false" } }
   }
 
+  # Each load balancer logs under its own prefix (<prefix>/AWSLogs/<account>/...); either form is allowed, for this account only.
+  load_balancer_paths = ["${local.bucket_arn}/AWSLogs/${local.account_id}/*", "${local.bucket_arn}/*/AWSLogs/${local.account_id}/*"]
+
   # Load balancers in older regions deliver as an AWS-owned account; newer regions use the service principal. Both are allowed.
   load_balancer = [
     {
@@ -19,14 +22,14 @@ locals {
       Effect    = "Allow"
       Principal = { AWS = data.aws_elb_service_account.current.arn }
       Action    = "s3:PutObject"
-      Resource  = "${local.bucket_arn}/AWSLogs/${local.account_id}/*"
+      Resource  = local.load_balancer_paths
     },
     {
       Sid       = "LoadBalancerLogDelivery"
       Effect    = "Allow"
       Principal = { Service = "logdelivery.elasticloadbalancing.amazonaws.com" }
       Action    = "s3:PutObject"
-      Resource  = "${local.bucket_arn}/AWSLogs/${local.account_id}/*"
+      Resource  = local.load_balancer_paths
     },
   ]
 

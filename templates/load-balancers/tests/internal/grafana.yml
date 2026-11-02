@@ -1,5 +1,5 @@
-type: application
-scheme: internal
+load_balancer_type: application
+internal: true
 security_groups:
   - grafana-lb
 certificate: grafana.example.com
@@ -14,12 +14,13 @@ targets:
   web:
     port: 3000
     protocol: HTTP
-    health_check_path: /api/health
+    health_check:
+      path: /api/health
 rules:
   old-name:
     listener: 443
     priority: 10
-    hosts:
+    host_header:
       - metrics.example.com
     redirect:
       host: grafana.example.com

@@ -71,6 +71,9 @@ variable "transit_gateway" {
     association_route_table_id  = string
     propagation_route_table_ids = optional(map(string), {})
     appliance_mode              = optional(bool, false)
+    security_group_referencing  = optional(bool, false)
+    # false: the caller associates and propagates, as the gateway's owner must when it is in another account.
+    route_here = optional(bool, true)
   })
   default = null
 

@@ -1,0 +1,7 @@
+description: Names its own environment's group the long way
+ingress:
+  - description: From web-lb
+    from_port: 443
+    to_port: 443
+    source:
+      - group:production/web-lb

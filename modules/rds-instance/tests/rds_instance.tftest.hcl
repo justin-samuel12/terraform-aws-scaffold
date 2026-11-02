@@ -11,7 +11,7 @@ variables {
   subnet_ids          = ["subnet-data-1", "subnet-data-2", "subnet-data-3"]
   security_group_ids  = ["sg-database-mysql"]
   kms_key_arn         = "arn:aws:kms:us-east-2:111111111111:key/mrk-data"
-  monitoring_role_arn = "arn:aws:iam::111111111111:role/rds-monitoring-development"
+  monitoring_role_arn = "arn:aws:iam::111111111111:role/rds-monitoring-operations"
 }
 
 run "mysql" {

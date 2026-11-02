@@ -10,14 +10,14 @@ data "aws_s3_bucket" "logs" {
 data "aws_lb" "load_balancers" {
   for_each = toset(flatten([for acl in local.web_acls : acl.load_balancers]))
 
-  name = each.key
+  name = "${var.environment}-${each.key}"
 }
 
 module "waf_web_acl" {
   source   = "../../modules/waf-web-acl"
   for_each = local.web_acls
 
-  name           = each.key
+  name           = "${var.environment}-${each.key}"
   managed_rules  = coalesce(each.value.managed_rules, ["AWSManagedRulesCommonRuleSet", "AWSManagedRulesKnownBadInputsRuleSet", "AWSManagedRulesAmazonIpReputationList"])
   rate_limit     = each.value.rate_limit
   log_bucket_arn = data.aws_s3_bucket.logs[0].arn

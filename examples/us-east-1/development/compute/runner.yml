@@ -1,0 +1,8 @@
+# A plain group: no load balancer, no CodeDeploy.
+count: 2
+instance_type: c6i.large
+ami: ami-0123456789abcdef0
+tier: ops
+iam_instance_profile: runner
+security_groups:
+  - runner

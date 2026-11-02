@@ -20,10 +20,20 @@ data "aws_ec2_managed_prefix_list" "lists" {
   name = each.key
 }
 
+# Another environment's group, found by its tags, when the region's hub lets VPCs reference each other's groups.
+data "aws_security_group" "remote" {
+  for_each = local.remote_names
+
+  tags = {
+    Environment = split("/", each.key)[0]
+    Name        = split("/", each.key)[1]
+  }
+}
+
 module "security_group" {
   source = "../../modules/security-group"
 
   vpc_id        = data.aws_vpc.vpc.id
   internal_cidr = module.ip_plan.internal_cidr
-  groups        = local.groups
+  groups        = { for name, g in local.groups : name => g if length(local.problems) == 0 }
 }

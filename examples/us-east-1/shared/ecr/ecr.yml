@@ -1,0 +1,5 @@
+repositories:
+  - dashboards
+  - runner
+keep_images: 30
+untagged_days: 14

@@ -1,51 +1,5 @@
-# Servers that hold state are a separate block: prevent_destroy cannot be switched by a setting.
-resource "aws_instance" "standard" {
-  for_each = local.standard
-
-  ami                         = var.image_id
-  instance_type               = each.value.instance_type
-  subnet_id                   = each.value.subnet_id
-  private_ip                  = each.value.private_ip
-  secondary_private_ips       = length(each.value.secondary_ips) > 0 ? each.value.secondary_ips : null
-  vpc_security_group_ids      = var.security_group_ids
-  iam_instance_profile        = var.instance_profile
-  associate_public_ip_address = false
-  monitoring                  = true
-  ebs_optimized               = true
-  user_data                   = var.user_data
-  disable_api_termination     = false
-  disable_api_stop            = false
-
-  metadata_options {
-    http_endpoint               = "enabled"
-    http_tokens                 = "required"
-    http_put_response_hop_limit = 1
-  }
-
-  maintenance_options {
-    auto_recovery = "default"
-  }
-
-  root_block_device {
-    volume_type = "gp3"
-    volume_size = var.root_size
-    encrypted   = true
-    kms_key_id  = var.kms_key_arn
-    tags        = merge(local.tags, { Name = "${each.key}-root" })
-  }
-
-  tags = merge(local.tags, { Name = each.key, Subnet = each.value.subnet })
-
-  # Powered off at once, without waiting for the OS, whenever Terraform destroys or rebuilds it: docs/compute.md.
-  provisioner "local-exec" {
-    when       = destroy
-    on_failure = continue
-    command    = "aws ec2 terminate-instances --region ${split(":", self.arn)[3]} --instance-ids ${self.id} --skip-os-shutdown --output text --query 'TerminatingInstances[].CurrentState.Name'"
-  }
-}
-
-resource "aws_instance" "protected" {
-  for_each = local.protected
+resource "aws_instance" "servers" {
+  for_each = var.members
 
   ami                         = var.image_id
   instance_type               = each.value.instance_type
@@ -59,12 +13,14 @@ resource "aws_instance" "protected" {
   ebs_optimized               = true
   user_data                   = var.user_data
   disable_api_termination     = true
-  disable_api_stop            = true
+  disable_api_stop            = false
+  force_destroy               = true
 
   metadata_options {
     http_endpoint               = "enabled"
     http_tokens                 = "required"
-    http_put_response_hop_limit = 1
+    http_put_response_hop_limit = 2
+    instance_metadata_tags      = "enabled"
   }
 
   maintenance_options {
@@ -81,29 +37,21 @@ resource "aws_instance" "protected" {
 
   tags = merge(local.tags, { Name = each.key, Subnet = each.value.subnet })
 
+  provisioner "local-exec" {
+    when       = destroy
+    on_failure = continue
+    command    = "aws ec2 modify-instance-attribute --region ${split(":", self.arn)[3]} --instance-id ${self.id} --no-disable-api-termination && aws ec2 terminate-instances --region ${split(":", self.arn)[3]} --instance-ids ${self.id} --skip-os-shutdown --output text --query 'TerminatingInstances[].CurrentState.Name'"
+  }
+
   lifecycle {
-    prevent_destroy = true
+    ignore_changes = [ami, user_data]
   }
 }
 
-resource "aws_ebs_volume" "standard" {
-  for_each = { for key, v in local.volumes : key => v if !var.protect }
+resource "aws_ebs_volume" "volumes" {
+  for_each = local.volumes
 
-  availability_zone = local.instances[each.value.member].availability_zone
-  type              = "gp3"
-  size              = each.value.size
-  iops              = each.value.iops
-  throughput        = each.value.throughput
-  encrypted         = true
-  kms_key_id        = var.kms_key_arn
-
-  tags = merge(local.tags, { Name = "${each.value.member}-${each.value.name}" })
-}
-
-resource "aws_ebs_volume" "protected" {
-  for_each = { for key, v in local.volumes : key => v if var.protect }
-
-  availability_zone = local.instances[each.value.member].availability_zone
+  availability_zone = aws_instance.servers[each.value.member].availability_zone
   type              = "gp3"
   size              = each.value.size
   iops              = each.value.iops
@@ -122,16 +70,14 @@ resource "aws_volume_attachment" "volumes" {
   for_each = local.volumes
 
   device_name = each.value.device
-  volume_id   = merge(aws_ebs_volume.standard, aws_ebs_volume.protected)[each.key].id
-  instance_id = local.instances[each.value.member].id
-
-  force_detach = !var.protect
+  volume_id   = aws_ebs_volume.volumes[each.key].id
+  instance_id = aws_instance.servers[each.value.member].id
 }
 
 resource "aws_lb_target_group_attachment" "registrations" {
   for_each = local.registrations
 
   target_group_arn = each.value.arn
-  target_id        = local.instances[each.value.member].id
+  target_id        = aws_instance.servers[each.value.member].id
   port             = each.value.port
 }

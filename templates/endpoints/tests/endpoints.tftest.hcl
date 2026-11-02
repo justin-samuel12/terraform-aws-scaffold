@@ -3,7 +3,7 @@ mock_provider "aws" {}
 
 override_data {
   target = data.aws_vpc.vpc
-  values = { id = "vpc-development", cidr_block = "10.42.0.0/16" }
+  values = { id = "vpc-operations", cidr_block = "10.42.0.0/16" }
 }
 
 override_data {
@@ -23,11 +23,11 @@ override_data {
 
 variables {
   config_path = "../../tests/config"
-  environment = "development"
+  environment = "operations"
   region      = "us-east-2"
 }
 
-run "development" {
+run "operations" {
   command = plan
 
   variables {

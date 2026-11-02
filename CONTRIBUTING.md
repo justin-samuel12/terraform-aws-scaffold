@@ -3,6 +3,11 @@
 Every change is a pull request, reviewed before it lands. Applies are made by a
 person, never on merge.
 
+Before asking for review, `make check` passes: formatting, lint, tests,
+validation of every stack, and every stack's and example's files planned against
+a mocked AWS ([conventions](docs/conventions.md#checks)). It needs no
+credentials.
+
 ## Commits
 
 `.github/hooks/commit-msg` enforces the format:

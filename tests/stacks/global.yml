@@ -1,6 +1,8 @@
+# Stack tests: one global account, which every environment without its own uses.
+account_id: "444444444444"
 state:
   bucket: ""
-  region: us-east-1
+  region: us-east-2
   key: "{region}/{environment}/{component}"
 subnets:
   environment:

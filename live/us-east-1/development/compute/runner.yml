@@ -1,8 +1,0 @@
-# Plain servers that are not an application: build runners here; databases you run yourself, with protect: true.
-count: 1
-type: c6i.large
-image: ami-0123456789abcdef0
-tier: ops
-security_groups:
-  - runner
-role: runner

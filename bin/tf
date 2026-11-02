@@ -18,6 +18,9 @@ if [[ "${REL}" != live/* || "${REL}" == live/common* ]]; then
 fi
 
 # Deleting resources or rewriting state is done by a person, by hand, never through here.
+for a in "$@"; do
+    [[ "${a}" == -destroy ]] && { echo "bin/tf: -destroy is not run through this wrapper." >&2; exit 1; }
+done
 case "${COMMAND} ${2:-}" in
     "destroy "* | "state rm" | "state mv" | "state push" | "state replace-provider" | "force-unlock "*)
         echo "bin/tf: '${COMMAND}${2:+ $2}' is not run through this wrapper." >&2
@@ -26,7 +29,7 @@ esac
 
 command -v yq >/dev/null || { echo "bin/tf: yq is required (brew install yq)." >&2; exit 1; }
 
-CONFIG="${INFRA_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/infra/$(basename "${REPO_ROOT}").yml}"
+CONFIG="${INFRA_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/infra/hashicorp-terraform.config}"
 export TF_VAR_config_file="${CONFIG}"
 export TF_PLUGIN_CACHE_DIR="${TF_PLUGIN_CACHE_DIR:-${REPO_ROOT}/.terraform.d/plugin-cache}"
 mkdir -p "${TF_PLUGIN_CACHE_DIR}"
@@ -58,9 +61,12 @@ REGION_FILE="${REPO_ROOT}/config/${REGION}.yml"
 [[ -f "${REGION_FILE}" ]] || refuse "there is no config/${REGION}.yml."
 if [[ "${ENVIRONMENT}" == shared ]]; then ENTRY=".hub"; else ENTRY=".vpcs[\"${ENVIRONMENT}\"]"; fi
 [[ "$(yq -r "${ENTRY} | tag" "${REGION_FILE}")" == "!!map" ]] || refuse "config/${REGION}.yml has no entry for ${ENVIRONMENT}."
-ACCOUNT_ID="$(yq -r "${ENTRY}.account_id // \"\"" "${REGION_FILE}")"
-[[ "${ACCOUNT_ID}" =~ ^[0-9]{12}$ && "$(yq -r "${ENTRY}.account_id | tag" "${REGION_FILE}")" == "!!str" ]] \
-    || refuse "config/${REGION}.yml has no quoted 12-digit account_id for ${ENVIRONMENT} (unquoted, YAML drops a leading zero)."
+# The environment's own account, else the one config/global.yml gives every environment.
+ACCOUNT_FILE="${REGION_FILE}"; ACCOUNT_PATH="${ENTRY}.account_id"
+if [[ -z "$(yq -r "${ACCOUNT_PATH} // \"\"" "${ACCOUNT_FILE}")" ]]; then ACCOUNT_FILE="${REPO_ROOT}/config/global.yml"; ACCOUNT_PATH=".account_id"; fi
+ACCOUNT_ID="$(yq -r "${ACCOUNT_PATH} // \"\"" "${ACCOUNT_FILE}")"
+[[ "${ACCOUNT_ID}" =~ ^[0-9]{12}$ && "$(yq -r "${ACCOUNT_PATH} | tag" "${ACCOUNT_FILE}")" == "!!str" ]] \
+    || refuse "no quoted 12-digit account_id for ${ENVIRONMENT}: none in config/${REGION}.yml, and none in config/global.yml for every environment (unquoted, YAML drops a leading zero)."
 BUCKET="$(yq -r '.state.bucket // ""' "${REPO_ROOT}/config/global.yml")"
 BUCKET_REGION="$(yq -r '.state.region // ""' "${REPO_ROOT}/config/global.yml")"
 [[ -n "${BUCKET}" && -n "${BUCKET_REGION}" ]] || refuse "config/global.yml has no state.bucket and state.region."

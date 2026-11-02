@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
-# Guided setup: prerequisites, then config/ and stacks (bin/configure), then this machine's profiles -- docs/configuration.md.
-# Stops before anything is created in AWS: the next step it prints is make bootstrap.
+# Guided setup: prerequisites, then config/ and the stacks (bin/configure), then this machine's profiles, then where you are
+# (bin/status). Stops before anything is created in AWS: the next step it shows is make bootstrap. -- docs/configuration.md.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CONFIG="${INFRA_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/infra/$(basename "${REPO_ROOT}").yml}"
+CONFIG="${INFRA_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/infra/hashicorp-terraform.config}"
+# The file used to be named after the repository folder; carry it across once, and say so.
+OLD_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/infra/$(basename "${REPO_ROOT}").yml"
+if [[ -z "${INFRA_CONFIG:-}" && ! -f "${CONFIG}" && -f "${OLD_CONFIG}" ]]; then
+    mkdir -p "$(dirname "${CONFIG}")" && cp -p "${OLD_CONFIG}" "${CONFIG}" && chmod 600 "${CONFIG}"
+    echo "  This machine's profiles moved to ${CONFIG} (copied from ${OLD_CONFIG}, which you can delete)."
+fi
 INTERACTIVE="${SETUP_INTERACTIVE:-$([[ -t 0 ]] && echo 1 || echo 0)}"
 
 ok()   { printf '  \033[32m✓\033[0m %s\n' "$*"; }
@@ -70,21 +76,26 @@ fi
 
 profile_accounts=""
 if [[ "${INTERACTIVE}" == 1 ]]; then
-    echo "== AWS profiles on this machine"
+    echo "== AWS accounts on this machine (read-only)"
     profiles="$(aws configure list-profiles 2>/dev/null | tr '\n' ' ')"
-    say_profiles="${profiles:-none}"
-    echo "  ${say_profiles}"
-    echo "  Asking each one which account it is (read-only sts calls); a profile you are not logged in to is skipped."
-    for p in ${profiles}; do
-        if a="$(aws sts get-caller-identity --profile "${p}" --query Account --output text 2>/dev/null)"; then
-            profile_accounts+="${p} ${a}"$'\n'
-        fi
-    done
-    echo
-    if ask_yes "Walk through config/ (regions, environments, accounts, state bucket, office VPN) and create the stacks?" y; then
-        PROFILE_ACCOUNTS="${profile_accounts}" "${REPO_ROOT}/bin/configure"
+    profile_accounts=""
+    if [[ -z "${profiles}" ]]; then
+        warn "no AWS profiles on this machine (aws configure sso adds one)"
     else
-        echo "  Skipped: config/ is as it was. Run bin/configure any time."
+        printf '  %-16s %-14s %s\n' "PROFILE" "ACCOUNT" "STATUS"
+        for p in ${profiles}; do
+            if a="$(aws sts get-caller-identity --profile "${p}" --query Account --output text 2>/dev/null)"; then
+                profile_accounts+="${p} ${a}"$'\n'
+                printf '  %-16s %-14s %s\n' "${p}" "${a}" "logged in"
+            else
+                a="$(aws configure get sso_account_id --profile "${p}" 2>/dev/null || true)"
+                printf '  %-16s %-14s %s\n' "${p}" "${a:-?}" "not logged in (aws sso login --profile ${p})"
+            fi
+        done
+    fi
+    echo
+    if ask_yes "Walk through config/ (regions, accounts, environments, state bucket, office VPN) and create the stacks?" y; then
+        PROFILE_ACCOUNTS="${profile_accounts}" "${REPO_ROOT}/bin/configure" || echo "  config/ is as it was."
     fi
     echo
 fi
@@ -95,13 +106,19 @@ accounts="$(for f in "${REPO_ROOT}"/config/*-*-[0-9].yml; do
     yq -r '[{"environment": "shared", "account_id": (.hub.account_id // "")}] + [.vpcs // {} | to_entries | .[] | {"environment": .key, "account_id": (.value.account_id // "")}] | .[] | .environment + " " + .account_id' "${f}"
 done | sort -u)"
 environments="$(cut -d' ' -f1 <<<"${accounts}" | sort -u)"
-account_for() { awk -v e="$1" '$1 == e && $2 != "" {print $2; exit}' <<<"${accounts}"; }
+global_account="$(yq -r '.account_id // ""' "${REPO_ROOT}/config/global.yml")"
+own_account() { awk -v e="$1" '$1 == e && $2 != "" {print $2; exit}' <<<"${accounts}"; }
+account_for() { local a; a="$(own_account "$1")"; echo "${a:-${global_account}}"; }
 for env in ${environments}; do
-    if [[ "$(account_for "${env}")" =~ ^[0-9]{12}$ ]]; then ok "${env}: account $(account_for "${env}")"; else warn "${env}: no account_id in config/ yet; its stacks refuse to run"; fi
+    if [[ "$(account_for "${env}")" =~ ^[0-9]{12}$ ]]; then
+        ok "${env}: account $(account_for "${env}")$([[ -z "$(own_account "${env}")" ]] && echo " (from global.yml)")"
+    else
+        warn "${env}: no account_id in config/ yet, its own or global.yml's; its stacks refuse to run"
+    fi
 done
 bucket="$(yq -r '.state.bucket // ""' "${REPO_ROOT}/config/global.yml")"
 bucket_region="$(yq -r '.state.region // ""' "${REPO_ROOT}/config/global.yml")"
-if [[ -n "${bucket}" && -n "${bucket_region}" ]]; then ok "state bucket ${bucket} (${bucket_region})"; else warn "no state bucket yet: make bootstrap creates one once the shared account is in config/; until then every stack refuses to run"; fi
+if [[ -n "${bucket}" && -n "${bucket_region}" ]]; then ok "state bucket ${bucket} (${bucket_region})"; else warn "no state bucket yet: make bootstrap creates one, or uses one that already exists; until then every stack refuses to run"; fi
 
 echo "== This machine's profiles: ${CONFIG}"
 if [[ "${INTERACTIVE}" != 1 ]]; then
@@ -126,7 +143,8 @@ for env in ${environments}; do
         echo "  -- ${env} (account ${account}${matches:+; matching profiles: ${matches}})"
     else
         echo
-        echo "  -- ${env} (no account in config/ yet)"
+        echo "  -- ${env}: no account in config/ yet, so no profile to choose; make setup again once it has one"
+        continue
     fi
     profile="$(ask "Profile" "${suggestion}")"
     if [[ -n "${profile}" && -n "${account}" ]]; then
@@ -182,13 +200,4 @@ fi
 umask 077
 yq -p=json -o=yaml -P <<<"${new}" > "${CONFIG}"
 ok "written"
-echo
-primary_region="$(for f in "${REPO_ROOT}"/config/*-*-[0-9].yml; do [[ "$(yq -r '.hub.primary // false' "${f}")" == true ]] && basename "${f}" .yml; done | head -n1)"
-if ! [[ "$(account_for shared)" =~ ^[0-9]{12}$ ]]; then
-    echo "Next: once the AWS accounts exist, add them to config/ (run make setup again, or edit config/${primary_region}.yml), then make bootstrap."
-    echo "      Meanwhile, make check-files checks every stack's files without any account."
-elif [[ -z "${bucket}" ]]; then
-    echo "Next: make bootstrap, to create the state bucket in the shared account."
-else
-    echo "Next: make init STACK=${primary_region}/shared/hub, then make plan STACK=${primary_region}/shared/hub (docs/day-one.md)."
-fi
+"${REPO_ROOT}/bin/status"

@@ -7,3 +7,8 @@ output "rule_ids" {
   description = "Domain -> forwarding rule id; each environment's network associates these with its VPC."
   value       = { for domain, rule in aws_route53_resolver_rule.forward : domain => rule.id }
 }
+
+output "rule_arns" {
+  description = "Domain -> forwarding rule ARN, for sharing them with other accounts."
+  value       = { for domain, rule in aws_route53_resolver_rule.forward : domain => rule.arn }
+}

@@ -112,6 +112,7 @@ resource "aws_ec2_transit_gateway_vpc_attachment" "transit_gateway_vpc_attachmen
   vpc_id                                          = aws_vpc.vpc.id
   subnet_ids                                      = [for zone in var.availability_zone_ids : aws_subnet.subnets["${var.transit_gateway.subnets}-${zone}"].id]
   appliance_mode_support                          = var.transit_gateway.appliance_mode ? "enable" : "disable"
+  security_group_referencing_support              = var.transit_gateway.security_group_referencing ? "enable" : "disable"
   dns_support                                     = "enable"
   transit_gateway_default_route_table_association = false
   transit_gateway_default_route_table_propagation = false
@@ -120,14 +121,14 @@ resource "aws_ec2_transit_gateway_vpc_attachment" "transit_gateway_vpc_attachmen
 }
 
 resource "aws_ec2_transit_gateway_route_table_association" "route_table_association" {
-  count = var.transit_gateway == null ? 0 : 1
+  count = var.transit_gateway == null ? 0 : (var.transit_gateway.route_here ? 1 : 0)
 
   transit_gateway_attachment_id  = aws_ec2_transit_gateway_vpc_attachment.transit_gateway_vpc_attachment[0].id
   transit_gateway_route_table_id = var.transit_gateway.association_route_table_id
 }
 
 resource "aws_ec2_transit_gateway_route_table_propagation" "route_table_propagations" {
-  for_each = var.transit_gateway == null ? {} : var.transit_gateway.propagation_route_table_ids
+  for_each = var.transit_gateway == null ? {} : (var.transit_gateway.route_here ? var.transit_gateway.propagation_route_table_ids : {})
 
   transit_gateway_attachment_id  = aws_ec2_transit_gateway_vpc_attachment.transit_gateway_vpc_attachment[0].id
   transit_gateway_route_table_id = each.value

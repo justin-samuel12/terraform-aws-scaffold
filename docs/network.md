@@ -1,9 +1,34 @@
 # Network
 
-Hub and spoke. Each region has a Transit Gateway hub with an egress VPC; every
-environment is a spoke VPC attached to its region's hub; with a second region,
-the two hubs are peered. The VPN to HQ terminates on every hub. The example is
-one region, us-east-1, with one environment, `development`.
+Hub and spoke, in Ohio (us-east-2) and Oregon (us-west-2). Each region has a
+Transit Gateway hub with an egress VPC; every environment is a spoke VPC
+attached to its region's hub; the two hubs are peered. The VPN to HQ
+terminates on both hubs.
+
+```mermaid
+flowchart LR
+  subgraph hub["🔀 Hub (shared)"]
+    direction TB
+    rtR["route table<br/>restricted"]
+    rtS["route table<br/>standard"]
+    rtSh["route table<br/>shared"]
+    egress["egress VPC<br/>NAT gateways"]
+  end
+  prd["🏭 production"] --> rtR
+  stg["🧭 staging"] --> rtS
+  ops["🛠️ operations"] --> rtSh
+  vpn["🏢 VPN to HQ"] --> rtSh
+  rtR -->|internet| egress
+  rtS -->|internet| egress
+  rtR -.->|reaches| rtSh
+  rtS -.->|reaches| rtSh
+  rtS -. never .-x prd
+
+  classDef env fill:#e8f1fb,stroke:#2f6fb3,color:#0b2545
+  classDef t fill:#fff4e5,stroke:#e8590c,color:#5c2a00
+  class prd,stg,ops,vpn env
+  class rtR,rtS,rtSh,egress t
+```
 
 ## Modules
 
@@ -24,8 +49,8 @@ A template is a module that composes the others into one kind of stack, and
 every stack of that kind calls it:
 
 ```bash
-make stack STACK=us-west-2/shared/hub           # a second region's hub: calls templates/hub
-make stack STACK=us-east-1/development/network      # calls templates/network
+make stack STACK=us-west-2/shared/hub           # calls templates/hub
+make stack STACK=us-west-2/staging/network      # calls templates/network
 ```
 
 A network stack is one module call, with its environment and region read from its
@@ -68,16 +93,16 @@ environments' accounts ([configuration](configuration.md#config)): the hub
 under `hub`, each environment's VPC under `vpcs`:
 
 ```yaml
-# config/us-east-1.yml, the network part
+# config/us-east-2.yml, the network part
 hub:
   cidr: 10.40.0.0/20
   amazon_side_asn: 64512
   primary: true
 vpcs:
-  development:
-    cidr: 10.41.0.0/16
-    segment: standard
-    public: true
+  operations:
+    cidr: 10.42.0.0/16
+    segment: shared
+    public: false
 ```
 
 | Key | `vpcs.<environment>` | `hub` |
@@ -87,11 +112,12 @@ vpcs:
 | `public` | `true` for a public tier (internet-facing load balancers), else `false` | always has one; not written |
 | `amazon_side_asn` | not allowed | the Transit Gateway's BGP ASN, 64512 to 65534, different for each hub |
 | `primary` | not allowed | `true` on exactly one hub. The primary is built first, requests the peering, is HQ's preferred VPN path, and is where `global` stacks run. Moving it is a one-line change |
+| `security_group_referencing` | not allowed: every VPC follows its region's hub | `false` by default. `true` lets security groups in VPCs attached to this hub reference each other's groups (`group:<environment>/<group>`, [security groups](security-groups.md#groups-in-other-environments)). Same region only: never across the peering |
 
 Adding an environment is one entry under `vpcs` and one `make stack`. The
 plan refuses, naming the entry and its file:
 
-- a region file not named after an AWS region, or with keys other than `state`,
+- a region file not named after an AWS region, or with keys other than `zones`,
   `hub` and `vpcs`
 - `shared` under `vpcs`: it is the hub's environment
 - an unknown or misspelt key (`segmnet` fails rather than being ignored)
@@ -104,19 +130,17 @@ plan refuses, naming the entry and its file:
 - two ranges that overlap
 
 `modules/ip-plan/tests/fixtures/` holds one broken folder per rule, and `make
-test` proves each is refused. What every VPC shares (the subnet layout, which
-segment may reach which, HQ's address for the VPN) stays in
-`modules/ip-plan/locals.tf`. HQ's public IP is `null` until known.
+test` proves each is refused. What every VPC shares (the subnet layout, HQ's
+address and ranges, DNS forwarding, prefix lists) is in `config/global.yml`;
+which segment may reach which is fixed in the IP plan. Without HQ's public IP,
+no VPN is built.
 
-A plan that leaves room to grow, with the example's two ranges in the first
-column:
-
-| VPC | Primary region (us-east-1) | Second region (us-west-2) |
+| VPC | Ohio (us-east-2) | Oregon (us-west-2) |
 |---|---|---|
 | Egress (hub) | 10.40.0.0/20 | 10.60.0.0/20 |
-| Development | 10.41.0.0/16 | |
-| Staging | 10.42.0.0/16 | |
-| Production | 10.43.0.0/16 | 10.63.0.0/16 (disaster recovery) |
+| Production | 10.41.0.0/16 | 10.61.0.0/16 (DR) |
+| Operations | 10.42.0.0/16 | |
+| Staging | | 10.62.0.0/16 |
 
 Every spoke (/16) is carved the same way, so a tier sits at the same addresses
 in every environment and region. The layout is one file, `config/global.yml`:
@@ -163,7 +187,7 @@ subnets are planned. `route` is where a network tier's traffic goes:
 | `route` | Default route | Other VPCs and HQ | Used by |
 |---|---|---|---|
 | `hub` | to the hub, and out through the egress VPC | through the hub | `private`, `ops` |
-| `internal` | none: no internet at all | through the hub (`10.0.0.0/8`) | `data`, so databases can answer shared tooling and HQ but never reach the internet |
+| `internal` | none: no internet at all | through the hub (`10.0.0.0/8`) | `data`, so databases can answer operations' tooling and HQ but never reach the internet |
 | `internet` | an internet gateway; built only where the network has `public: true` | no | `public` |
 | `none` | none | no: only its own VPC | `transit`, which holds only the hub attachment |
 
@@ -185,14 +209,14 @@ instance with `subnet: data-az1` and finds it by tag, never by a subnet ID.
 `make output` on a network or hub shows the same names: `subnets` maps each
 (`data-az1`) to its subnet ID, CIDR and zone ID.
 
-The layout, for the example's development VPC (`10.41.0.0/16`):
+Today's layout, for Ohio production (`10.41.0.0/16`):
 
 | Tier | Each zone | Reserved for six zones | az1, az2, az3 | Holds |
 |---|---|---|---|---|
 | `private` | /19 | 10.41.0.0 – 10.41.191.255 | .0.0, .32.0, .64.0 | workloads |
 | `data` | /22 | 10.41.192.0 – 10.41.215.255 | .192.0, .196.0, .200.0 | databases and caches |
 | `public` | /23 | 10.41.216.0 – 10.41.227.255 | .216.0, .218.0, .220.0 | internet-facing load balancers; only where `public: true` |
-| `ops` | /23 | 10.41.228.0 – 10.41.239.255 | .228.0, .230.0, .232.0 | the tooling that serves this environment: bastions, monitoring collectors, runners that deploy into it |
+| `ops` | /23 | 10.41.228.0 – 10.41.239.255 | .228.0, .230.0, .232.0 | the tooling that serves this environment: jump hosts, monitoring proxies, runners that deploy into it |
 | `transit` | /28 | 10.41.252.0 – 10.41.252.95 | .252.0, .252.16, .252.32 | the Transit Gateway attachment only |
 
 `10.x.240.0` – `10.x.251.255` is unallocated, for a new tier.
@@ -215,12 +239,23 @@ CIDR into the tables that may reach it. Nothing joins a table by default.
 
 | Route table | Associated | Reaches |
 |---|---|---|
-| `restricted` | production, and its disaster-recovery copy | itself, `shared`, HQ, the internet through egress |
-| `standard` | development, staging | itself, `shared`, HQ, the internet through egress |
-| `shared` | tooling every environment uses, the VPN, the egress VPC, the peering | everything |
+| `restricted` | production, production DR | itself, `shared`, HQ, the internet through egress |
+| `standard` | staging | itself, `shared`, HQ, the internet through egress |
+| `shared` | operations, the VPN, the egress VPC, the peering | everything |
 
-Staging never reaches production: production's CIDRs are never propagated into
-`standard`, and a blackhole route can make that explicit.
+Staging never reaches production, and production never reaches staging:
+`restricted` and `standard` each hold a `10.0.0.0/8` blackhole. Without it,
+traffic to another segment would follow `0.0.0.0/0` to the egress VPC and come
+back through `shared`, which knows every range. The routes a table should have
+(its own segment, `shared`, HQ, the peering) are more specific, so they still
+win. HQ's ranges outside `10.0.0.0/8` (an office on `192.168.0.0/16`) are routed
+back from the `data` tier and the hub's DNS tier as well as `10.0.0.0/8`.
+
+With a second region, the primary hub peers with every other hub: each table
+gets static routes to the other region's ranges by the same rules (restricted
+to restricted and shared, standard to standard and shared, shared to
+everything). Apply the other regions' hubs before the primary hub, which
+requests and accepts the peering.
 
 Inspection (AWS Network Firewall) is not built; it would sit in the egress VPC.
 

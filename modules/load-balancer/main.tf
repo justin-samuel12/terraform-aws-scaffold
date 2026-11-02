@@ -19,7 +19,7 @@ resource "aws_lb" "load_balancer" {
 resource "aws_lb_target_group" "targets" {
   for_each = var.targets
 
-  name                 = "${var.name}-${each.key}-${substr(sha1("${each.value.port}/${each.value.protocol}"), 0, 4)}"
+  name                 = local.target_group_names[each.key]
   vpc_id               = var.vpc_id
   port                 = each.value.port
   protocol             = each.value.protocol

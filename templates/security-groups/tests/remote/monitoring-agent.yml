@@ -1,0 +1,7 @@
+description: The monitoring agent, reached by the operations collectors
+ingress:
+  - description: Agent port from the collectors in operations
+    from_port: 10050
+    to_port: 10050
+    source:
+      - group:operations/monitoring

@@ -3,6 +3,8 @@ security_groups:
   - accesscontrol-efs
 access_points:
   uploads:
-    path: /uploads
-    uid: 1001
-    gid: 1001
+    posix_user:
+      uid: 1001
+      gid: 1001
+    root_directory:
+      path: /uploads

@@ -1,3 +1,4 @@
-object_lock:
-  mode: COMPLIANCE
-  days: 2555
+object_lock_configuration:
+  default_retention:
+    mode: COMPLIANCE
+    days: 2555

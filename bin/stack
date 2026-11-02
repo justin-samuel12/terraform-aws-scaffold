@@ -36,6 +36,9 @@ inputs=""
 grep -q '^variable "environment"' "templates/${component}/variables.tf" 2>/dev/null && inputs+="  environment = local.environment"$'\n'
 grep -q '^variable "region"' "templates/${component}/variables.tf" 2>/dev/null && inputs+="  region = local.region"$'\n'
 grep -q '^variable "config_path"' "templates/${component}/variables.tf" 2>/dev/null && inputs+="  config_path = local.config_dir"$'\n'
+# A template that does work in the hub's account declares aws.hub; the stack passes its second provider along.
+providers_block=""
+grep -q 'configuration_aliases' "templates/${component}/versions.tf" 2>/dev/null && providers_block=$'\n  providers = {\n    aws     = aws\n    aws.hub = aws.hub\n  }\n'
 
 block=""
 [[ -n "${inputs}" ]] && block=$'\n'"${inputs}"
@@ -44,7 +47,7 @@ cat > "${dir}/main.tf" <<HCL
 # This stack is templates/${component} for its environment and region -- docs/architecture.md.
 module "${name}" {
   source = "${to_root}templates/${component}"
-${block}}
+${providers_block}${block}}
 HCL
 terraform fmt "${dir}/main.tf" >/dev/null
 

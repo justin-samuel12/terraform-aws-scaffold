@@ -1,7 +1,7 @@
 count: 1
-type: t3.medium
-image: ami-0123456789abcdef0
-role: grafana
+instance_type: t3.medium
+ami: ami-0123456789abcdef0
+iam_instance_profile: grafana
 members:
   grafana-01:
     subnet: ops-az1

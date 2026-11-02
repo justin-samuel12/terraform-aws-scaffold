@@ -7,8 +7,28 @@ it; with no files a stack builds nothing (except `keys` and `backups`, which
 every environment has).
 
 Every default below is fixed rather than optional: final snapshots, 35-day backups, AWS Backup with
-copies to a second region, customer-managed keys, managed passwords, TLS required, logs
+copies to Oregon, customer-managed keys, managed passwords, TLS required, logs
 exported, and file systems with a policy.
+
+```mermaid
+flowchart LR
+  subgraph live["us-east-2"]
+    dk["🔑 data key"] --> db[("🐘 databases")]
+    dk --> fs[("📁 file systems")]
+    dk --> s3[("🪣 buckets")]
+    db & fs -->|"Backup = standard"| vault["💾 backup vault<br/>locked 7 days"]
+    bk["🔑 backup key"] --> vault
+  end
+  subgraph dr["us-west-2"]
+    vault2["💾 backup vault"]
+  end
+  vault -->|daily · monthly copies| vault2
+
+  classDef k fill:#f3f0ff,stroke:#6741d9,color:#25125e
+  classDef st fill:#ebfbee,stroke:#2b8a3e,color:#0b3d1a
+  class dk,bk k
+  class db,fs,s3,vault,vault2 st
+```
 
 ## `keys`
 
@@ -33,29 +53,33 @@ policy is the access control on the data and must be reviewed like code.
 ## `backups`
 
 ```yaml
-# live/us-east-1/development/backups/backups.yml
+# live/us-east-2/operations/backups/backups.yml
 daily_retention_days: 35
 monthly_retention_days: 365
 copy: true
 ```
 
-An AWS Backup vault, encrypted with the backup key and locked so no backup can
-be deleted before it is 7 days old; a daily backup kept 35 days and a monthly
+An AWS Backup vault, encrypted with the backup key and locked so no backup is
+deleted before it is 7 days old (`vault_lock: governance`, the default, lets a
+principal allowed to bypass the lock remove it; `vault_lock: compliance` lets
+nobody, and becomes permanent three days after the first apply); a daily backup kept 35 days and a monthly
 one kept a year; each copied to a locked vault in the other region, encrypted
 with the backup key's replica there. A resource joins the plan by tagging itself
-`Backup = standard`, which every database and file system here does.
+`Backup = standard`, which every database and file system here does, and every
+bucket with `backup: true` (the backup role has AWS's S3 backup and restore
+policies).
 
 ## `databases`
 
 One file per database.
 
 ```yaml
-# live/us-east-1/production/databases/orders.yml
+# live/us-east-2/production/databases/orders.yml
 engine: mysql
-version: "8.0"
-class: db.t4g.medium
-storage: 200
-max_storage: 1000
+engine_version: "8.0"
+instance_class: db.t4g.medium
+allocated_storage: 200
+max_allocated_storage: 1000
 multi_az: true
 security_groups:
   - database-mysql
@@ -64,9 +88,9 @@ security_groups:
 | Key | Meaning |
 |---|---|
 | `engine` | `mysql`, `postgres` or `mariadb` |
-| `version` | The major version; minor versions upgrade themselves in the maintenance window |
-| `class` | The instance class |
-| `storage`, `max_storage` | Starting GB, and the most it grows to by itself (default five times the start) |
+| `engine_version` | The major version; minor versions upgrade themselves in the maintenance window |
+| `instance_class` | The instance class |
+| `allocated_storage`, `max_allocated_storage` | Starting GB, and the most it grows to by itself (default five times the start) |
 | `multi_az` | A standby in another zone (default `true`) |
 | `security_groups` | From the environment's security-groups stack, by name |
 
@@ -92,15 +116,17 @@ Built in, for every database:
 One file per EFS file system.
 
 ```yaml
-# live/us-east-1/production/storage/shared-files.yml
+# live/us-east-2/production/storage/sftp.yml
 tier: data
 security_groups:
-  - files
+  - accesscontrol-efs
 access_points:
   uploads:
-    path: /uploads
-    uid: 1001
-    gid: 1001
+    posix_user:
+      uid: 1001
+      gid: 1001
+    root_directory:
+      path: /uploads
 ```
 
 A mount target in every zone of the chosen tier (default `data`), encrypted
@@ -108,7 +134,9 @@ with the data key, elastic throughput, files unused for 30 days moved to cheaper
 storage and brought back when read, and a file system policy that refuses
 unencrypted connections and allows mounting only through its own mount targets.
 Access points give clients a fixed directory and POSIX user (permissions
-default `0750`). Backed up by the environment's plan (EFS's own automatic
+default `0750`). The policy grants the account, so a client also needs
+`elasticfilesystem:ClientMount` and `ClientWrite` in its role (the `mount-files`
+example policy) and mounts with TLS and IAM: `mount -t efs -o tls,iam`. Backed up by the environment's plan (EFS's own automatic
 backups are off, so nothing is taken twice), and never destroyed by a plan.
 
 ## `buckets`
@@ -117,18 +145,19 @@ One file per S3 bucket, for the environment's own data (application files,
 exports, uploads). Log buckets are the logging stack's, not these.
 
 ```yaml
-# live/us-east-1/production/buckets/reports.yml
+# live/us-east-2/production/buckets/reports.yml
 backup: true
-expire_days: 400
+expiration:
+  days: 400
 ```
 
 | Key | Meaning |
 |---|---|
 | `backup` | Back it up with the environment's AWS Backup plan (default `false`) |
-| `expire_days` | Days before objects expire; leave out to keep them |
-| `noncurrent_days` | Days an overwritten or deleted object's old version is kept (default 90) |
-| `object_lock` | `mode` (`GOVERNANCE`, or `COMPLIANCE`, which no one can override) and `days`: objects that must not change or be deleted. Only when the bucket is first created |
-| `cors` | Rules for browsers using the bucket directly; origins are named, never `*` |
+| `expiration` | `days` before objects expire; leave out to keep them |
+| `noncurrent_version_expiration` | `noncurrent_days` an overwritten or deleted object's old version is kept (default 90) |
+| `object_lock_configuration` | `default_retention`, with `mode` (`GOVERNANCE`, or `COMPLIANCE`, which no one can override) and `days`: objects that must not change or be deleted. Only when the bucket is first created |
+| `cors_rule` | Rules for browsers using the bucket directly (`allowed_methods`, `allowed_origins`, `allowed_headers`, `max_age_seconds`); origins are named, never `*` |
 
 The bucket is named `<environment>-<file>-<account>-<region>` (the plan refuses
 one longer than S3's 63 characters). Built in: never public, no ACLs, versioned,
@@ -137,13 +166,3 @@ keep KMS cost down), anything not over TLS refused, incomplete uploads cleaned
 up after 7 days, and never destroyed by a plan. No website hosting: public
 content goes through CloudFront with a private bucket, and the `s3-bucket`
 module takes the policy statement a distribution's output gives.
-
-## Moving data in from elsewhere
-
-A database encrypted with AWS's default RDS key cannot be shared with another
-account. Moving one means copying its snapshot, re-encrypted with a
-customer-managed key, sharing that key and snapshot with the new account, and
-restoring there; or AWS DMS replication into a database built here, for a short
-cutover. File systems move with AWS DataSync or an AWS Backup cross-account
-copy. Either way the new side is built from this repository first, and data
-flows into it.

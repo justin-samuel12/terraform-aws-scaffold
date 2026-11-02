@@ -1,7 +1,7 @@
 resource "aws_security_group" "groups" {
   for_each = var.groups
 
-  name        = each.key
+  name_prefix = "${each.key}-"
   description = each.value.description
   vpc_id      = var.vpc_id
 
@@ -22,7 +22,7 @@ resource "aws_vpc_security_group_ingress_rule" "rules" {
   to_port                      = each.value.to_port
   cidr_ipv4                    = each.value.cidr
   prefix_list_id               = each.value.prefix_list
-  referenced_security_group_id = each.value.group == null ? null : aws_security_group.groups[each.value.group == "self" ? each.value.owner : each.value.group].id
+  referenced_security_group_id = each.value.remote_group_id != null ? each.value.remote_group_id : each.value.group == null ? null : aws_security_group.groups[each.value.group == "self" ? each.value.owner : each.value.group].id
 
   tags = { Name = "${each.value.owner}-in" }
 }
@@ -37,7 +37,7 @@ resource "aws_vpc_security_group_egress_rule" "rules" {
   to_port                      = each.value.to_port
   cidr_ipv4                    = each.value.cidr
   prefix_list_id               = each.value.prefix_list
-  referenced_security_group_id = each.value.group == null ? null : aws_security_group.groups[each.value.group == "self" ? each.value.owner : each.value.group].id
+  referenced_security_group_id = each.value.remote_group_id != null ? each.value.remote_group_id : each.value.group == null ? null : aws_security_group.groups[each.value.group == "self" ? each.value.owner : each.value.group].id
 
   tags = { Name = "${each.value.owner}-out" }
 }

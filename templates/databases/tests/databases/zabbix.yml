@@ -1,7 +1,7 @@
 engine: mysql
-version: "8.0"
-class: db.t4g.medium
-storage: 100
-max_storage: 500
+engine_version: "8.0"
+instance_class: db.t4g.medium
+allocated_storage: 100
+max_allocated_storage: 500
 security_groups:
   - database-mysql

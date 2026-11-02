@@ -1,0 +1,3 @@
+zone: internal.example.com
+private_zone: true
+server: runner-01

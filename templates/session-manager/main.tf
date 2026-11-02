@@ -18,7 +18,7 @@ module "session_manager_preferences" {
   kms_key_arn          = module.kms_key.arns["sessions"]
   idle_timeout_minutes = local.settings.idle_timeout_minutes
   max_session_minutes  = local.settings.max_session_minutes
-  log_retention_days   = local.settings.log_retention_days
+  log_retention_days   = local.settings.retention_in_days
 
   create_default_host_role = var.region == module.ip_plan.primary_region
 }

@@ -7,7 +7,7 @@ override_data {
 }
 
 variables {
-  environment = "development"
+  environment = "operations"
   kms_key_arn = "arn:aws:kms:us-east-2:111111111111:key/mrk-backup"
   copy        = { region = "us-west-2", kms_key_arn = "arn:aws:kms:us-west-2:111111111111:key/mrk-backup" }
 }
@@ -21,7 +21,7 @@ run "daily_monthly_copied" {
   }
 
   assert {
-    condition     = aws_backup_vault_lock_configuration.copy[0].min_retention_days == 7 && aws_backup_plan.plan.name == "development"
+    condition     = aws_backup_vault_lock_configuration.copy[0].min_retention_days == 7 && aws_backup_plan.plan.name == "operations"
     error_message = "The Oregon copies are locked like the originals."
   }
 

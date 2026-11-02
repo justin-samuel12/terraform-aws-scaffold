@@ -4,7 +4,7 @@ Each environment's VPC endpoints are a stack of their own:
 `live/<region>/<environment>/endpoints/`, configured by one file beside it.
 
 ```yaml
-# live/us-east-1/development/endpoints/endpoints.yml
+# live/us-east-2/operations/endpoints/endpoints.yml
 tier: private
 interface:
   - ssm
@@ -19,6 +19,17 @@ gateway:
 | `tier` | The tier whose subnets hold the interface endpoints, one per zone. Default `private`; every tier in the VPC can reach it |
 | `interface` | Services reached through interface endpoints, by AWS service name without the `com.amazonaws.<region>.` prefix |
 | `gateway` | `s3` or `dynamodb`: gateway endpoints, added to every route table in the VPC |
+
+```mermaid
+flowchart LR
+  srv["🖥️ servers, any tier"] -->|443| ie["interface endpoints<br/>ssm · ssmmessages · ec2messages · secretsmanager"]
+  srv --> ge["gateway endpoint<br/>s3"]
+  ie --> aws["AWS services, without the internet"]
+  ge --> aws
+
+  classDef e fill:#e8f1fb,stroke:#2f6fb3,color:#0b2545
+  class ie,ge e
+```
 
 ## Why these
 

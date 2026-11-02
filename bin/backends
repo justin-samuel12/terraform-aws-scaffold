@@ -32,6 +32,7 @@ key_for() {
     file="config/$([[ "${location}" == global ]] && echo "${primary}" || echo "${location}").yml"
     if [[ "${environment}" == shared ]]; then entry=".hub"; else entry=".vpcs[\"${environment}\"]"; fi
     account="$(yq -r "${entry}.account_id // \"\"" "${file}" 2>/dev/null)"
+    [[ -n "${account}" ]] || account="$(yq -r '.account_id // ""' config/global.yml 2>/dev/null)"
     local key="${key_format//\{region\}/${location}}"
     key="${key//\{environment\}/${environment}}"
     key="${key//\{component\}/${component}}"

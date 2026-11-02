@@ -1,9 +1,12 @@
 # Wiring checks against a mocked AWS -- docs/network.md.
 mock_provider "aws" {}
 
-override_data {
-  target = data.aws_route53_resolver_rules.hub
-  values = { resolver_rule_ids = ["rslvr-rr-ad"] }
+mock_provider "aws" {
+  alias = "hub"
+
+  mock_data "aws_ram_resource_share" {
+    defaults = { arn = "arn:aws:ram:us-east-2:111111111111:resource-share/00000000-0000-0000-0000-000000000000" }
+  }
 }
 
 override_data {
@@ -35,11 +38,11 @@ variables {
   config_path = "../../tests/config"
 }
 
-run "development" {
+run "operations" {
   command = plan
 
   variables {
-    environment = "development"
+    environment = "operations"
     region      = "us-east-2"
   }
 
@@ -59,7 +62,7 @@ run "development" {
   }
 
   assert {
-    condition     = length(aws_route53_resolver_rule_association.hub) == 1
+    condition     = length(aws_route53_resolver_rule_association.hub) == length(module.ip_plan.dns.forward)
     error_message = "The VPC is associated with each of the hub's forwarding rules."
   }
 
@@ -117,4 +120,39 @@ run "not_in_the_ip_plan" {
   }
 
   expect_failures = [var.region]
+}
+
+run "single_account" {
+  command = plan
+
+  variables {
+    environment = "operations"
+    region      = "us-east-2"
+  }
+
+  assert {
+    condition     = length(aws_ram_resource_share_accepter.network) == 0 && length(aws_ec2_transit_gateway_vpc_attachment_accepter.network) == 0 && length(aws_ec2_transit_gateway_route_table_propagation.network) > 0
+    error_message = "In the hub's own account: no share to accept, no attachment to accept, and the routing is still done."
+  }
+}
+
+run "another_account" {
+  command = plan
+
+  # Production takes the global account (444...); the hub has its own (111...).
+  variables {
+    environment = "production"
+    region      = "us-east-2"
+    config_path = "../../tests/stacks"
+  }
+
+  override_data {
+    target = module.vpc.data.aws_availability_zones.available
+    values = { zone_ids = ["use2-az1", "use2-az2", "use2-az3"] }
+  }
+
+  assert {
+    condition     = local.cross_account && length(aws_ram_resource_share_accepter.network) == 1 && length(aws_ec2_transit_gateway_vpc_attachment_accepter.network) == 1
+    error_message = "In another account: this account accepts the hub's share, and the hub's owner accepts the attachment before routing it."
+  }
 }

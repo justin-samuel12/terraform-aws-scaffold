@@ -1,8 +1,0 @@
-engine: postgres
-version: "16"
-class: db.t4g.medium
-storage: 50
-max_storage: 200
-multi_az: false
-security_groups:
-  - database

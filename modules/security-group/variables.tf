@@ -10,27 +10,31 @@ variable "internal_cidr" {
 }
 
 variable "groups" {
-  description = "Group name -> description, whether it fronts a public load balancer, and its rules. A rule names exactly one of group (another group here, or self), cidr or prefix_list (an id). egress null = internal traffic and HTTPS out."
+  description = "Group name -> description, whether it fronts a public load balancer, and its rules. A rule names exactly one of group (another group here, or self), cidr, prefix_list (an id), or remote_group with remote_group_id (a group in another VPC on the same Transit Gateway, when the hub allows it). egress null = internal traffic and HTTPS out."
   type = map(object({
     description   = string
     load_balancer = optional(bool, false)
     ingress = list(object({
-      description = string
-      protocol    = string
-      from_port   = optional(number)
-      to_port     = optional(number)
-      group       = optional(string)
-      cidr        = optional(string)
-      prefix_list = optional(string)
+      description     = string
+      protocol        = string
+      from_port       = optional(number)
+      to_port         = optional(number)
+      group           = optional(string)
+      cidr            = optional(string)
+      prefix_list     = optional(string)
+      remote_group    = optional(string)
+      remote_group_id = optional(string)
     }))
     egress = optional(list(object({
-      description = string
-      protocol    = string
-      from_port   = optional(number)
-      to_port     = optional(number)
-      group       = optional(string)
-      cidr        = optional(string)
-      prefix_list = optional(string)
+      description     = string
+      protocol        = string
+      from_port       = optional(number)
+      to_port         = optional(number)
+      group           = optional(string)
+      cidr            = optional(string)
+      prefix_list     = optional(string)
+      remote_group    = optional(string)
+      remote_group_id = optional(string)
     })))
   }))
 
@@ -40,8 +44,8 @@ variable "groups" {
   }
 
   validation {
-    condition     = alltrue(flatten([for g in var.groups : [for r in concat(g.ingress, coalesce(g.egress, [])) : length(compact([r.group, r.cidr, r.prefix_list])) == 1]]))
-    error_message = "Every rule names exactly one of group, cidr or prefix_list."
+    condition     = alltrue(flatten([for g in var.groups : [for r in concat(g.ingress, coalesce(g.egress, [])) : length(compact([r.group, r.cidr, r.prefix_list, r.remote_group])) == 1]]))
+    error_message = "Every rule names exactly one of group, cidr, prefix_list or remote_group."
   }
 
   validation {

@@ -20,10 +20,6 @@ Made by whoever owns the AWS Organization, before anything here runs:
 
 ## 2. Fill in `config/`
 
-`make setup` asks for all of this and writes it, showing every change first.
-The same keys can be edited by hand:
-
-
 - [ ] `config/global.yml`: `state.bucket` and `state.region`.
 - [ ] `config/global.yml`: `hq` (your office or data centre's VPN address,
       BGP ASN and ranges), or leave `ip_address` empty and no VPN is built.
@@ -31,7 +27,9 @@ The same keys can be edited by hand:
       servers), `dns.private_zones`, `prefix_lists`.
 - [ ] `config/<region>.yml`, for each region: `zones`, the hub's
       `account_id`, `team`, `cidr` and ASN, and each environment's
-      `account_id`, `team`, `cidr`, `segment` and `public`. The ranges given
+      `account_id`, `team`, `cidr`, `segment` and `public`. With one account
+      for everything, leave those `account_id`s empty and set `account_id`
+      once in `config/global.yml`. The ranges given
       are examples; choose ranges that overlap nothing you will connect to
       ([network](network.md#ip-plan)).
 - [ ] Remove or add regions and environments to match yours. `make diagram`
@@ -39,31 +37,31 @@ The same keys can be edited by hand:
 - [ ] Tags your organization requires, in `live/common/providers.tf`.
 
 Then, on each machine that plans: `make setup` (profiles and prerequisites)
-and `make hooks`. Before any account exists, `make check` already plans every
-stack's files against a mocked AWS.
+and `make hooks`.
 
-Once, for the whole repository: `make bootstrap` creates the state bucket in
-the shared account, moves its own state into it, and writes every stack's
-`backend.tf` ([configuration](configuration.md#the-state-bucket-make-bootstrap)).
-Commit what it changes.
+Then the state bucket, once the shared account exists: `make bootstrap` creates
+it, or checks and uses one that already exists
+([configuration](configuration.md#the-state-bucket-make-bootstrap)).
 
 ## 3. Create the stacks
 
-The example has one region (`us-east-1`), its `shared` stacks, the global
-stacks, and one environment, `development`, with every stack and example files
-in each. Rename or copy it for your environments, and create anything else with
-`make stack STACK=<region>/<environment>/<component>`, which calls the matching
-template and writes `backend.tf`:
+Only Ohio's `shared` and `operations` stacks, and the global ones, exist as
+examples. Create the rest with `make stack STACK=<region>/<environment>/<component>`,
+which calls the matching template and writes `backend.tf`:
 
-- [ ] Replace the example files with your own; `make check-files` checks them.
-- [ ] Each additional region's `shared`: `hub`, `logging`, `session-manager`,
-      `documents`, `ecr` as needed.
+- [ ] Each additional region's `shared`: `hub` (exists for Oregon), `logging`,
+      `session-manager`, `documents`, `ecr` as needed.
 - [ ] Each environment, in each region it runs in: `network`,
       `security-groups`, `endpoints`, `keys`, `backups`, then whichever of
       `load-balancers`, `certificates`, `waf`, `databases`, `storage`,
-      `buckets`, `access`, `patching`, `compute`, `apps`, `records` and
+      `buckets`, `access`, `patching`, `compute`, `records` and
       `lambda` it uses.
-- [ ] Delete example stacks and files you will not use.
+- [ ] With an account per environment: each environment account's own
+      `global/<environment>/baseline`, `global/<environment>/iam`,
+      `<region>/<environment>/logging` and
+      `<region>/<environment>/session-manager`
+      ([architecture](architecture.md#one-account-or-one-per-environment)).
+- [ ] Delete example stacks you will not use.
 
 ## 4. Apply, in this order
 
@@ -72,19 +70,17 @@ reviewing each plan. A stack that looks something up fails its plan, naming
 what is missing, until the stack that builds it has been applied.
 
 1. `global/shared/baseline`
-2. Each region's `shared/hub`, the primary region first (it requests the
-   peering)
+2. Each region's `shared/hub`, the primary region last: it requests and accepts
+   the peering with the others
 3. Each region's `shared/logging`, then `global/shared/dns`
 4. `global/shared/iam`
 5. Each region's `shared/session-manager` and `shared/documents`
-   (import `SSM-SessionManagerRunShell` first if the account already has it:
-   [systems manager](systems-manager.md#session-manager))
 6. Per environment and region: `network`, `security-groups`, `endpoints`,
    `keys`, `backups`
 7. `certificates`, then `load-balancers`, then `waf`
 8. `databases`, `storage`, `buckets`
 9. `patching`, `access`
-10. `compute` and `apps`, then `records`
+10. `compute`, then `records`
 11. `ecr`, `lambda`, `global/shared/cloudfront` as needed
 
 ## 5. What each environment needs written
@@ -95,7 +91,7 @@ The files are the environment's own: nothing is built until they exist.
 - [ ] IAM roles for every server and function, with their shared policies.
 - [ ] Certificates for every HTTPS name.
 - [ ] Load balancers, their listeners, and their own rules (priorities 1–999).
-- [ ] Applications in `apps` (routes from 1000), other servers in `compute`,
+- [ ] Every group of servers in `compute` (listener rule priorities from 1000),
       each with a pinned image ID.
 - [ ] Databases, file systems and buckets.
 - [ ] Patching windows, production later than staging.
@@ -104,11 +100,10 @@ The files are the environment's own: nothing is built until they exist.
 
 | Item | Why it is not here | What to add |
 |---|---|---|
-| CI pipeline | depends on your CI system | a pipeline that runs `make fmt-check lint test` and plans every changed stack on a pull request; applies stay manual |
+| CI pipeline | depends on your CI system | a pipeline that runs `make check` and plans every changed stack on a pull request; applies stay manual |
 | CI role | depends on your CI system | an IAM role trusting your CI's OIDC provider, for plans, and for uploading CodeDeploy revisions and starting deployments |
-| CodeDeploy revisions | one bucket per environment, your naming | a `buckets/revisions.yml` file, and a shared `read-revisions` policy for deployed applications' roles ([compute](compute.md#apps-one-file-per-application)) |
+| CodeDeploy revisions | one bucket per environment, your naming | a `buckets/revisions.yml` file, and a shared `read-revisions` policy for deployed groups' roles ([compute](compute.md#deploying-with-codedeploy)) |
 | Machine images | images are pinned by ID; building them is a pipeline of its own | EC2 Image Builder, or Packer, producing images with the SSM and CodeDeploy agents |
-| Auto Scaling groups | servers here are fixed members | a template for groups that scale (build runners, workers) |
 | Monitoring and alerting | depends on where alerts go | an SNS topic per environment, and alarms for instance status, load balancer 5xx and unhealthy hosts, database CPU and storage, VPN tunnels, and failed backups |
 | Budgets | per organization | AWS Budgets with alerts per account |
 | Secrets | values never pass through Terraform | Secrets Manager secrets created empty, or with write-only values, for applications to read |

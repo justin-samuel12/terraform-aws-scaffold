@@ -1,3 +1,13 @@
+variable "environment" {
+  description = "The environment the web ACLs belong to: the stack's second folder under live/. Names its web ACLs and finds its load balancers."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[a-z][a-z0-9-]*$", var.environment))
+    error_message = "environment must be lowercase letters, digits and hyphens."
+  }
+}
+
 variable "region" {
   description = "The region the web ACLs protect load balancers in."
   type        = string

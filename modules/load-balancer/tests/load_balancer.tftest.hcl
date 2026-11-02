@@ -5,7 +5,7 @@ variables {
   name               = "grafana"
   type               = "application"
   internal           = true
-  vpc_id             = "vpc-development"
+  vpc_id             = "vpc-operations"
   subnet_ids         = ["subnet-private-1", "subnet-private-2", "subnet-private-3"]
   security_group_ids = ["sg-grafana-lb"]
   certificate_arn    = "arn:aws:acm:us-east-2:111111111111:certificate/example"

@@ -1,3 +1,5 @@
+# The test world: tests run against this copy, never against config/, so your own config cannot break them.
+account_id: ""
 state:
   bucket: ""
   region: us-east-2

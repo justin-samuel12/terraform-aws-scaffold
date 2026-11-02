@@ -1,0 +1,11 @@
+load_balancer_type: application
+internal: false
+certificate: www.example.com
+listeners:
+  "443":
+    protocol: HTTPS
+    target: web
+targets:
+  web:
+    port: 8080
+    protocol: HTTP

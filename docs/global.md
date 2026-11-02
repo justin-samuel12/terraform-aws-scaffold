@@ -36,8 +36,8 @@ Workload roles, one file per role. Never people: they sign in through your
 organization's IAM Identity Center.
 
 ```yaml
-# live/global/shared/iam/web.yml
-description: web servers
+# live/global/shared/iam/grafana.yml
+description: Grafana servers
 services:
   - ec2
 managed_policies:
@@ -52,15 +52,22 @@ Permissions several roles share are customer-managed policies, one file each in
 ```yaml
 # live/global/shared/iam/policies/read-tags.yml
 description: Read instance tags, for service discovery
-statements:
+statement:
   - actions:
       - ec2:DescribeInstances
       - ec2:DescribeTags
     resources:
-      - "*"
+      - '*'
 ```
 
-A role can still carry `statements` of its own for what only it needs.
+A role can still carry a `statement` list of its own for what only it needs,
+written as in `aws_iam_policy_document`: `effect`, `actions`, `resources`, and
+`condition` (each with `test`, `variable` and `values`).
+
+Every role EC2 assumes also gets the built-in `session-manager` policy: decrypt
+with the sessions key (`alias/shared-sessions`, and only that key) and write to
+the `/ssm/sessions` log groups, which every server needs for Session Manager,
+whatever its role is for.
 
 Only the listed services may assume a role. AWS managed policies are named
 under `managed_policies`, ours under `policies`; neither is copied. A role EC2 assumes gets an instance profile of the same name, which
@@ -91,10 +98,10 @@ zone ignores its VPC list afterwards so this stack never undoes that.
 One file per distribution.
 
 ```yaml
-# live/global/shared/cloudfront/assets.yml
+# live/global/shared/cloudfront/media-assets.yml
 aliases:
   - assets.example.com
-origin_bucket: example-assets
+origin_bucket: example-media-assets
 certificate: assets.example.com
 waf: true
 ```
@@ -128,7 +135,7 @@ delivery permissions each service needs, and retention from `logging.yml`
 ### `ecr`
 
 ```yaml
-# live/us-east-1/shared/ecr/ecr.yml
+# live/us-east-2/shared/ecr/ecr.yml
 repositories:
   - gitops
 keep_images: 30
@@ -144,11 +151,11 @@ Every repository is copied to every other region in `config/`.
 ### `certificates`
 
 ```yaml
-# live/us-east-1/development/certificates/certificates.yml
-web:
-  domain: app.example.com
-  alternative_names:
-    - www.example.com
+# live/us-east-2/operations/certificates/certificates.yml
+grafana:
+  domain_name: grafana.example.com
+  subject_alternative_names:
+    - metrics.example.com
   zone: example.com
 ```
 
@@ -161,7 +168,7 @@ certificates by domain.
 One file per web ACL, for the environment's public load balancers.
 
 ```yaml
-# live/us-east-1/production/waf/web.yml
+# live/us-east-2/production/waf/web.yml
 rate_limit: 2000
 load_balancers:
   - web
@@ -171,21 +178,22 @@ AWS's common, known-bad-inputs and IP-reputation rule groups by default, a rate
 limit per IP, every request logged to the region's WAF log bucket without the
 `Authorization` header, and attached to the named load balancers.
 
-### `lambda`
+### `lambda` (operations)
 
 One file per function, with its code beside it in `src/<name>/`. Before
 writing one, check whether AWS already does the job (below).
 
 ```yaml
-# live/us-east-1/development/lambda/report.yml   (code in src/report/)
+# live/us-east-2/operations/lambda/report.yml   (code in src/report/)
 runtime: python3.12
 handler: app.handler
-memory: 256
+memory_size: 256
 timeout: 30
-schedule: rate(1 day)
+schedule_expression: rate(1 day)
 environment:
-  LEVEL: info
-statements:
+  variables:
+    LEVEL: info
+statement:
   - actions:
       - s3:GetObject
     resources:
@@ -195,7 +203,7 @@ statements:
 Each function gets its own role, allowed only to write its own log group plus
 the statements in its file, and its own log group kept 365 days. Functions run
 on Graviton (arm64) with JSON logs. The code is zipped with fixed file modes, so
-a different umask on another machine is not a code change. A `schedule` runs it
+a different umask on another machine is not a code change. A `schedule_expression` runs it
 through EventBridge, which alone may invoke it. The plan refuses an environment
 variable whose name looks like a secret (password, token, key, credential): the
 AWS provider prints environment variables in plans, so a function reads its

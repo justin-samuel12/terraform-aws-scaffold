@@ -3,7 +3,7 @@ mock_provider "aws" {}
 
 override_data {
   target = data.aws_vpc.vpc[0]
-  values = { id = "vpc-development" }
+  values = { id = "vpc-operations" }
 }
 
 override_data {
@@ -27,7 +27,7 @@ override_data {
 }
 
 variables {
-  environment = "development"
+  environment = "operations"
 }
 
 run "zabbix" {

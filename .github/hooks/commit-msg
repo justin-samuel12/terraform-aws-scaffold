@@ -12,7 +12,7 @@ fi
 
 if [[ ! "$HEADER" =~ ^[a-z]+(\([a-zA-Z0-9_-]+\))?:\ .+ ]]; then
     echo "Commit message must be: <type>(<optional-scope>): <description>"
-    echo "  e.g. terraform(network): add the us-east-1 hub"
+    echo "  e.g. terraform(network): add the Ohio hub"
     echo "       docs: record the account decision"
     exit 1
 fi

@@ -64,9 +64,50 @@ resource "aws_s3_bucket_lifecycle_configuration" "state" {
 
 resource "aws_s3_bucket_policy" "state" {
   bucket = aws_s3_bucket.state.id
-  policy = data.aws_iam_policy_document.tls_only["state"].json
+  policy = data.aws_iam_policy_document.state.json
 
   depends_on = [aws_s3_bucket_public_access_block.state]
+}
+
+# The state bucket's policy: nothing over plain HTTP, and each other account only its own environments' keys.
+data "aws_iam_policy_document" "state" {
+  source_policy_documents = [data.aws_iam_policy_document.tls_only["state"].json]
+
+  dynamic "statement" {
+    for_each = var.account_prefixes
+    content {
+      sid       = "ListOwnKeys${statement.key}"
+      effect    = "Allow"
+      actions   = ["s3:ListBucket"]
+      resources = [aws_s3_bucket.state.arn]
+
+      principals {
+        type        = "AWS"
+        identifiers = ["arn:aws:iam::${statement.key}:root"]
+      }
+
+      condition {
+        test     = "StringLike"
+        variable = "s3:prefix"
+        values   = statement.value
+      }
+    }
+  }
+
+  dynamic "statement" {
+    for_each = var.account_prefixes
+    content {
+      sid       = "ReadWriteOwnKeys${statement.key}"
+      effect    = "Allow"
+      actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+      resources = [for p in statement.value : "${aws_s3_bucket.state.arn}/${p}"]
+
+      principals {
+        type        = "AWS"
+        identifiers = ["arn:aws:iam::${statement.key}:root"]
+      }
+    }
+  }
 }
 
 data "aws_iam_policy_document" "tls_only" {

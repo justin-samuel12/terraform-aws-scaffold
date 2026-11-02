@@ -1,58 +1,67 @@
 #!/usr/bin/env bash
-# Creates the Terraform state bucket, then moves its own state into it -- docs/configuration.md.
-# The one stack that starts on local state: nothing else can exist before the bucket does.
+# The Terraform state bucket: create it, resume a run that stopped, or use one that already exists -- docs/configuration.md.
+# The only stack that starts on local state: nothing else can exist before the bucket does. Everything it creates is shown as
+# a plan and asked for first; using an existing bucket creates nothing.
 set -euo pipefail
-
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
 cd "${REPO_ROOT}"
-GLOBAL="config/global.yml"
+
 DIR="bootstrap"
+GLOBAL="${CONFIG_DIR}/global.yml"
 KEY="bootstrap/terraform.tfstate"
 refuse() { echo "bootstrap: $*" >&2; exit 1; }
+CHECK=0; [[ "${1:-}" == --check ]] && CHECK=1   # say which path it would take, and change nothing
 
 command -v yq >/dev/null || refuse "yq is required (brew install yq)."
 command -v aws >/dev/null || refuse "the AWS CLI is required."
 
-primary_file=""
-for f in config/*-*-[0-9].yml; do
-    [[ "$(yq -r '.hub.primary // false' "${f}")" == true ]] && primary_file="${f}"
-done
-[[ -n "${primary_file}" ]] || refuse "no region file in config/ has hub.primary: true."
-ACCOUNT_ID="$(yq -r '.hub.account_id // ""' "${primary_file}")"
-[[ "${ACCOUNT_ID}" =~ ^[0-9]{12}$ ]] || refuse "${primary_file} has no 12-digit hub.account_id: the bucket lives in the shared account."
-REGION="$(yq -r '.state.region // ""' "${GLOBAL}")"
-[[ -n "${REGION}" ]] || refuse "${GLOBAL} has no state.region."
-BUCKET="$(yq -r '.state.bucket // ""' "${GLOBAL}")"
-[[ -n "${BUCKET}" ]] || BUCKET="terraform-state-${ACCOUNT_ID}-${REGION}"
+PRIMARY="$(primary_region)"
+[[ -n "${PRIMARY}" ]] || refuse "no region file in config/ has hub.primary: true."
+ACCOUNT_ID="$(hub_account_for "${PRIMARY}")"
+[[ "${ACCOUNT_ID}" =~ ^[0-9]{12}$ ]] || refuse "the shared (hub) account is not in config/ yet: hub.account_id in config/${PRIMARY}.yml, or account_id in config/global.yml."
+REGION="$(yq -r '.state.region // ""' "${GLOBAL}")"; [[ -n "${REGION}" ]] || refuse "config/global.yml has no state.region."
+BUCKET="$(yq -r '.state.bucket // ""' "${GLOBAL}")"; [[ -n "${BUCKET}" ]] || BUCKET="terraform-state-${ACCOUNT_ID}-${REGION}"
 REPLICA="$(yq -r '.state.replica_region // ""' "${GLOBAL}")"
-
-CONFIG="${INFRA_CONFIG:-${HOME}/.config/infra/$(basename "${REPO_ROOT}").yml}"
-PROFILE=""
-[[ -f "${CONFIG}" ]] && PROFILE="$(yq -r '.profiles.shared // ""' "${CONFIG}")"
+KEY_FORMAT="$(yq -r '.state.key // "{region}/{environment}/{component}"' "${GLOBAL}")"
+PROFILE="$(profile_for shared)"
 [[ -n "${PROFILE}" ]] && export AWS_PROFILE="${PROFILE}"
 
-export TF_VAR_account_id="${ACCOUNT_ID}" TF_VAR_region="${REGION}" TF_VAR_bucket="${BUCKET}"
+# Each account other than the bucket's may reach only its own environments' keys: the key format with region and environment
+# filled in, and everything from the component on matched by a wildcard.
+pattern_for() { # pattern_for <region or global> <environment> <account>
+    local k="${KEY_FORMAT//\{region\}/$1}"
+    k="${k//\{environment\}/$2}"; k="${k//\{account_id\}/$3}"
+    echo "${k%%\{component\}*}*"
+}
+prefixes="{}"
+for r in $(region_files); do
+    for env in $(yq -r '.vpcs // {} | keys | .[]' "${CONFIG_DIR}/${r}.yml"); do
+        acct="$(account_for "${env}")"
+        [[ "${acct}" =~ ^[0-9]{12}$ && "${acct}" != "${ACCOUNT_ID}" ]] || continue
+        for loc in "${r}" global; do
+            prefixes="$(jq -c --arg a "${acct}" --arg p "$(pattern_for "${loc}" "${env}" "${acct}")" '.[$a] = ((.[$a] // []) + [$p] | unique)' <<<"${prefixes}")"
+        done
+    done
+done
+
+export TF_VAR_account_id="${ACCOUNT_ID}" TF_VAR_region="${REGION}" TF_VAR_bucket="${BUCKET}" TF_VAR_account_prefixes="${prefixes}"
 [[ -n "${REPLICA}" ]] && export TF_VAR_replica_region="${REPLICA}"
 [[ -n "${PROFILE}" ]] && export TF_VAR_profile="${PROFILE}"
 
-echo "State bucket ${BUCKET} in ${REGION}, account ${ACCOUNT_ID}${REPLICA:+, replicated to ${REPLICA}}${PROFILE:+, profile ${PROFILE}}."
+head1 "State bucket"
+say "${BUCKET} in ${REGION}, account ${ACCOUNT_ID}${REPLICA:+, replicated to ${REPLICA}}${PROFILE:+, profile ${PROFILE}}"
+[[ "${prefixes}" != "{}" ]] && say "Other accounts, each limited to its own environments' keys: $(jq -r 'keys | join(", ")' <<<"${prefixes}")"
+echo
 
-if [[ -f "${DIR}/backend.tf" ]]; then
-    echo "Already bootstrapped: its state is in the bucket. Planning any change; apply asks first."
-    terraform -chdir="${DIR}" init -input=false >/dev/null
-    exec terraform -chdir="${DIR}" apply
-fi
+write_config() {
+    yq -i ".state.bucket = \"${BUCKET}\"" "${GLOBAL}"
+    bin/backends >/dev/null
+    ok "config/global.yml names ${BUCKET}; every stack's backend.tf is written"
+}
 
-if aws s3api head-bucket --bucket "${BUCKET}" --region "${REGION}" >/dev/null 2>&1; then
-    refuse "${BUCKET} already exists. Set state.bucket to it in ${GLOBAL} and check it with make setup, or choose another name."
-fi
-
-echo "1/3  Creating the bucket, with local state for now. Review the plan; apply asks first."
-terraform -chdir="${DIR}" init -input=false >/dev/null
-terraform -chdir="${DIR}" apply
-
-echo "2/3  Moving this stack's state into the bucket."
-cat > "${DIR}/backend.tf" <<BACKEND
+migrate() {
+    say "Moving this stack's own state into the bucket."
+    cat > "${DIR}/backend.tf" <<BACKEND
 # Written by make bootstrap once the bucket existed; do not edit.
 terraform {
   backend "s3" {
@@ -64,11 +73,65 @@ terraform {
   }
 }
 BACKEND
-terraform -chdir="${DIR}" init -migrate-state -force-copy -input=false
-terraform -chdir="${DIR}" state list >/dev/null || refuse "the state did not reach the bucket; the local copy is still in ${DIR}/terraform.tfstate."
-[[ -f "${DIR}/terraform.tfstate" ]] && mv "${DIR}/terraform.tfstate" "${DIR}/terraform.tfstate.pre-migration"
+    terraform -chdir="${DIR}" init -migrate-state -force-copy -input=false
+    terraform -chdir="${DIR}" state list >/dev/null || refuse "the state did not reach the bucket; the local copy is still in ${DIR}/terraform.tfstate."
+    [[ -f "${DIR}/terraform.tfstate" ]] && mv "${DIR}/terraform.tfstate" "${DIR}/terraform.tfstate.pre-migration"
+    ok "state moved to s3://${BUCKET}/${KEY}"
+}
 
-echo "3/3  Writing the bucket into ${GLOBAL} and every stack's backend.tf."
-yq -i ".state.bucket = \"${BUCKET}\"" "${GLOBAL}"
-bin/backends >/dev/null
-echo "Done. Commit ${GLOBAL}, ${DIR}/backend.tf and the stacks' backend.tf. Next: make init STACK=<region>/shared/hub"
+if [[ "${prefixes}" != "{}" ]]; then
+    jq -r 'to_entries[] | "  \(.key): \(.value | join(", "))"' <<<"${prefixes}"
+    echo
+fi
+
+if [[ "${CHECK}" == 1 ]]; then
+    if [[ -f "${DIR}/backend.tf" ]]; then say "Would: plan any change to the bucket, from its state in the bucket."
+    elif aws s3api head-bucket --bucket "${BUCKET}" --region "${REGION}" >/dev/null 2>&1; then
+        if [[ -f "${DIR}/terraform.tfstate" ]] && grep -q '"aws_s3_bucket"' "${DIR}/terraform.tfstate"; then say "Would: finish the run that created ${BUCKET} and stopped."
+        else say "Would: check ${BUCKET}, which already exists, and use it if it is safe; create nothing."; fi
+    else say "Would: create ${BUCKET} (showing the plan and asking first), move this stack's state into it, and write every backend."; fi
+    exit 0
+fi
+
+# 1. Already bootstrapped: plan any change from the state in the bucket.
+if [[ -f "${DIR}/backend.tf" ]]; then
+    say "Already bootstrapped; its state is in the bucket. Planning any change (apply asks first)."
+    terraform -chdir="${DIR}" init -input=false >/dev/null
+    exec terraform -chdir="${DIR}" apply
+fi
+
+local_state=0
+[[ -f "${DIR}/terraform.tfstate" ]] && grep -q '"aws_s3_bucket"' "${DIR}/terraform.tfstate" && local_state=1
+
+if aws s3api head-bucket --bucket "${BUCKET}" --region "${REGION}" >/dev/null 2>&1; then
+    if [[ "${local_state}" == 1 ]]; then
+        # 2. A previous run created the bucket and stopped: finish it from its own local state.
+        say "A previous run created ${BUCKET} and stopped before the end; finishing it (apply asks first)."
+        terraform -chdir="${DIR}" init -input=false >/dev/null
+        terraform -chdir="${DIR}" apply
+        migrate
+        write_config
+    else
+        # 3. Someone else's bucket: use it if it is safe, create nothing.
+        s3() { aws s3api "$@" --bucket "${BUCKET}" --region "${REGION}" 2>/dev/null; }
+        problems=""
+        [[ "$(s3 get-bucket-versioning --query Status --output text)" == Enabled ]] || problems+="not versioned (an overwritten state could not be recovered); "
+        s3 get-bucket-encryption >/dev/null || problems+="no default encryption; "
+        s3 get-public-access-block --query 'PublicAccessBlockConfiguration.RestrictPublicBuckets' --output text 2>/dev/null | grep -q True || problems+="public access not blocked; "
+        [[ -z "${problems}" ]] || refuse "${BUCKET} exists but is not safe for state: ${problems%; }. Fix it, or name another bucket in config/global.yml."
+        s3 get-bucket-replication >/dev/null || warn "${BUCKET} is not replicated: if ${REGION} is down, no stack can plan."
+        say "${BUCKET} already exists and is safe for state; using it. Nothing is created, and this repository does not manage it."
+        [[ "${prefixes}" != "{}" ]] && warn "with environments in other accounts, the bucket's owner must let each reach its own keys (docs/configuration.md lists them)."
+        write_config
+    fi
+else
+    # 4. No bucket: create it, then move this stack's state into it.
+    say "Creating the bucket, on local state for now. Review the plan; apply asks first."
+    terraform -chdir="${DIR}" init -input=false >/dev/null
+    terraform -chdir="${DIR}" apply
+    migrate
+    write_config
+fi
+
+echo
+say "Next: commit config/global.yml, ${DIR}/backend.tf and the stacks' backend.tf; then make init STACK=${PRIMARY}/shared/hub"

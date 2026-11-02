@@ -1,6 +1,10 @@
 # Function files turned into functions; AWS is mocked, the code is zipped for real -- docs/global.md.
 mock_provider "aws" {}
 
+variables {
+  environment = "operations"
+}
+
 run "hello" {
   command = plan
 

@@ -1,2 +1,3 @@
 backup: true
-expire_days: 400
+expiration:
+  days: 400

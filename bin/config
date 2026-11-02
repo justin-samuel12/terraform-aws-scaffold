@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# The whole configuration as tables, each field marked filled, to check, or missing -- docs/configuration.md. Read-only.
+set -uo pipefail
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
+cd "${REPO_ROOT}"
+
+G="${CONFIG_DIR}/global.yml"
+missing=0; check=0
+# cell <value> [todo comment] -> the value marked: ✓ filled, ? to check (a TODO on its line), ✗ missing
+cell() {
+    if [[ -z "$1" || "$1" == null ]]; then missing=$((missing + 1)); printf '%s✗ missing%s' "${C_BAD}" "${C_END}"
+    elif [[ -n "${2:-}" ]]; then check=$((check + 1)); printf '%s? %s%s' "${C_WARN}" "$1" "${C_END}"
+    else printf '%s✓%s %s' "${C_OK}" "${C_END}" "$1"; fi
+}
+opt() { [[ -z "$1" || "$1" == null ]] && printf '%s- not set%s' "${C_DIM}" "${C_END}" || printf '%s✓%s %s' "${C_OK}" "${C_END}" "$1"; }
+row() { printf '  %-26s %b\n' "$1" "$2"; }
+# todo_on <file> <yq path to a scalar> -> its TODO(you) comment, if the line carries one
+todo_on() { yq -r "($2) | line_comment" "$1" 2>/dev/null | grep -o 'TODO(you).*' || true; }
+
+head1 "config/global.yml"
+acct="$(yq -r '.account_id // ""' "${G}")"
+row "account_id" "$( [[ -n "${acct}" ]] && cell "${acct}" || { [[ -n "$(todo_on "${G}" .account_id)" ]] && cell "" || opt ""; } )  (every environment without its own)"
+row "organization_sharing" "$(opt "$(yq -r '.organization_sharing // "false"' "${G}")")"
+row "repository" "$(opt "$(yq -r '.repository // ""' "${G}")")"
+row "state.bucket" "$(opt "$(yq -r '.state.bucket // ""' "${G}")")  (blank: make bootstrap names it)"
+row "state.region" "$(cell "$(yq -r '.state.region // ""' "${G}")")"
+row "state.replica_region" "$(opt "$(yq -r '.state.replica_region // ""' "${G}")")"
+row "hq (office VPN)" "$(opt "$(yq -r '.hq.ip_address // ""' "${G}")")  ranges: $(yq -r '.hq.cidrs // [] | join(", ")' "${G}" | grep . || echo none)"
+row "dns.forward" "$(opt "$(yq -r '.dns.forward // {} | keys | join(", ")' "${G}")")"
+row "dns.private_zones" "$(opt "$(yq -r '.dns.private_zones // [] | join(", ")' "${G}")")"
+row "prefix_lists" "$(opt "$(yq -r '.prefix_lists // {} | keys | join(", ")' "${G}")")"
+
+for r in $(region_files); do
+    f="${CONFIG_DIR}/${r}.yml"
+    head1 "config/${r}.yml$( [[ "${r}" == "$(primary_region)" ]] && echo '  (primary)')"
+    row "zones" "$(cell "$(yq -r '.zones // [] | join(", ")' "${f}")" "$(grep -E '^zones:.*TODO\(you\)' "${f}" || true)")"
+    hub_acct="$(yq -r '.hub.account_id // ""' "${f}")"
+    row "hub account_id" "$( [[ -n "${hub_acct}" ]] && cell "${hub_acct}" || { [[ -n "$(global_account)" ]] && printf '%s✓%s %s (global)' "${C_OK}" "${C_END}" "$(global_account)" || cell ""; } )"
+    row "hub team" "$(cell "$(yq -r '.hub.team // ""' "${f}")")"
+    row "hub cidr / asn" "$(cell "$(yq -r '.hub.cidr // ""' "${f}")") / $(yq -r '.hub.amazon_side_asn // ""' "${f}")"
+    echo
+    printf '  %-14s %-16s %-14s %-18s %-11s %s\n' "ENVIRONMENT" "ACCOUNT" "TEAM" "CIDR" "SEGMENT" "PUBLIC"
+    for e in $(yq -r '.vpcs // {} | keys | .[]' "${f}"); do
+        a="$(yq -r ".vpcs.\"${e}\".account_id // \"\"" "${f}")"; [[ -z "${a}" ]] && a="$(global_account)"
+        t="$(yq -r ".vpcs.\"${e}\".team // \"\"" "${f}")"
+        # Padded before colouring, so the columns line up.
+        ac="$(printf '%-16s' "${a:-missing}")"; tc="$(printf '%-14s' "${t:-missing}")"
+        [[ -z "${a}" ]] && { ac="${C_BAD}${ac}${C_END}"; missing=$((missing + 1)); }
+        [[ -z "${t}" ]] && { tc="${C_BAD}${tc}${C_END}"; missing=$((missing + 1)); }
+        printf '  %-14s %s %s %-18s %-11s %s\n' "${e}" "${ac}" "${tc}" "$(yq -r ".vpcs.\"${e}\".cidr" "${f}")" "$(yq -r ".vpcs.\"${e}\".segment" "${f}")" "$(yq -r ".vpcs.\"${e}\".public" "${f}")"
+    done
+done
+
+head1 "This machine's profiles: ${MACHINE_CONFIG}"
+if [[ -f "${MACHINE_CONFIG}" ]]; then
+    for env in $(environments); do row "${env}" "$(opt "$(profile_for "${env}")")"; done
+else
+    say "none chosen yet: make setup chooses them (stacks then use whatever credentials are active)"
+fi
+
+todos="$(grep -n "TODO(you):" "${CONFIG_DIR}"/*.yml 2>/dev/null || true)"
+head1 "To do"
+if [[ -n "${todos}" ]]; then
+    sed -e "s#^${CONFIG_DIR}/#  config/#" -e 's/:\([0-9]*\):.*TODO(you): */:\1  /' <<<"${todos}"
+fi
+n_todos="$(grep -c "TODO(you):" "${CONFIG_DIR}"/*.yml 2>/dev/null | awk -F: '{n += $NF} END {print n + 0}')"
+if [[ "${missing}" -eq 0 && "${n_todos}" -eq 0 ]]; then ok "nothing missing in config/"
+else say "${missing} missing, ${n_todos} marked TODO(you). Edit config/*.yml, then make status."; fi

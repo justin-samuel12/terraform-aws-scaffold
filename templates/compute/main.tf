@@ -7,12 +7,12 @@ module "ip_plan" {
 module "placement" {
   source = "../../modules/placement"
 
-  groups  = local.files
+  groups  = local.fixed
   network = local.network
   label   = "${var.environment}'s VPC in ${var.region}"
 }
 
-# The VPC, the servers' subnets, security groups, instance profiles, target groups and the data key: all found by name and tags.
+# Everything shared is found by name and tags: the VPC, subnets, security groups, roles, the data key, load balancers, listeners and zones.
 data "aws_vpc" "vpc" {
   count = local.usable && length(local.files) > 0 ? 1 : 0
 
@@ -21,6 +21,18 @@ data "aws_vpc" "vpc" {
     Component   = "network"
     Name        = "vpc-01"
   }
+}
+
+# An Auto Scaling group's subnets: every zone of its tier.
+data "aws_subnets" "tiers" {
+  for_each = local.usable ? toset([for f in values(local.scaled) : try(f.tier, "private")]) : toset([])
+
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.vpc[0].id]
+  }
+
+  tags = { Tier = each.key }
 }
 
 data "aws_subnet" "subnets" {
@@ -38,15 +50,9 @@ data "aws_security_group" "groups" {
 }
 
 data "aws_iam_instance_profile" "profiles" {
-  for_each = local.usable ? toset(compact([for f in values(local.files) : try(f.role, null)])) : toset([])
+  for_each = local.usable ? toset([for f in values(local.files) : f.iam_instance_profile]) : toset([])
 
   name = each.key
-}
-
-data "aws_lb_target_group" "targets" {
-  for_each = local.usable ? toset(flatten([for f in values(local.files) : keys(try(f.targets, {}))])) : toset([])
-
-  tags = { Name = replace(each.key, "/", "-") }
 }
 
 data "aws_kms_key" "data" {
@@ -55,40 +61,132 @@ data "aws_kms_key" "data" {
   key_id = "alias/${var.environment}-data"
 }
 
-module "ec2_instance" {
-  source   = "../../modules/ec2-instance"
+data "aws_lb" "load_balancers" {
+  for_each = local.usable ? toset(compact(concat([for r in local.routes : r.load_balancer], [for n in local.names : n.load_balancer]))) : toset([])
+
+  name = "${var.environment}-${each.key}"
+}
+
+data "aws_lb_listener" "listeners" {
+  for_each = local.usable ? toset(local.listener_keys) : toset([])
+
+  load_balancer_arn = data.aws_lb.load_balancers[split(":", each.key)[0]].arn
+  port              = tonumber(split(":", each.key)[1])
+}
+
+data "aws_lb_target_group" "targets" {
+  for_each = local.usable ? toset(flatten([for t in values(local.targets) : keys(t)])) : toset([])
+
+  tags = { Name = "${var.environment}-${replace(each.key, "/", "-")}", Environment = var.environment }
+}
+
+data "aws_route53_zone" "zones" {
+  provider = aws.hub
+  for_each = local.usable ? toset([for n in local.names : "${n.zone}|${n.private}"]) : toset([])
+
+  name         = split("|", each.key)[0]
+  private_zone = split("|", each.key)[1] == "true"
+}
+
+# One CodeDeploy service role per environment, only when some group is deployed by CodeDeploy.
+module "codedeploy_role" {
+  source = "../../modules/iam-role"
+  count  = local.usable && anytrue([for f in values(local.files) : can(f.codedeploy)]) ? 1 : 0
+
+  roles = {
+    "codedeploy-${var.environment}" = {
+      description      = "CodeDeploy deploying ${var.environment}'s servers"
+      services         = ["codedeploy"]
+      managed_policies = ["service-role/AWSCodeDeployRole"]
+    }
+  }
+}
+
+module "server_group" {
+  source = "../../modules/server-group"
+
+  providers = {
+    aws     = aws
+    aws.hub = aws.hub
+  }
+
   for_each = { for group, f in local.files : group => f if local.usable }
 
-  environment        = var.environment
-  group              = each.key
-  image_id           = each.value.image
-  security_group_ids = [for g in try(each.value.security_groups, []) : data.aws_security_group.groups[g].id]
-  instance_profile   = data.aws_iam_instance_profile.profiles[each.value.role].name
-  kms_key_arn        = data.aws_kms_key.data[0].arn
-  root_size          = try(each.value.root_size, 30)
-  protect            = try(each.value.protect, false)
-  backup             = try(each.value.backup, true)
-  user_data          = try(file("${local.config_dir}/${each.value.user_data}"), null)
-  tags               = { for k, v in try(each.value.tags, {}) : k => tostring(v) }
-  target_groups      = { for t, port in try(each.value.targets, {}) : t => { arn = data.aws_lb_target_group.targets[t].arn, port = port } }
+  name        = each.key
+  environment = var.environment
+  vpc_id      = data.aws_vpc.vpc[0].id
+  port        = try(each.value.target_group.port, null)
+  health      = try(each.value.target_group.health_check.path, "/")
+  target = {
+    protocol   = try(each.value.target_group.protocol, "HTTP")
+    matcher    = try(tostring(each.value.target_group.health_check.matcher), "200-399")
+    stickiness = try(each.value.target_group.stickiness.cookie_duration, null)
+    slow_start = try(each.value.target_group.slow_start, 0)
+  }
+  targets = {
+    for t, port in local.targets[each.key] : t => {
+      arn  = data.aws_lb_target_group.targets[t].arn
+      name = data.aws_lb_target_group.targets[t].name
+      port = port
+    }
+  }
+  deployment_config_name = try(each.value.codedeploy.deployment_config_name, null)
+  instance_type          = try(each.value.instance_type, null)
+  autoscaling = can(each.value.autoscaling) ? {
+    subnet_ids                    = data.aws_subnets.tiers[try(each.value.tier, "private")].ids
+    min_size                      = each.value.autoscaling.min_size
+    max_size                      = each.value.autoscaling.max_size
+    desired_capacity              = each.value.autoscaling.desired_capacity
+    target_tracking_configuration = try(each.value.autoscaling.target_tracking_configuration, null)
+  } : null
+  codedeploy_role_arn = try(module.codedeploy_role[0].arns["codedeploy-${var.environment}"], null)
 
-  volumes = {
-    for name, v in try(each.value.volumes, {}) : name => {
-      device     = v.device
-      size       = v.size
-      iops       = try(v.iops, 3000)
-      throughput = try(v.throughput, 125)
+  servers = {
+    image_id           = each.value.ami
+    security_group_ids = [for g in try(each.value.security_groups, []) : data.aws_security_group.groups[g].id]
+    instance_profile   = data.aws_iam_instance_profile.profiles[each.value.iam_instance_profile].name
+    kms_key_arn        = data.aws_kms_key.data[0].arn
+    root_size          = try(each.value.root_block_device.volume_size, 30)
+    backup             = try(each.value.backup, true)
+    user_data          = try(file("${local.config_dir}/${each.value.user_data}"), null)
+    tags               = { for k, v in try(each.value.tags, {}) : k => tostring(v) }
+    volumes = {
+      for name, v in try(each.value.ebs_block_device, {}) : name => {
+        device     = v.device_name
+        size       = v.volume_size
+        iops       = try(v.iops, 3000)
+        throughput = try(v.throughput, 125)
+      }
+    }
+    members = {
+      for name, s in local.servers : name => {
+        subnet_id     = data.aws_subnet.subnets[s.subnet].id
+        subnet        = s.subnet
+        instance_type = s.type
+        private_ip    = try(s.addresses.primary, null)
+        secondary_ips = [for role, a in s.addresses : a if role != "primary"]
+      }
+      if s.group == each.key
     }
   }
 
-  members = {
-    for name, s in local.servers : name => {
-      subnet_id     = data.aws_subnet.subnets[s.subnet].id
-      subnet        = s.subnet
-      instance_type = s.type
-      private_ip    = try(s.addresses.primary, null)
-      secondary_ips = [for role, a in s.addresses : a if role != "primary"]
+  routes = [
+    for r in local.routes : {
+      listener_arn = data.aws_lb_listener.listeners["${r.load_balancer}:${r.listener}"].arn
+      hosts        = r.hosts
+      paths        = r.paths
+      priority     = r.priority
     }
-    if s.group == each.key
-  }
+    if r.group == each.key
+  ]
+
+  names = [
+    for n in local.names : {
+      zone_id     = data.aws_route53_zone.zones["${n.zone}|${n.private}"].zone_id
+      name        = n.name
+      lb_dns_name = data.aws_lb.load_balancers[n.load_balancer].dns_name
+      lb_zone_id  = data.aws_lb.load_balancers[n.load_balancer].zone_id
+    }
+    if n.group == each.key
+  ]
 }

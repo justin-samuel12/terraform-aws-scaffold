@@ -13,6 +13,8 @@ crash.*.log
 .terraform.tfstate.lock.info
 
 # Local settings and secrets
+*.tfvars
+*.tfvars.json
 .env
 *.env
 override.tf
@@ -29,38 +31,5 @@ override.tf.json
 __pycache__/
 *.pyc
 
-.check-files/
-
-# AI assistants: their settings, memory, rules and session files stay on each machine
 .claude/
-CLAUDE.md
-CLAUDE.local.md
-.claude.json
-.mcp.json
-AGENTS.md
-AGENTS.override.md
-.codex/
-GEMINI.md
-.gemini/
-.cursor/
-.cursorrules
-.cursorignore
-.cursorindexingignore
-.windsurf/
-.windsurfrules
-.codeium/
-.continue/
-.copilot/
-.github/copilot-instructions.md
-.github/instructions/
-.github/prompts/
-.aider*
-.amazonq/
-.kiro/
-.roo/
-.roomodes
-.clinerules
-.cline/
-.tabnine/
-.specstory/
-.junie/
+.check-files/

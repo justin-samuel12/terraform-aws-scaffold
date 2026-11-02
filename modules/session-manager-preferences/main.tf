@@ -59,6 +59,35 @@ resource "aws_iam_role_policy_attachment" "default_host" {
   policy_arn = "arn:${data.aws_partition.current.partition}:iam::aws:policy/AmazonSSMManagedEC2InstanceDefaultPolicy"
 }
 
+# The agent encrypts sessions with the sessions key and streams them to /ssm/sessions, with these credentials when it uses them.
+resource "aws_iam_role_policy" "default_host_sessions" {
+  count = var.create_default_host_role ? 1 : 0
+
+  name = "session-manager"
+  role = aws_iam_role.default_host[0].name
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect    = "Allow"
+        Action    = ["kms:Decrypt", "kms:GenerateDataKey"]
+        Resource  = "*"
+        Condition = { "ForAnyValue:StringEquals" = { "kms:ResourceAliases" = ["alias/shared-sessions"] } }
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["logs:CreateLogStream", "logs:PutLogEvents", "logs:DescribeLogStreams"]
+        Resource = "arn:${data.aws_partition.current.partition}:logs:*:${data.aws_caller_identity.current.account_id}:log-group:/ssm/sessions:*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["logs:DescribeLogGroups"]
+        Resource = "*"
+      },
+    ]
+  })
+}
+
 resource "aws_ssm_service_setting" "default_host" {
   setting_id    = "arn:${data.aws_partition.current.partition}:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:servicesetting/ssm/managed-instance/default-ec2-instance-management-role"
   setting_value = "service-role/AWSSystemsManagerDefaultEC2InstanceManagementRole"

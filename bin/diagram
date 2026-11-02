@@ -68,7 +68,7 @@ render() {
             template="$( (grep -hoE 'source\s*=\s*"[^"]*templates/[a-z-]+' "${stack}"/*.tf 2>/dev/null || true) | sed -E 's#.*templates/##' | head -n1)"
             files=("${stack}"/*.tf)
             [[ -n "${template}" ]] && files+=(templates/"${template}"/*.tf)
-            modules="$( (grep -hoE 'source\s*=\s*"[^"]*modules/[a-z0-9-]+' "${files[@]}" 2>/dev/null || true) | sed -E 's#.*modules/##' | sort -u | paste -sd, - | sed 's/,/, /g')"
+            modules="$( (grep -hoE 'source\s*=\s*"[^"]*modules/[a-z-]+' "${files[@]}" 2>/dev/null || true) | sed -E 's#.*modules/##' | sort -u | paste -sd, - | sed 's/,/, /g')"
             echo "| \`${stack#live/}\` | ${template:+\`templates/${template}\`} | ${modules:-} |"
         done
     fi

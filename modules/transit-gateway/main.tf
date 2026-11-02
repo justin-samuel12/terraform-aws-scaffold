@@ -8,6 +8,8 @@ resource "aws_ec2_transit_gateway" "transit_gateway" {
   dns_support                     = "enable"
   vpn_ecmp_support                = "enable"
 
+  security_group_referencing_support = var.security_group_referencing ? "enable" : "disable"
+
   tags = { Name = var.name }
 
   # Every environment routes through the hub; a plan that would replace it fails here.

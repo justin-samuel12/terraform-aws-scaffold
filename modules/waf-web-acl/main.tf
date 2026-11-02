@@ -65,7 +65,7 @@ resource "aws_wafv2_web_acl" "web_acl" {
   tags = { Name = var.name }
 }
 
-# Every request is logged, without the Authorization header.
+# Every request is logged, without the Authorization and Cookie headers.
 resource "aws_wafv2_web_acl_logging_configuration" "web_acl" {
   resource_arn            = aws_wafv2_web_acl.web_acl.arn
   log_destination_configs = [var.log_bucket_arn]
@@ -73,6 +73,12 @@ resource "aws_wafv2_web_acl_logging_configuration" "web_acl" {
   redacted_fields {
     single_header {
       name = "authorization"
+    }
+  }
+
+  redacted_fields {
+    single_header {
+      name = "cookie"
     }
   }
 }

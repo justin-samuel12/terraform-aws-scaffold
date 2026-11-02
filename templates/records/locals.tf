@@ -1,7 +1,7 @@
 locals {
   config_dir = coalesce(var.config_dir, path.root)
   files      = { for name in fileset(local.config_dir, "*.yml") : trimsuffix(name, ".yml") => yamldecode(file("${local.config_dir}/${name}")) }
-  keys       = ["zone", "private", "name", "load_balancer", "server", "cname"]
+  keys       = ["zone", "private_zone", "name", "load_balancer", "server", "cname"]
 
   problems = concat(
     [for n, f in local.files : "${n}.yml: keys are ${join(", ", local.keys)}" if !alltrue([for k in try(keys(f), []) : contains(local.keys, k)])],

@@ -1,14 +1,13 @@
 count: 2
-type: r6i.2xlarge
-image: ami-0123456789abcdef0
-role: sqlserver
+instance_type: r6i.2xlarge
+ami: ami-0123456789abcdef0
+iam_instance_profile: sqlserver
 security_groups:
   - sqlserver
-protect: true
-volumes:
+ebs_block_device:
   data:
-    device: /dev/sdf
-    size: 1000
+    device_name: /dev/sdf
+    volume_size: 1000
 members:
   sqlserver-01:
     subnet: data-az1

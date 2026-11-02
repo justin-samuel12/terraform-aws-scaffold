@@ -1,6 +1,7 @@
 locals {
   config_dir = coalesce(var.config_dir, path.root)
-  settings   = merge({ retention_days = 365 }, try(yamldecode(file("${local.config_dir}/logging.yml")), {}))
+  file       = try(yamldecode(file("${local.config_dir}/logging.yml")), {})
+  settings   = { retention_days = try(local.file.expiration.days, 365) }
 
   # Named by account and region, so the names are unique and every stack can find them without reading this one's state.
   account_id = data.aws_caller_identity.current.account_id

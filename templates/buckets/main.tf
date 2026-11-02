@@ -13,11 +13,11 @@ module "s3_bucket" {
 
   name            = local.names[each.key]
   kms_key_arn     = data.aws_kms_key.data[0].arn
-  noncurrent_days = try(each.value.noncurrent_days, 90)
-  expire_days     = try(each.value.expire_days, null)
+  noncurrent_days = try(each.value.noncurrent_version_expiration.noncurrent_days, 90)
+  expire_days     = try(each.value.expiration.days, null)
   backup          = try(each.value.backup, false)
-  object_lock     = try({ mode = each.value.object_lock.mode, days = each.value.object_lock.days }, null)
-  cors = [for c in try(each.value.cors, []) : {
+  object_lock     = try({ mode = each.value.object_lock_configuration.default_retention.mode, days = each.value.object_lock_configuration.default_retention.days }, null)
+  cors = [for c in try(each.value.cors_rule, []) : {
     allowed_methods = tolist(c.allowed_methods)
     allowed_origins = tolist(c.allowed_origins)
     allowed_headers = try(tolist(c.allowed_headers), [])

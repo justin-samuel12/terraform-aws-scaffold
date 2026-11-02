@@ -34,7 +34,7 @@ carried by tags and by where its stack sits in `live/`, never by its name.
 | Resources in code | The resource type; never `this` or `that` | `aws_vpc.vpc`, `aws_subnet.subnets["private-usw2-az1"]`, `aws_ec2_transit_gateway.transit_gateway` |
 | Transit Gateway route tables | The isolation level, not an environment | `restricted`, `standard`, `shared` |
 | AWS Name tags | Type, then a two-digit number | `vpc-01`, `tgw-01`, `vpn-01` |
-| Per-zone pieces of a VPC | The VPC, the tier, then the full zone ID; a subnet and its route table share the name | `vpc-01-private-use1-az1`, `vpc-01-nat-use1-az1` |
+| Per-zone pieces of a VPC | The VPC, the tier, then the full zone ID; a subnet and its route table share the name | `vpc-01-private-use2-az1`, `vpc-01-nat-use2-az1` |
 
 Lowercase throughout; underscores in code, hyphens in AWS names.
 
@@ -81,7 +81,7 @@ Applied through the provider's `default_tags`, so every resource carries them:
 | `ManagedBy` | `terraform` |
 | `Environment` | `production` |
 | `Component` | `network` |
-| `Repository` | the repository's folder name |
+| `Repository` | `repository` in `config/global.yml`, so every clone tags alike; else the folder the clone is in |
 | `Team` | `platform`, the environment's `team` in `config/<region>.yml`; left off when unset ([configuration](configuration.md#config)) |
 
 Subnets carry two more, set by the `vpc` module:
@@ -133,13 +133,17 @@ it has been applied. That is what enforces the order in
 
 ## Checks
 
-Before a change is reviewed:
+Before a change is reviewed, `make check` runs every check below in order,
+with no credentials and no state, and stops at the first that fails:
 
-| Check | Run with | Also in the pre-commit hook |
+| Check | On its own | Also in the pre-commit hook |
 |---|---|---|
 | Formatting | `make fmt-check` | yes, when `.tf` files are staged |
 | Lint, with the AWS ruleset | `make lint` | yes, when `.tf` files are staged and `tflint` is installed |
 | Tests, against a mocked AWS | `make test` | no: they take minutes |
-| Validation | `make validate STACK=...` | no |
+| Every stack validates | `make validate-all` (one: `make validate STACK=...`) | no |
+| Every stack's files plan | `make check-files` | no |
+| Every example plans | `make check-examples` | no |
+| Backends match `config/` | `bin/backends --check` | yes |
 | Secrets | `gitleaks` | yes; the commit is refused without it |
 | Diagram up to date | `bin/diagram --check` | yes |

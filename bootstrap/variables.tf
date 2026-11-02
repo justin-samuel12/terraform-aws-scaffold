@@ -34,3 +34,14 @@ variable "profile" {
   type        = string
   default     = null
 }
+
+variable "account_prefixes" {
+  description = "Account ID -> the state keys its environments use, as S3 key patterns (us-east-2/production/*). Each other account may read and write only those. Empty in single-account mode."
+  type        = map(list(string))
+  default     = {}
+
+  validation {
+    condition     = alltrue([for a in keys(var.account_prefixes) : can(regex("^[0-9]{12}$", a))])
+    error_message = "account_prefixes is keyed by 12-digit account IDs."
+  }
+}

@@ -1,0 +1,22 @@
+instance_type: m6i.large
+ami: ami-0123456789abcdef0
+tier: ops
+iam_instance_profile: orders-api
+autoscaling:
+  min_size: 2
+  max_size: 6
+  desired_capacity: 2
+  target_tracking_configuration:
+    predefined_metric_type: ASGAverageCPUUtilization
+    target_value: 50
+target_group:
+  port: 8080
+  health_check:
+    path: /health
+listener_rules:
+  - load_balancer: internal
+    host_header:
+      - orders.example.com
+    priority: 1100
+codedeploy:
+  deployment_config_name: CodeDeployDefault.OneAtATime

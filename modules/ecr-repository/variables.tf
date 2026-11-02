@@ -25,3 +25,14 @@ variable "replicate_to" {
   type        = set(string)
   default     = []
 }
+
+variable "pull_accounts" {
+  description = "Other accounts whose roles may pull every repository: each environment's account, when environments have their own."
+  type        = set(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for a in var.pull_accounts : can(regex("^[0-9]{12}$", a))])
+    error_message = "pull_accounts are 12-digit account IDs."
+  }
+}

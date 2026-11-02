@@ -1,0 +1,7 @@
+description: Monitoring collectors
+services:
+  - ec2
+managed_policies:
+  - AmazonSSMManagedInstanceCore
+policies:
+  - read-tags

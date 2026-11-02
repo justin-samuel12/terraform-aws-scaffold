@@ -7,8 +7,8 @@ variables {
     transit_gateway_id = "tgw-oregon"
     route_table_id     = "tgw-rtb-oregon-shared"
     routes = {
-      "tgw-rtb-oregon-restricted" = ["10.41.0.0/16"]
-      "tgw-rtb-oregon-shared"     = ["10.40.0.0/20", "10.41.0.0/16"]
+      restricted = { route_table_id = "tgw-rtb-oregon-restricted", cidrs = ["10.41.0.0/16"] }
+      shared     = { route_table_id = "tgw-rtb-oregon-shared", cidrs = ["10.40.0.0/20", "10.41.0.0/16"] }
     }
   }
   accepter = {
@@ -16,8 +16,8 @@ variables {
     transit_gateway_id = "tgw-ohio"
     route_table_id     = "tgw-rtb-ohio-shared"
     routes = {
-      "tgw-rtb-ohio-restricted" = ["10.61.0.0/16", "10.63.0.0/16"]
-      "tgw-rtb-ohio-shared"     = ["10.60.0.0/20", "10.61.0.0/16", "10.62.0.0/16", "10.63.0.0/16"]
+      restricted = { route_table_id = "tgw-rtb-ohio-restricted", cidrs = ["10.61.0.0/16", "10.63.0.0/16"] }
+      shared     = { route_table_id = "tgw-rtb-ohio-shared", cidrs = ["10.60.0.0/20", "10.61.0.0/16", "10.62.0.0/16", "10.63.0.0/16"] }
     }
   }
 }
@@ -41,7 +41,7 @@ run "peering" {
   }
 
   assert {
-    condition     = aws_ec2_transit_gateway_route.routes["accepter tgw-rtb-ohio-restricted 10.63.0.0/16"].region == "us-east-2"
+    condition     = aws_ec2_transit_gateway_route.routes["accepter restricted 10.63.0.0/16"].region == "us-east-2"
     error_message = "Routes are created in their own side's region."
   }
 }

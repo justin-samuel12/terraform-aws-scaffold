@@ -1,4 +1,8 @@
 # certificates.yml turned into certificates, against a mocked AWS -- docs/global.md.
+mock_provider "aws" {
+  alias = "hub"
+}
+
 mock_provider "aws" {}
 
 override_data {
@@ -14,7 +18,7 @@ run "grafana" {
   }
 
   assert {
-    condition     = local.certificates.grafana.domain == "grafana.example.com"
+    condition     = local.certificates.grafana.domain_name == "grafana.example.com"
     error_message = "One certificate per entry in the file."
   }
 }

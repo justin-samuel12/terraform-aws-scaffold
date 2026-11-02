@@ -29,7 +29,7 @@ output "networks" {
   }
   precondition {
     condition     = length(local.problems.shape) == 0
-    error_message = "Unknown or misspelt keys (a network has account_id, team, cidr, segment and public; a hub has account_id, team, cidr, amazon_side_asn and primary): ${join(", ", [for key in local.problems.shape : local.labels[key]])}."
+    error_message = "Unknown or misspelt keys (a network has account_id, team, cidr, segment and public; a hub has account_id, team, cidr, amazon_side_asn, primary and security_group_referencing): ${join(", ", [for key in local.problems.shape : local.labels[key]])}."
   }
   precondition {
     condition     = length(local.problems.cidr) == 0
@@ -38,6 +38,10 @@ output "networks" {
   precondition {
     condition     = length(local.problems.segment) == 0
     error_message = "segment must be restricted, standard or shared: ${join(", ", [for key in local.problems.segment : local.labels[key]])}."
+  }
+  precondition {
+    condition     = length(local.problems.referencing) == 0
+    error_message = "security_group_referencing must be true or false: ${join(", ", [for key in local.problems.referencing : local.labels[key]])}."
   }
   precondition {
     condition     = length(local.problems.public) == 0
@@ -112,4 +116,18 @@ output "dns" {
     condition     = alltrue(flatten([for domain, targets in local.dns.forward : concat([can(regex("^[a-z0-9.-]+$", domain)) && length(targets) > 0], [for ip in targets : can(cidrhost("${ip}/32", 0))])]))
     error_message = "dns.forward in config/global.yml: each domain needs at least one DNS server IP."
   }
+}
+
+output "accounts" {
+  description = "Every account in config/: hub (each region's hub account) and environments (each environment's account), from its own account_id or config/global.yml's."
+  value = {
+    hubs = { for key, n in local.networks : split("/", key)[1] => n.account_id if n.purpose == "egress" }
+    # An environment in two regions has one account (the plan refuses otherwise), so the first is its account.
+    environments = { for env, accounts in { for key, n in local.networks : split("/", key)[0] => n.account_id... if n.purpose == "spoke" } : env => accounts[0] }
+  }
+}
+
+output "organization_sharing" {
+  description = "true: the accounts are in one AWS Organization with RAM sharing turned on, so shares reach them without invitations. false: each account accepts the hub's share. organization_sharing in config/global.yml."
+  value       = try(tobool(local.global.organization_sharing), false)
 }

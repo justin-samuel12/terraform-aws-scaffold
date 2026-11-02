@@ -1,0 +1,13 @@
+# Network load balancers have no rules: the listener forwards to a target group that applications join with targets:.
+load_balancer_type: network
+internal: true
+security_groups:
+  - collectors-lb
+listeners:
+  "10051":
+    protocol: TCP
+    target: agents
+targets:
+  agents:
+    port: 10051
+    protocol: TCP

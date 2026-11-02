@@ -1,0 +1,7 @@
+description: The shared file system's mount targets
+ingress:
+  - description: NFS from the dashboards
+    from_port: 2049
+    to_port: 2049
+    source:
+      - dashboards

@@ -1,7 +1,7 @@
 locals {
   # data: everything holding live data, and AWS Backup reading it. backup: the backup vault only, so a backup cannot be read with the live key and vice versa.
   purposes = {
-    data   = ["rds", "elasticfilesystem", "secretsmanager", "ec2", "backup"]
+    data   = ["rds", "elasticfilesystem", "secretsmanager", "ec2", "backup", "s3"]
     backup = ["backup"]
   }
 

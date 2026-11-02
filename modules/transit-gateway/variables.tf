@@ -48,3 +48,9 @@ variable "routes" {
     error_message = "A route needs either an attachment_id or blackhole = true, not both."
   }
 }
+
+variable "security_group_referencing" {
+  description = "Let security groups in VPCs attached to this Transit Gateway reference each other (same region only). Off by default."
+  type        = bool
+  default     = false
+}

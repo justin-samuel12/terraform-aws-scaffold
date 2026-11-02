@@ -37,3 +37,18 @@ run "nothing_listed" {
     error_message = "Without ecr.yml, no repositories."
   }
 }
+
+run "other_accounts_pull" {
+  command = plan
+
+  # Production takes the global account (444...); the hub and operations have their own (111...).
+  variables {
+    region      = "us-east-2"
+    config_path = "../../tests/stacks"
+  }
+
+  assert {
+    condition     = local.pull_accounts == toset(["444444444444"])
+    error_message = "Every other environment account may pull, and only those."
+  }
+}

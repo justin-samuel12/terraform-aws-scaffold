@@ -9,12 +9,15 @@ variable "name" {
 }
 
 variable "requester" {
-  description = "The side that requests the peering: its region, Transit Gateway, the route table the peering is associated with, and the CIDRs it sends across."
+  description = "The side that requests the peering: its region, Transit Gateway, the route table the peering is associated with, and per route table (by name) its ID and the CIDRs it sends across."
   type = object({
     region             = string
     transit_gateway_id = string
     route_table_id     = string
-    routes             = map(list(string))
+    routes = map(object({
+      route_table_id = string
+      cidrs          = list(string)
+    }))
   })
 }
 
@@ -24,7 +27,10 @@ variable "accepter" {
     region             = string
     transit_gateway_id = string
     route_table_id     = string
-    routes             = map(list(string))
+    routes = map(object({
+      route_table_id = string
+      cidrs          = list(string)
+    }))
   })
 
   validation {

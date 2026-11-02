@@ -1,0 +1,3 @@
+zone: internal.example.com
+private_zone: true
+cname: sqlserver-01.internal.example.com

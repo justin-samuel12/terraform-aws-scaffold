@@ -1,4 +1,5 @@
 data "aws_route53_zone" "zones" {
+  provider = aws.dns
   for_each = toset([for c in var.certificates : c.zone])
 
   name         = each.key
@@ -23,6 +24,7 @@ resource "aws_acm_certificate" "certificates" {
 
 # Keyed by the names in config, which are known before the certificate exists; AWS fills in each record's value.
 resource "aws_route53_record" "validation" {
+  provider = aws.dns
   for_each = merge([
     for name, certificate in var.certificates : {
       for domain in concat([certificate.domain], certificate.alternative_names) : "${name}/${domain}" => { name = name, domain = domain, zone = certificate.zone }

@@ -50,12 +50,12 @@ module "rds_instance" {
   source   = "../../modules/rds-instance"
   for_each = local.databases
 
-  name                = each.key
+  name                = "${var.environment}-${each.key}"
   engine              = each.value.engine
-  engine_version      = tostring(each.value.version)
-  instance_class      = each.value.class
-  storage             = each.value.storage
-  max_storage         = try(each.value.max_storage, each.value.storage * 5)
+  engine_version      = tostring(each.value.engine_version)
+  instance_class      = each.value.instance_class
+  storage             = each.value.allocated_storage
+  max_storage         = try(each.value.max_allocated_storage, each.value.allocated_storage * 5)
   multi_az            = try(each.value.multi_az, true)
   subnet_ids          = data.aws_subnets.data[0].ids
   security_group_ids  = [for g in try(each.value.security_groups, []) : data.aws_security_group.groups[g].id]

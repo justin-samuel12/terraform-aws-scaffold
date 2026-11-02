@@ -3,7 +3,7 @@ mock_provider "aws" {}
 
 override_data {
   target = data.aws_vpc.vpc
-  values = { id = "vpc-development" }
+  values = { id = "vpc-operations" }
 }
 
 override_data {
@@ -28,7 +28,7 @@ override_data {
 
 variables {
   config_path = "../../tests/config"
-  environment = "development"
+  environment = "operations"
   region      = "us-east-2"
 }
 
@@ -60,7 +60,7 @@ run "refuses_internet_facing_without_a_public_tier" {
 
   # Operations has no public tier, so nothing in it can face the internet.
   variables {
-    config_dir = "tests/public-in-development"
+    config_dir = "tests/public-in-operations"
   }
 
   expect_failures = [output.load_balancers]

@@ -1,6 +1,7 @@
 description: Remote desktop for staff
 ingress:
   - description: RDP from the staff networks
-    port: 3389
-    from:
+    from_port: 3389
+    to_port: 3389
+    source:
       - list:staff-team

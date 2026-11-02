@@ -1,0 +1,7 @@
+description: Monitoring collectors
+ingress:
+  - description: Agent traffic, through the network load balancer
+    from_port: 10051
+    to_port: 10051
+    source:
+      - collectors-lb

@@ -1,6 +1,8 @@
+# Stack tests: no accounts anywhere, which every stack must refuse to plan.
+account_id: ""
 state:
   bucket: ""
-  region: us-east-1
+  region: us-east-2
   key: "{region}/{environment}/{component}"
 subnets:
   environment:

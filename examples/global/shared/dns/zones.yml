@@ -1,0 +1,3 @@
+# Public hosted zones. Private zones come from config/global.yml (dns.private_zones).
+public:
+  - example.com

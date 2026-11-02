@@ -11,4 +11,5 @@ module "ecr_repository" {
   keep_images   = local.settings.keep_images
   untagged_days = local.settings.untagged_days
   replicate_to  = local.replicate_to
+  pull_accounts = local.pull_accounts
 }

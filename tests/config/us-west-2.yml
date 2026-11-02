@@ -8,6 +8,7 @@ hub:
   team:
   cidr: 10.60.0.0/20
   amazon_side_asn: 64513
+  security_group_referencing: false
 vpcs:
   # production:
   #   account_id: ""

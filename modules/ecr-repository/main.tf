@@ -1,5 +1,7 @@
 data "aws_caller_identity" "current" {}
 
+data "aws_partition" "current" {}
+
 # Tags cannot be overwritten, so a deployed tag always means the same image; every push is scanned.
 resource "aws_ecr_repository" "repositories" {
   for_each = var.repositories
@@ -55,3 +57,20 @@ resource "aws_ecr_replication_configuration" "registry" {
     }
   }
 }
+
+# Other accounts pull, never push: their roles still need ecr:GetAuthorizationToken and the pull actions in IAM.
+resource "aws_ecr_repository_policy" "pull" {
+  for_each = length(var.pull_accounts) > 0 ? var.repositories : toset([])
+
+  repository = aws_ecr_repository.repositories[each.key].name
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "OtherAccountsPull"
+      Effect    = "Allow"
+      Principal = { AWS = [for a in sort(tolist(var.pull_accounts)) : "arn:${data.aws_partition.current.partition}:iam::${a}:root"] }
+      Action    = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"]
+    }]
+  })
+}
+

@@ -1,1 +1,2 @@
-retention_days: 400
+expiration:
+  days: 400

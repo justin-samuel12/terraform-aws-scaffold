@@ -2,16 +2,16 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-REPO_ROOT := $(shell pwd)
-STACK_DIR  = live/$(STACK)
-EXAMPLE   := us-east-1/development/network
-MODULES   := $(sort $(dir $(wildcard modules/*/versions.tf templates/*/versions.tf bootstrap/versions.tf)))
-STACKS    := $(sort $(patsubst %/main.tf,%,$(wildcard live/*/*/*/main.tf)))
+REPO_ROOT     := $(shell pwd)
+STACK_DIR      = live/$(STACK)
+EXAMPLE       := us-east-2/operations/network
+MODULES       := $(sort $(dir $(wildcard modules/*/versions.tf templates/*/versions.tf bootstrap/versions.tf)))
+STACKS        := $(sort $(patsubst %/main.tf,%,$(wildcard live/*/*/*/main.tf)))
 STACKS_TESTED := $(sort $(patsubst %/tests/,%/,$(dir $(wildcard live/*/*/*/tests/*.tftest.hcl))))
 export TF_PLUGIN_CACHE_DIR ?= $(REPO_ROOT)/.terraform.d/plugin-cache
 
-.PHONY: help setup bootstrap backends hooks stack init plan apply output validate \
-        check fmt fmt-check lint test validate-all check-files diagram clean
+.PHONY: help setup status config bootstrap backends hooks stack init plan apply output validate \
+        check fmt fmt-check lint test validate-all check-files check-examples diagram clean
 
 define require_stack
 	@test -n "$(STACK)" || { echo "STACK is required, e.g. STACK=$(EXAMPLE)" >&2; exit 1; }
@@ -21,14 +21,22 @@ endef
 ##@ First time, in this order
 
 help: ## List targets
-	@awk 'BEGIN {FS = ":.*## "} /^##@/ {printf "\n%s\n", substr($$0, 5)} /^[a-z-]+:.*## / {printf "  %-13s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*## "} /^##@/ {printf "\n%s\n", substr($$0, 5)} /^[a-z-]+:.*## / {printf "  %-15s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@echo
 	@echo "  STACK=<region>/<environment>/<component>, e.g. make plan STACK=$(EXAMPLE)"
+	@echo "  ARGS=  more for terraform plan or apply, e.g. ARGS='-replace=<address>' to rebuild one server on purpose"
+	@echo "  ONLY=  some stacks for check-files or check-examples, e.g. ONLY=\"us-east-2/operations/compute\""
 
-setup: ## Check prerequisites, then choose this machine's AWS profile for each environment
+setup: ## Guided: accounts, regions, environments, IP scope; writes config/ and the stacks, then your profiles
 	bin/setup
 
-bootstrap: ## Create the state bucket (asks first), move its state into it, write backends
+status: ## Where you are, from a fresh clone to a first plan, and the next command (read-only)
+	bin/status
+
+config: ## The whole configuration as tables: what is filled in, what to check, what is missing (read-only)
+	bin/config
+
+bootstrap: ## The state bucket: create it (asks first), finish a run that stopped, or use one that already exists
 	bin/bootstrap
 
 backends: ## Rewrite every stack's backend.tf from config/global.yml
@@ -48,13 +56,13 @@ init: ## Connect a stack to its state
 	$(require_stack)
 	bin/tf $(STACK_DIR) init -input=false
 
-plan: ## Plan a stack: read-only, but needs credentials and takes the state lock
+plan: ## Plan a stack: read-only, but needs credentials and takes the state lock (ARGS= for more)
 	$(require_stack)
-	bin/tf $(STACK_DIR) plan -input=false
+	bin/tf $(STACK_DIR) plan -input=false $(ARGS)
 
-apply: ## Apply a stack, after showing the plan and asking
+apply: ## Apply a stack, after showing the plan and asking (ARGS= for more)
 	$(require_stack)
-	bin/tf $(STACK_DIR) apply -input=false
+	bin/tf $(STACK_DIR) apply -input=false $(ARGS)
 
 output: ## Show a stack's outputs
 	$(require_stack)
@@ -67,7 +75,7 @@ validate: ## Validate a stack without its backend
 
 ##@ Checks: no credentials, no state
 
-check: fmt-check lint test validate-all check-files ## All of the checks below, as CI would run them
+check: fmt-check lint test validate-all check-files check-examples ## All of the checks below, as CI would run them
 	bin/backends --check
 	@echo "All checks passed."
 
@@ -96,8 +104,11 @@ validate-all: ## Validate every stack without its backend
 	  else echo "FAIL  $${s#live/}"; ( cd $$s && terraform validate -no-color ) | sed 's/^/      /'; failed=1; fi; \
 	done; exit $$failed
 
-check-files: ## Plan every stack's .yml files against a mocked AWS (or ONLY="<stack> ...")
+check-files: ## Plan every stack's .yml files against a mocked AWS (ONLY= for some)
 	bin/check-files $(ONLY)
+
+check-examples: ## Plan every file in examples/ the same way, against examples/config/ (ONLY= for some)
+	bin/check-files --examples $(ONLY)
 
 diagram: ## Regenerate docs/diagram.md from config/ and live/
 	bin/diagram
@@ -106,4 +117,4 @@ diagram: ## Regenerate docs/diagram.md from config/ and live/
 
 clean: ## Remove every .terraform folder and the provider cache (state is never local)
 	find . -type d -name .terraform -prune -exec rm -rf {} +
-	rm -rf .terraform.d
+	rm -rf .terraform.d .check-files

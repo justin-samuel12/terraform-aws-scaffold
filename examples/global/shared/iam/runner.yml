@@ -1,0 +1,10 @@
+description: Build runners
+services:
+  - ec2
+managed_policies:
+  - AmazonSSMManagedInstanceCore
+statement:
+  - actions:
+      - ecr:GetAuthorizationToken
+    resources:
+      - "*"

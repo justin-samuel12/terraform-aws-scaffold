@@ -10,6 +10,18 @@ region, two per environment.
 | `live/<region>/<environment>/access` | tunnels to fixed hosts in that environment |
 | `live/<region>/<environment>/patching` | that environment's patch baselines and maintenance window |
 
+```mermaid
+sequenceDiagram
+  participant P as 👤 Person
+  participant SSM as Session Manager
+  participant S as 🖥️ Server
+  P->>SSM: start-session (allowed by permission set)
+  S->>SSM: agent connects out on 443, no inbound port
+  SSM-->>P: shell or tunnel
+  SSM->>SSM: encrypt with the sessions key, log to /ssm/sessions
+  Note over SSM,S: closed after 20 idle minutes, 8 hours at most
+```
+
 ## `session-manager`
 
 Every session in the region is encrypted with a key of its own (`alias/shared-sessions`,
@@ -20,7 +32,7 @@ than 8 hours. Optional overrides in `session-manager.yml`:
 ```yaml
 idle_timeout_minutes: 20
 max_session_minutes: 480
-log_retention_days: 365
+retention_in_days: 365
 ```
 
 The stack also turns on **Default Host Management** in its region: every
@@ -30,10 +42,15 @@ profile holds, so a server is never unreachable because its role forgot
 `service-role/AWSSystemsManagerDefaultEC2InstanceManagementRole`, which only the
 primary region's stack creates; every region's setting points at it.
 
+The server's agent encrypts each session with the sessions key and streams it to
+`/ssm/sessions` with the server's own credentials, so every role EC2 assumes gets
+the built-in `session-manager` policy from the iam stack, and the Default Host
+Management role the same permissions ([global](global.md#iam)).
+
 AWS reads these preferences from one document with a fixed name,
-`SSM-SessionManagerRunShell`. If anyone has opened the Session Manager
-preferences in the console, the account already has it, and it must be
-imported before the first apply (see SKILLS.md, import work).
+`SSM-SessionManagerRunShell`, which this stack creates. Leave the Session
+Manager preferences page in the console alone: opening it creates the same
+document by hand.
 
 ## `documents`
 
@@ -42,8 +59,8 @@ runs (join a domain, install an agent, build a cluster). The file holds the
 document's type and its content, written as YAML.
 
 ```yaml
-# live/us-east-1/shared/documents/install-cloudwatch-agent.yml
-type: Command
+# live/us-east-2/shared/documents/install-cloudwatch-agent.yml
+document_type: Command
 content:
   schemaVersion: "2.2"
   description: Install the CloudWatch agent
@@ -67,14 +84,14 @@ One file per tunnel, to one fixed host and port: a database or cache that
 people reach from their own machine.
 
 ```yaml
-# live/us-east-1/development/access/orders.yml
-description: Port forwarding to the development orders database
-host: orders.abcdefghijkl.us-east-1.rds.amazonaws.com
-port: 5432
-local_port: 15432
+# live/us-west-2/staging/access/redis.yml
+description: Port forwarding to the staging Redis database
+host: redis.staging.example.com
+port: 10701
+local_port: 10701
 ```
 
-The template writes the Session document (`development-orders`). Fixing the host in
+The template writes the Session document (`staging-redis`). Fixing the host in
 the document, rather than using AWS's generic remote-host document, is what lets
 access be granted to this tunnel and nothing wider: whoever may use it gets
 `ssm:StartSession` on its ARN (the stack's output) in their Identity Center
@@ -83,9 +100,9 @@ permission set. The plan refuses a file without `host` and `port`.
 ## `patching`
 
 ```yaml
-# live/us-east-1/development/patching/patching.yml
+# live/us-east-2/operations/patching/patching.yml
 schedule: cron(0 7 ? * SUN *)
-duration_hours: 3
+duration: 3
 approve_after_days: 7
 ```
 

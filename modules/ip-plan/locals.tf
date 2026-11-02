@@ -17,7 +17,7 @@ locals {
   segments = ["restricted", "standard", "shared"]
   allowed_keys = {
     file   = ["zones", "hub", "vpcs"]
-    egress = ["account_id", "team", "cidr", "amazon_side_asn", "primary"]
+    egress = ["account_id", "team", "cidr", "amazon_side_asn", "primary", "security_group_referencing"]
     spoke  = ["account_id", "team", "cidr", "segment", "public"]
   }
 
@@ -48,6 +48,10 @@ locals {
     segment = [for key, d in local.vpc_definitions : key if local.purposes[key] == "spoke" && !contains(local.segments, try(d.segment, ""))]
     public  = [for key, d in local.vpc_definitions : key if local.purposes[key] == "spoke" && !can(tobool(d.public))]
     primary = [for key, d in local.vpc_definitions : key if local.purposes[key] == "egress" && !can(tobool(try(d.primary, false)))]
+    referencing = [
+      for key, d in local.vpc_definitions : key
+      if local.purposes[key] == "egress" && !can(tobool(try(d.security_group_referencing, false)))
+    ]
     asn = [
       for key, d in local.vpc_definitions : key
       if local.purposes[key] == "egress" && !try(d.amazon_side_asn >= 64512 && d.amazon_side_asn <= 65534 && floor(d.amazon_side_asn) == d.amazon_side_asn, false)
@@ -88,10 +92,13 @@ locals {
       public          = local.purposes[key] == "egress" ? true : tobool(d.public)
       amazon_side_asn = local.purposes[key] == "egress" ? d.amazon_side_asn : null
       primary         = local.purposes[key] == "egress" ? tobool(try(d.primary, false)) : false
+      # Off unless the region's hub turns it on; every VPC in the region follows its hub.
+      security_group_referencing = try(tobool(local.region_files[split("/", key)[1]].hub.security_group_referencing), false)
     }
     if !anytrue([for rule in ["names", "shape", "reserved", "zones"] : contains(local.files[rule], "config/${split("/", key)[1]}.yml")])
     && length(local.layout_problems) == 0
     && !anytrue([for rule in ["shape", "cidr", "segment", "public", "asn", "primary"] : contains(local.problems[rule], key)])
+    && length(local.problems.referencing) == 0
   }
 
   ranges     = { for key, v in local.vpcs : key => local.to_range[v.cidr] }
@@ -179,14 +186,17 @@ locals {
 
   networks = {
     for key, vpc in local.vpcs : key => {
-      cidr            = vpc.cidr
-      purpose         = vpc.purpose
-      segment         = vpc.segment
-      propagates_to   = local.propagation[vpc.segment]
-      public          = vpc.public
-      amazon_side_asn = vpc.amazon_side_asn
-      primary         = vpc.primary
-      zones           = local.region_files[split("/", key)[1]].zones
+      cidr                       = vpc.cidr
+      purpose                    = vpc.purpose
+      segment                    = vpc.segment
+      propagates_to              = local.propagation[vpc.segment]
+      public                     = vpc.public
+      amazon_side_asn            = vpc.amazon_side_asn
+      primary                    = vpc.primary
+      security_group_referencing = vpc.security_group_referencing
+      # The account it is built in: its own account_id, else config/global.yml's.
+      account_id = try(tostring(local.vpc_definitions[key].account_id), "") != "" ? tostring(local.vpc_definitions[key].account_id) : try(tostring(local.global.account_id), "")
+      zones      = local.region_files[split("/", key)[1]].zones
       subnets = {
         for tier, t in local.global.subnets[local.layout_section[vpc.purpose]] :
         tier => [

@@ -5,4 +5,7 @@ locals {
 
   # Copies go to every other region with a file in config/.
   replicate_to = toset([for key in keys(module.ip_plan.networks) : split("/", key)[1] if split("/", key)[1] != var.region])
+
+  # Every environment's account other than this one, so their servers can pull.
+  pull_accounts = toset([for env, account in module.ip_plan.accounts.environments : account if account != "" && account != try(module.ip_plan.accounts.hubs[var.region], "")])
 }

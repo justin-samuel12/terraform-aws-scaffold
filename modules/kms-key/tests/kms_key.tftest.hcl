@@ -17,7 +17,7 @@ override_data {
 }
 
 variables {
-  environment     = "development"
+  environment     = "operations"
   purposes        = { data = ["rds", "elasticfilesystem"], backup = ["backup"] }
   replica_regions = ["us-west-2"]
 }
@@ -31,7 +31,7 @@ run "keys_and_replicas" {
   }
 
   assert {
-    condition     = aws_kms_alias.keys["data"].name == "alias/development-data" && length(aws_kms_replica_key.replicas) == 2
+    condition     = aws_kms_alias.keys["data"].name == "alias/operations-data" && length(aws_kms_replica_key.replicas) == 2
     error_message = "One alias per purpose, and each key replicated to Oregon."
   }
 

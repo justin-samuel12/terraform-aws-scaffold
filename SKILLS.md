@@ -68,10 +68,9 @@ the code, never a command.
 
 ## Best practice is the bar
 
-This repository is built to current AWS and Terraform best practice. An
-existing environment being moved here is a reference for what exists, never a
-template for how to build it. When a request and best practice disagree, say so
-and explain the trade-off before writing it.
+This repository is built to current AWS and Terraform best practice. When a
+request and best practice disagree, say so and explain the trade-off before
+writing it.
 
 Already built in, for every stack that uses the modules:
 
@@ -88,10 +87,10 @@ Already built in, for every stack that uses the modules:
 - **Service roles trust only their service acting for this account**
   (`aws:SourceAccount`, `aws:SourceArn`), and grant only the actions they use,
   on only their own resources.
-- **Applications are stateless**: an `apps` file has no `protect`, and its
-  servers may be rebuilt by any plan. Anything holding state goes in `compute`
-  with `protect: true`. CodeDeploy reaches only servers tagged with both its
-  environment and its application.
+- **One kind of server**: every group of servers is a file in `compute`,
+  whether or not a load balancer reaches it or CodeDeploy deploys it.
+  CodeDeploy reaches only servers tagged with both its environment and its
+  group.
 - **Every resource is tagged** through `default_tags`, and every stack is pinned
   to its environment's account.
 - **VPCs, subnets and Transit Gateways refuse replacement** (`prevent_destroy`):
@@ -105,16 +104,18 @@ Already built in, for every stack that uses the modules:
 - **Databases**: managed rotated passwords, TLS required, logs exported, 35-day
   backups, a final snapshot always, deletion protection.
 - **Every database and file system is backed up by AWS Backup**, daily and
-  monthly, into a locked vault copied to a second region.
+  monthly, into a locked vault copied to Oregon.
 - **Every Session Manager session** is encrypted, logged to CloudWatch, closed
   after 20 idle minutes and capped at 8 hours; access to a host is a tunnel
   document granted by ARN, never SSH.
 - **Every environment is patched** in its own maintenance window, security and
   critical patches only, a quarter of instances at a time.
-- **Servers**: images pinned by ID, IMDSv2 only, no SSH keys, no public
-  addresses, encrypted disks, patched and backed up by tag; servers holding
-  state are protected from termination and from any plan that would destroy
-  them. Chosen addresses come only from each subnet's reserved block.
+- **Servers**: images pinned by ID, IMDSv2 only (hop limit 2), no SSH keys, no
+  public addresses, encrypted disks, patched and backed up by tag. Every server
+  has termination protection, and a new image or boot script never rebuilds
+  one: a rebuild is a deliberate `-replace`, never a side effect of a plan.
+  Extra disks are never destroyed by a plan. Chosen addresses come only from
+  each subnet's reserved block.
 - **Load balancers and WAF log every request** to the region's log buckets,
   which are encrypted, versioned, TLS-only and never destroyed by a plan.
 - **Databases cannot reach the internet**: the `data` tier routes only
@@ -141,7 +142,7 @@ Expected of everything added from here on:
   or anywhere else, community or AWS-published (`terraform-aws-modules`,
   `aws-ia`). Every module lives in `modules/`, written and tested here.
 - **Tests with every module**: what it builds, and at least one input it must
-  refuse. `make fmt-check`, `make lint` and `make test` pass before review.
+  refuse. `make check` passes before review.
 
 ## Never run these. Ever.
 
@@ -149,7 +150,7 @@ Expected of everything added from here on:
 |---|---|
 | `terraform apply` | Only a human applies. No flags, no directory, no exceptions. |
 | `terraform destroy` | Same. |
-| `terraform import` / `state mv` / `state rm` / `state push` | Mutates state. |
+| `state mv` / `state rm` / `state push`, or anything else that writes state | Mutates state. |
 | `-auto-approve` | Removes the only confirmation that exists. |
 | Any `make` target that applies | A wrapper does not make it safer. |
 | `git push` (esp. `--force`) | Publishes. Irreversible for others. |
@@ -184,7 +185,6 @@ For AWS, only `describe-*`, `list-*`, `get-*`.
 
 - it needs credentials and reaches the provider API
 - with state locking it takes a lock
-- against a config with `import` blocks it reads live objects
 
 Say what you are about to run and why, then let the user run it. Prefer
 handing over the command to running it yourself.
@@ -198,47 +198,19 @@ Do not bundle it into a larger command block where it is easy to miss.
 Documentation is the exception: it touches no infrastructure. Update it as part
 of the change, unasked.
 
-## Generate, verify, hand over
+## Hand over, never apply
 
-The correct division of labour:
+Write the change, run `make check`, then hand the plan and apply commands to
+the user. Planning
+and applying are theirs.
 
-1. **Read** the live state via read-only API calls
-2. **Generate** config and `import` blocks from that read
-3. **Verify** the generated config against what was read before any plan —
-   catches transcription errors early
-4. **Hand over** the plan and apply commands to the user
-
-Steps 1-3 are the assistant's job. Step 4 is not.
-
-## Import work specifically
-
-Most of this repository is built new, not imported. What is adopted (DNS zones,
-anything that stays where it is) is the highest-risk work in it.
-
-- Config without matching `import` blocks plans to **create duplicates**.
-  Always check both directions: every import target has config, every config
-  resource has an import.
-- The only acceptable plan before applying an adoption is
-  `N to import, 0 to add, M to change, 0 to destroy`, where every change is
-  the `ManagedBy` tag from `default_tags`. Check it in the JSON plan
-  (`terraform show -json`) field by field, not only the summary line; a
-  replacement is a stop.
-- Import blocks live in a temporary `imports.tf`, deleted once applied.
-- Regional resources in a multi-region stack import as `<id>@<region>`. For a
-  resource with deeply nested settings, generate the configuration from the
-  live resource (`terraform plan -generate-config-out=<file>`) rather than
-  writing it by hand.
-- A stack restructured without changing infrastructure uses `moved` blocks; the
-  plan must show only "has moved to" lines and `0 to add, 0 to change, 0 to
-  destroy`.
 - `aws_route53_zone` for a private zone needs `lifecycle { ignore_changes = [vpc] }`
   or the plan disassociates every VPC and breaks internal DNS.
 - Never set `force_destroy = true` on a hosted zone. Public zones hold records
   that exist nowhere else.
-- A resource whose settings hold a secret (a Lambda environment variable, for
-  one) is never imported while the secret is there: the AWS provider does not
-  mark those values sensitive, so the plan prints them. Move the secret out
-  first.
+- A stack restructured without changing infrastructure uses `moved` blocks; the
+  plan must show only "has moved to" lines and `0 to add, 0 to change, 0 to
+  destroy`.
 
 ## Secrets
 

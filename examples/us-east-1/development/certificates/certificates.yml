@@ -1,0 +1,5 @@
+dashboards:
+  domain_name: dashboards.example.com
+  subject_alternative_names:
+    - grafana.example.com
+  zone: example.com

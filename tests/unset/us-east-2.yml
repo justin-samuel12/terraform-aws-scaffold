@@ -1,0 +1,16 @@
+# Stack tests: no accounts or teams yet.
+zones:
+  - use2-az1
+  - use2-az2
+  - use2-az3
+hub:
+  account_id: ""
+  cidr: 10.40.0.0/20
+  amazon_side_asn: 64512
+  primary: true
+vpcs:
+  operations:
+    account_id: ""
+    cidr: 10.42.0.0/16
+    segment: shared
+    public: false

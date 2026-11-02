@@ -59,3 +59,26 @@ run "rejects_a_bad_name" {
 
   expect_failures = [var.bucket]
 }
+
+run "other_accounts_reach_only_their_keys" {
+  command = plan
+
+  variables {
+    account_prefixes = { "222222222222" = ["us-east-2/production/*", "global/production/*"] }
+  }
+
+  assert {
+    condition     = length(var.account_prefixes["222222222222"]) == 2
+    error_message = "Each other account is listed with the key patterns of its own environments."
+  }
+}
+
+run "rejects_a_bad_account" {
+  command = plan
+
+  variables {
+    account_prefixes = { "production" = ["us-east-2/production/*"] }
+  }
+
+  expect_failures = [var.account_prefixes]
+}

@@ -1,0 +1,18 @@
+description: The dashboards database
+ingress:
+  - description: PostgreSQL from the dashboards
+    from_port: 5432
+    to_port: 5432
+    source:
+      - dashboards
+  - description: PostgreSQL from the ops tier, for tunnels and migrations
+    from_port: 5432
+    to_port: 5432
+    source:
+      - tier:ops
+egress:
+  - description: Nothing leaves but replies; one internal rule keeps AWS from adding allow-all
+    from_port: 5432
+    to_port: 5432
+    destination:
+      - self

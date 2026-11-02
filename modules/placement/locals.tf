@@ -1,5 +1,6 @@
 locals {
-  zone_numbers = [for zone in var.network.zones : tonumber(regex("az([0-9]+)$", zone)[0])]
+  # By zone number, never by the order config lists zones in, so reordering the list moves no server.
+  zone_numbers = [for n in sort([for zone in var.network.zones : regex("az([0-9]+)$", zone)[0]]) : tonumber(n)]
 
   # Every server: named <group>-NN, in its pinned subnet or spread across the zones in turn, with its chosen addresses turned into real ones.
   servers = merge([
@@ -8,7 +9,7 @@ locals {
         group    = group
         explicit = can(f.members[format("%s-%02d", group, i + 1)].subnet)
         subnet   = try(f.members[format("%s-%02d", group, i + 1)].subnet, "${try(f.tier, "private")}-az${local.zone_numbers[i % length(local.zone_numbers)]}")
-        type     = try(f.members[format("%s-%02d", group, i + 1)].type, try(f.type, null))
+        type     = try(f.members[format("%s-%02d", group, i + 1)].instance_type, try(f.instance_type, null))
         hosts = try(
           f.members[format("%s-%02d", group, i + 1)].ips,
           can(f.members[format("%s-%02d", group, i + 1)].ip) ? { primary = f.members[format("%s-%02d", group, i + 1)].ip } : {},
@@ -37,7 +38,6 @@ locals {
   problems = concat(
     flatten([for group, f in var.groups : [for m in keys(try(f.members, {})) : "${group}: ${m} is not one of its ${try(f.count, 1)} servers" if try(local.servers[m].group, "") != group]]),
     [for name, s in local.placed : "${name}: subnet ${s.subnet}: ${var.label} has no such tier or zone" if !contains(keys(var.network.subnets), s.tier) || s.zone_index < 0],
-    [for name, s in local.placed : "${name}: a protected group pins every server to a subnet" if try(var.groups[s.group].protect, false) && !s.explicit],
     flatten([for name, s in local.addressed : [
       for role, a in s.addresses : "${name}: ${role} address ${coalesce(a, "?")} is outside ${s.subnet}'s reserved block ${coalesce(s.reserved, "(none: this tier reserves no addresses)")}"
       if a == null || s.reserved == null || try(local.as_number[a] < local.as_number[cidrhost(s.reserved, 0)] || local.as_number[a] > local.as_number[cidrhost(s.reserved, -1)], true)

@@ -1,7 +1,9 @@
+account_id: ""
+organization_sharing: false
+repository: terraform-aws-scaffold
 state:
   bucket: ""
-  region: us-east-1
-  replica_region: us-west-2
+  region: us-east-2
   key: "{region}/{environment}/{component}"
 subnets:
   environment:
@@ -48,4 +50,3 @@ dns:
   inbound: false
   forward:
   private_zones:
-    - internal.example.com

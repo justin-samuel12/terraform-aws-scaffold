@@ -1,11 +1,13 @@
 description: Internal load balancer in front of Grafana
 ingress:
   - description: HTTPS from production
-    port: 443
-    from:
+    from_port: 443
+    to_port: 443
+    source:
       - network:production
 egress:
   - description: To the Grafana servers
-    port: 443
-    to:
+    from_port: 443
+    to_port: 443
+    destination:
       - grafana

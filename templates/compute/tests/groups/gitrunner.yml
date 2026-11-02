@@ -1,5 +1,5 @@
 count: 3
-type: c6i.large
-image: ami-0123456789abcdef0
-role: gitrunner
+instance_type: c6i.large
+ami: ami-0123456789abcdef0
 tier: ops
+iam_instance_profile: gitrunner

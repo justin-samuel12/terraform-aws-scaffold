@@ -1,57 +1,82 @@
 #!/usr/bin/env bash
-# Plans every stack's own files (or the stacks named) against a mocked AWS: no credentials, no state -- docs/configuration.md.
-# Your config/ is copied with blank account IDs and teams filled in, so files can be checked before any account exists.
+# Plans stacks' own .yml files against a mocked AWS: no credentials, no state, no accounts -- docs/configuration.md.
+#   bin/check-files                     every stack in live/, with config/
+#   bin/check-files <stack> ...         those stacks, e.g. us-east-2/operations/apps
+#   bin/check-files --examples [...]    the files in examples/, with examples/config/
+# Works in a scratch mirror (.check-files/), never in live/; blank account IDs and teams are filled with placeholders.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
 command -v yq >/dev/null || { echo "check-files: yq is required (brew install yq)" >&2; exit 1; }
 
-WORK="$(mktemp -d)"
-TEST_DIR=".check-files"
-cleanup() {
-    rm -rf "${WORK:?}"
-    for d in live/*/*/*/"${TEST_DIR}"; do [[ -d "${d}" ]] && rm -rf "${d:?}"; done
-    return 0
-}
-trap cleanup EXIT
+SOURCE="live"; CONFIG_SOURCE="config"
+if [[ "${1:-}" == --examples ]]; then SOURCE="examples"; CONFIG_SOURCE="examples/config"; shift; fi
 
-mkdir -p "${WORK}/config"
-cp config/*.yml "${WORK}/config/"
-for f in "${WORK}"/config/*.yml; do
-    [[ "$(basename "${f}")" == global.yml ]] && continue
+WORK="${REPO_ROOT}/.check-files"
+rm -rf "${WORK:?}"
+trap 'rm -rf "${WORK:?}"' EXIT
+mkdir -p "${WORK}/config" "${WORK}/live"
+ln -s ../templates "${WORK}/templates"
+ln -s ../modules "${WORK}/modules"
+cp -R live/common "${WORK}/live/common"
+cp "${CONFIG_SOURCE}"/*.yml "${WORK}/config/"
+for f in "${WORK}"/config/*-*-[0-9].yml; do
     yq -i '(.hub, .vpcs[]) |= (.account_id = (.account_id // "" | select(. != "") // "111111111111") | .team = (.team // "platform"))' "${f}"
 done
+primary=""
+for f in "${WORK}"/config/*-*-[0-9].yml; do [[ "$(yq -r '.hub.primary // false' "${f}")" == true ]] && primary="$(basename "${f}" .yml)"; done
 
+# The stacks to check: every folder three deep under the source that holds a stack (live) or files (examples).
 stacks=()
 if [[ $# -gt 0 ]]; then
-    for s in "$@"; do stacks+=("live/${s#live/}"); done
+    for s in "$@"; do stacks+=("${s#"${SOURCE}"/}"); done
 else
-    while IFS= read -r d; do stacks+=("${d%/main.tf}"); done < <(find live -mindepth 4 -maxdepth 4 -name main.tf | sort)
+    while IFS= read -r d; do
+        rel="${d#"${SOURCE}"/}"
+        [[ "${rel}" == config* || "${rel}" == common* ]] && continue
+        [[ "$(awk -F/ '{print NF}' <<<"${rel}")" == 3 ]] && stacks+=("${rel}")
+    done < <(find "${SOURCE}" -mindepth 3 -maxdepth 3 -type d | sort)
 fi
-
-primary=""
-for f in config/*-*-[0-9].yml; do [[ "$(yq -r '.hub.primary // false' "${f}")" == true ]] && primary="$(basename "${f}" .yml)"; done
 
 export TF_PLUGIN_CACHE_DIR="${TF_PLUGIN_CACHE_DIR:-${REPO_ROOT}/.terraform.d/plugin-cache}"
 mkdir -p "${TF_PLUGIN_CACHE_DIR}"
 failed=0
-for stack in "${stacks[@]}"; do
-    [[ -f "${stack}/main.tf" ]] || { echo "check-files: ${stack} is not a stack" >&2; failed=1; continue; }
-    # The mock answers with the stack's own region and zones, from config/.
-    region="$(cut -d/ -f2 <<<"${stack}")"
-    [[ "${region}" == global ]] && region="${primary}"
-    zones="$(yq -o=json -I=0 '.zones // []' "config/${region}.yml" 2>/dev/null | sed 's/,/, /g')"
-    mkdir -p "${stack}/${TEST_DIR}"
+for rel in "${stacks[@]}"; do
+    component="${rel##*/}"
+    skeleton="$(find live -mindepth 4 -maxdepth 4 -path "*/${component}/main.tf" | sort | head -n1)"
+    [[ -n "${skeleton}" ]] || { echo "SKIP  ${rel}: no stack in live/ builds a ${component}"; continue; }
+    dir="${WORK}/live/${rel}"
+    mkdir -p "${dir}/.check"
+    for f in "$(dirname "${skeleton}")"/*.tf; do [[ "$(basename "${f}")" == backend.tf ]] || cp -L "${f}" "${dir}/"; done
+    # The template reads the mirror's config, not the repository's.
+    if grep -q '^variable "config_path"' "templates/${component}/variables.tf" 2>/dev/null && ! grep -q config_path "${dir}/main.tf"; then
+        perl -0pi -e 's/\n}\s*\z/\n  config_path = local.config_dir\n}\n/' "${dir}/main.tf"
+    fi
+    find "${SOURCE}/${rel}" -maxdepth 1 -name '*.yml' -exec cp {} "${dir}/" \;
+    for extra in src policies; do [[ -d "${SOURCE}/${rel}/${extra}" ]] && cp -R "${SOURCE}/${rel}/${extra}" "${dir}/"; done
+    region="${rel%%/*}"; [[ "${region}" == global ]] && region="${primary}"
+    zones="$(yq -o=json -I=0 '.zones // []' "${WORK}/config/${region}.yml" 2>/dev/null | sed 's/,/, /g')"
     sed -e "s/zone_ids = \[[^]]*\]/zone_ids = ${zones:-[]}/" -e "s/region = \"us-east-1\", name = \"us-east-1\"/region = \"${region}\", name = \"${region}\"/" \
-        tests/mock/files.tftest.hcl > "${stack}/${TEST_DIR}/files.tftest.hcl"
-    if out="$(cd "${stack}" && terraform init -backend=false -input=false >/dev/null && TF_VAR_config_dir="${WORK}/config" terraform test -no-color -test-directory="${TEST_DIR}" 2>&1)"; then
-        echo "ok    ${stack#live/}"
+        tests/mock/files.tftest.hcl > "${dir}/.check/files.tftest.hcl"
+    # init downloads providers; a dropped connection is retried, and its error shown if it persists.
+    init_out=""
+    for attempt in 1 2 3; do
+        if init_out="$(cd "${dir}" && terraform init -backend=false -input=false -no-color 2>&1)"; then init_out=""; break; fi
+        [[ "${attempt}" -lt 3 ]] && sleep 5
+    done
+    if [[ -n "${init_out}" ]]; then
+        echo "FAIL  ${rel}: terraform init"
+        grep -E "Error" -A4 <<<"${init_out}" | sed 's/^/      /' | head -12 || true
+        failed=1
+        continue
+    fi
+    if out="$(cd "${dir}" && TF_VAR_config_dir="${WORK}/config" terraform test -no-color -test-directory=.check 2>&1)"; then
+        echo "ok    ${rel}"
     else
-        echo "FAIL  ${stack#live/}"
-        grep -E "Error:" -A8 <<<"${out}" | sed 's/^/      /' | head -40
+        echo "FAIL  ${rel}"
+        grep -E "Error:" -A8 <<<"${out}" | sed 's/^/      /' | head -40 || true
         failed=1
     fi
-    rm -rf "${stack:?}/${TEST_DIR}"
 done
 exit "${failed}"

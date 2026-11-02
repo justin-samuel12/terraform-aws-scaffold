@@ -1,5 +1,5 @@
 variable "groups" {
-  description = "Group name -> its settings as written in its file: count, tier, type, protect, and members (subnet, ip or ips, type)."
+  description = "Group name -> its settings as written in its file: count, tier, instance_type, and members (subnet, ip or ips, type)."
   type        = any
 }
 
@@ -9,6 +9,6 @@ variable "network" {
 }
 
 variable "label" {
-  description = "Where the network is, for messages, such as \"development's VPC in us-east-2\"."
+  description = "Where the network is, for messages, such as \"operations's VPC in us-east-2\"."
   type        = string
 }

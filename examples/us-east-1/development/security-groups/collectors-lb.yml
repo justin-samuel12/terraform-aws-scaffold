@@ -1,0 +1,7 @@
+description: The network load balancer the monitoring agents send to
+ingress:
+  - description: Agent traffic from the private tier
+    from_port: 10051
+    to_port: 10051
+    source:
+      - tier:private

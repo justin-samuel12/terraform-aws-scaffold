@@ -1,0 +1,12 @@
+description: Mount and write the shared file systems; clients mount with -o tls,iam
+statement:
+  - actions:
+      - elasticfilesystem:ClientMount
+      - elasticfilesystem:ClientWrite
+    resources:
+      - "*"
+    condition:
+      - test: Bool
+        variable: elasticfilesystem:AccessedViaMountTarget
+        values:
+          - "true"

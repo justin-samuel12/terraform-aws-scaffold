@@ -1,5 +1,5 @@
 description: Read instance tags, for service discovery
-statements:
+statement:
   - actions:
       - ec2:DescribeInstances
       - ec2:DescribeTags

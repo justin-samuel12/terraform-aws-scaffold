@@ -33,8 +33,10 @@ resource "aws_iam_policy" "policies" {
   name        = each.key
   description = each.value.description
   policy = jsonencode({
-    Version   = "2012-10-17"
-    Statement = [for s in each.value.statements : { Effect = s.effect, Action = s.actions, Resource = s.resources }]
+    Version = "2012-10-17"
+    Statement = [for s in each.value.statements : merge({ Effect = s.effect, Action = s.actions, Resource = s.resources }, length(s.condition) == 0 ? {} : {
+      Condition = { for test in distinct([for c in s.condition : c.test]) : test => { for c in s.condition : c.variable => c.values if c.test == test } }
+    })]
   })
 
   tags = { Name = each.key }
@@ -53,8 +55,10 @@ resource "aws_iam_role_policy" "own" {
   name = "${each.key}-policy"
   role = aws_iam_role.roles[each.key].name
   policy = jsonencode({
-    Version   = "2012-10-17"
-    Statement = [for s in each.value.statements : { Effect = s.effect, Action = s.actions, Resource = s.resources }]
+    Version = "2012-10-17"
+    Statement = [for s in each.value.statements : merge({ Effect = s.effect, Action = s.actions, Resource = s.resources }, length(s.condition) == 0 ? {} : {
+      Condition = { for test in distinct([for c in s.condition : c.test]) : test => { for c in s.condition : c.variable => c.values if c.test == test } }
+    })]
   })
 }
 

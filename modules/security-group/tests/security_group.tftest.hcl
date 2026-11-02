@@ -40,8 +40,8 @@ run "groups_and_rules" {
   }
 
   assert {
-    condition     = length([for key, r in aws_vpc_security_group_egress_rule.rules : r if startswith(key, "app/")]) == 2
-    error_message = "A group without egress gets the default: internal traffic and HTTPS out."
+    condition     = length([for key, r in aws_vpc_security_group_egress_rule.rules : r if startswith(key, "app/")]) == 3 && aws_security_group.groups["app"].name_prefix == "app-"
+    error_message = "A group without egress gets the default: internal traffic, HTTPS and HTTP out; groups are named with a prefix so a new description builds a new group first."
   }
 
   assert {

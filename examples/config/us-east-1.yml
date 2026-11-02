@@ -1,0 +1,19 @@
+# The examples' region. Blank accounts are filled with placeholders when the examples are checked.
+zones:
+  - use1-az1
+  - use1-az2
+  - use1-az4
+hub:
+  account_id: ""
+  team: platform
+  cidr: 10.40.0.0/20
+  amazon_side_asn: 64512
+  primary: true
+  security_group_referencing: false
+vpcs:
+  development:
+    account_id: ""
+    team: platform
+    cidr: 10.41.0.0/16
+    segment: standard
+    public: true

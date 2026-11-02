@@ -60,3 +60,23 @@ run "oregon_hub" {
     error_message = "The Oregon hub has its own ASN and egress range."
   }
 }
+
+run "shares_with_other_accounts" {
+  command = plan
+
+  # Production takes the global account (444...); the hub and operations have their own (111...).
+  variables {
+    region      = "us-east-2"
+    config_path = "../../tests/stacks"
+  }
+
+  override_data {
+    target = module.vpc.data.aws_availability_zones.available
+    values = { zone_ids = ["use2-az1", "use2-az2", "use2-az3"] }
+  }
+
+  assert {
+    condition     = toset(keys(aws_ram_principal_association.network)) == toset(["444444444444"]) && contains(keys(aws_ram_resource_association.network), "transit-gateway")
+    error_message = "The network is shared with every other account that has an environment in the region, and only those."
+  }
+}
