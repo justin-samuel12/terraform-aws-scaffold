@@ -211,7 +211,8 @@ the statements in its file, and its own log group kept 365 days. Functions run
 on Graviton (arm64) with JSON logs. The code is zipped with fixed file modes, so
 a different umask on another machine is not a code change. A `schedule_expression` runs it
 through EventBridge, which alone may invoke it. An `event_source_mapping`
-takes messages from a queue instead ([messaging](messaging.md#sending-and-reading)). The plan refuses an environment
+takes messages from a queue instead, and `sns_topic_subscription` subscribes the
+function to topics ([messaging](messaging.md#sending-and-reading)). The plan refuses an environment
 variable whose name looks like a secret (password, token, key, credential): the
 AWS provider prints environment variables in plans, so a function reads its
 secrets from SSM or Secrets Manager when it runs. It also refuses a file without

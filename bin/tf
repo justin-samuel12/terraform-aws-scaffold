@@ -81,9 +81,16 @@ BUCKET_REGION="$(yq -r '.state.region // ""' "${REPO_ROOT}/config/global.yml")"
 PROFILE=""
 [[ -f "${CONFIG}" ]] && PROFILE="$(yq -r ".profiles[\"${ENVIRONMENT}\"] // \"\"" "${CONFIG}")"
 
+# Reachable by listing this stack's own key: an environment's own account may list the bucket only under its own keys, and
+# head-bucket, which lists nothing in particular, would be refused.
 if [[ "${COMMAND}" == init ]]; then
-    if ! aws s3api head-bucket --bucket "${BUCKET}" --region "${BUCKET_REGION}" ${PROFILE:+--profile "${PROFILE}"} >/dev/null 2>&1; then
-        refuse "the state bucket ${BUCKET} (${BUCKET_REGION}) does not exist or is not reachable${PROFILE:+ with profile ${PROFILE}}."
+    KEY="$(sed -n 's/^ *key *= *"\(.*\)"/\1/p' "${STACK}/backend.tf" 2>/dev/null)"
+    if ! err="$(aws s3api list-objects-v2 --bucket "${BUCKET}" --region "${BUCKET_REGION}" --prefix "${KEY}" --max-keys 1 ${PROFILE:+--profile "${PROFILE}"} 2>&1 >/dev/null)"; then
+        case "${err}" in
+            *NoSuchBucket*) refuse "the state bucket ${BUCKET} (${BUCKET_REGION}) does not exist." ;;
+            *AccessDenied* | *Forbidden*) refuse "${PROFILE:-the active credentials} may not read ${KEY} in ${BUCKET}: the bucket policy lets each account reach only its own environments' keys (make bootstrap writes it)." ;;
+            *) refuse "the state bucket ${BUCKET} could not be reached${PROFILE:+ with profile ${PROFILE}} (expired login? aws sso login): ${err##*: }" ;;
+        esac
     fi
 fi
 
@@ -108,18 +115,33 @@ stop() { echo "bin/tf: $*" >&2; exit 1; }
 shift
 
 if [[ "${COMMAND}" == plan ]]; then
-    # 1. Stacks this one looks things up in that are not applied yet: the plan fails on them, or shows their values as unknown.
-    while read -r s; do [[ -n "${s}" ]] && note "not applied yet: ${s} (make order STACK=${NAME})"; done <<<"$(bin/order --unapplied "${NAME}" 2>/dev/null || true)"
+    # 1. Stacks this one looks things up in that are missing or not applied yet: the plan fails on them, or shows their values as
+    #    unknown. One whose state cannot be read is said so, with why, never reported as not applied.
+    while read -r kind s why; do
+        case "${kind}" in
+            missing) note "${s} does not exist yet, and this stack looks things up in it (make stack STACK=${s})" ;;
+            not-applied) note "not applied yet: ${s} (make order STACK=${NAME})" ;;
+            unknown) note "could not check whether ${s} is applied: ${why}" ;;
+        esac
+    done <<<"$(bin/order --unapplied "${NAME}" 2>/dev/null || true)"
 
     # 2. Formatting, validation and lint of this stack, its template and its modules, once for each version of their files.
     if ! passed_before "preflight:${NAME}" "${FP}"; then
         dirs="$(module_closure "${REL}")"
         for d in ${dirs}; do terraform fmt -check -list=true "${d}" >/dev/null || stop "${d} is not formatted: make fmt"; done
         terraform -chdir="${STACK}" validate -no-color >/dev/null || { terraform -chdir="${STACK}" validate -no-color >&2 || true; stop "the stack is not valid."; }
+        # tflint's plugins are installed first (instant once they are); exit 2 is findings, anything else is tflint not running.
         if command -v tflint >/dev/null; then
+            tflint --init --config="${REPO_ROOT}/.tflint.hcl" >/dev/null 2>&1 \
+                || stop "tflint could not install its plugins (it needs the internet once): run make lint to see why."
             for d in ${dirs}; do
                 [[ "${d}" == live/* ]] && continue
-                tflint --chdir="${d}" --config="${REPO_ROOT}/.tflint.hcl" --format compact >&2 || stop "${d} has lint findings (make lint)."
+                rc=0; out="$(tflint --chdir="${d}" --config="${REPO_ROOT}/.tflint.hcl" --format compact 2>&1)" || rc=$?
+                case "${rc}" in
+                    0) ;;
+                    2) echo "${out}" >&2; stop "${d} has the lint findings above (make lint)." ;;
+                    *) echo "${out}" >&2; stop "tflint could not run in ${d} (above); this is not a finding in the code." ;;
+                esac
             done
         fi
         record_pass "preflight:${NAME}" "${FP}"
@@ -143,8 +165,10 @@ read -r saved_fp saved_at < "${PLAN_FP}"
 [[ "${saved_fp}" == "${FP}" ]] || stop "the stack, its template, its modules or config/ changed since the plan: make plan STACK=${NAME} again."
 age=$(( ($(date +%s) - saved_at) / 60 ))
 [[ "${age}" -le "${MAX_AGE}" ]] || stop "the plan is ${age} minutes old (PLAN_MAX_AGE_MINUTES is ${MAX_AGE}): make plan STACK=${NAME} again, so it reflects AWS now."
-unapplied="$(bin/order --unapplied "${NAME}" 2>/dev/null || true)"
-[[ -z "${unapplied}" ]] || stop "apply these first, which this stack looks things up in: $(xargs <<<"${unapplied}")."
+needs="$(bin/order --unapplied "${NAME}" 2>/dev/null || true)"
+blocking="$(awk '$1 == "missing" || $1 == "not-applied" {print $2}' <<<"${needs}" | xargs)"
+[[ -z "${blocking}" ]] || stop "apply these first, which this stack looks things up in: ${blocking}."
+while read -r kind s why; do [[ "${kind}" == unknown ]] && note "could not check whether ${s} is applied: ${why}"; done <<<"${needs}"
 
 terraform -chdir="${STACK}" show -no-color "${PLAN}" | grep -E '^(Plan:|No changes|Changes to Outputs)' >&2 || true
 if [[ -t 0 ]]; then

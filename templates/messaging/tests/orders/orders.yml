@@ -12,8 +12,6 @@ topic:
     - protocol: sqs
       endpoint: queue:orders
       raw_message_delivery: true
-    - protocol: lambda
-      endpoint: lambda:audit
     - protocol: email
       endpoint: orders-team@example.com
       filter_policy:

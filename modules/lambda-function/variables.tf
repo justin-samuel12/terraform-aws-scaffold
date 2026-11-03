@@ -96,3 +96,13 @@ variable "queue" {
     error_message = "queue.batch_size is 1 to 10000, and maximum_batching_window_in_seconds 0 to 300."
   }
 }
+
+variable "topics" {
+  description = "SNS topics the function subscribes to itself, by name: each topic's ARN, and an optional filter policy (JSON) and its scope."
+  type = map(object({
+    arn                 = string
+    filter_policy       = optional(string)
+    filter_policy_scope = optional(string)
+  }))
+  default = {}
+}

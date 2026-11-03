@@ -86,10 +86,11 @@ data "aws_iam_policy_document" "state" {
         identifiers = ["arn:aws:iam::${statement.key}:root"]
       }
 
+      # env:/ is where Terraform's S3 backend looks for workspaces on init; listing it shows names only, and none are used here.
       condition {
         test     = "StringLike"
         variable = "s3:prefix"
-        values   = statement.value
+        values   = concat(statement.value, ["env:/*"])
       }
     }
   }

@@ -56,8 +56,8 @@ run "orders" {
   }
 
   assert {
-    condition     = local.subscriptions.orders["queue:orders"].endpoint == local.queue_arns.orders && local.subscriptions.orders["lambda:audit"].endpoint == "arn:aws:lambda:us-east-2:444444444444:function:production-audit"
-    error_message = "queue: and lambda: name this environment's own queue and function."
+    condition     = local.subscriptions.orders["queue:orders"].endpoint == local.queue_arns.orders && local.subscriptions.orders["orders-team@example.com"].endpoint == "orders-team@example.com"
+    error_message = "queue: names a queue in this stack; anything else is used as written."
   }
 
   assert {
@@ -100,6 +100,7 @@ run "refused" {
       contains(local.problems, "fifo.yml: a FIFO topic delivers only to FIFO queues, and queue:fifo is not one"),
       contains(local.problems, "fifo.yml: staging is not an environment in config/, a 12-digit account ID, or one of cloudwatch, events, s3"),
       contains(local.problems, "fifo.yml: events cannot send to or read a queue directly; publish to a topic that delivers into it"),
+      contains(local.problems, "subscribed.yml: a Lambda function subscribes itself, from its own file in the lambda stack (sns_topic_subscription: topic:subscribed), so the two stacks never wait for each other"),
     ])
     error_message = "Unknown keys, a missing queue, a FIFO mismatch, an unknown environment and a service as a sender are each named."
   }

@@ -39,8 +39,18 @@ run "queue_consumers" {
     values = { arn = "arn:aws:sqs:us-east-2:111111111111:operations-orders" }
   }
 
+  override_data {
+    target = data.aws_sns_topic.topics["operations-orders"]
+    values = { arn = "arn:aws:sns:us-east-2:111111111111:operations-orders" }
+  }
+
   assert {
-    condition     = local.queue_names == { orders = "operations-orders" } && toset(keys(module.lambda_function)) == toset(["orders", "legacy"])
+    condition     = local.topic_names == toset(["operations-orders"]) && jsondecode(local.subscriptions.audit.orders.filter_policy) == { status = ["failed"] }
+    error_message = "topic:orders is this environment's topic, found by name; the function subscribes itself, with its filter."
+  }
+
+  assert {
+    condition     = local.queue_names == { orders = "operations-orders" } && toset(keys(module.lambda_function)) == toset(["orders", "legacy", "audit"])
     error_message = "queue:orders is this environment's queue, found by name; a queue's ARN is used as it is."
   }
 

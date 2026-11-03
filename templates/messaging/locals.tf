@@ -18,12 +18,13 @@ locals {
   queue_arns = { for name, q in local.queues : name => "${local.arn_prefix}:sqs:${var.region}:${local.account_id}:${var.environment}-${name}${try(q.fifo_queue, false) ? ".fifo" : ""}" }
   topic_arns = { for name, t in local.topics : name => "${local.arn_prefix}:sns:${var.region}:${local.account_id}:${var.environment}-${name}${try(t.fifo_topic, false) ? ".fifo" : ""}" }
 
-  # queue:<file> and lambda:<function file> name this environment's own; anything else is used as it is (an ARN, a URL, an address).
+  # queue:<file> names a queue in this stack; anything else is used as it is (an ARN, a URL, an address). A Lambda function
+  # subscribes itself, from its own file (sns_topic_subscription), so this stack never waits for the lambda stack.
   subscriptions = {
     for name, t in local.topics : name => {
       for s in try(t.subscriptions, []) : try(s.endpoint, "?") => {
         protocol             = try(s.protocol, "?")
-        endpoint             = startswith(try(s.endpoint, ""), "queue:") ? lookup(local.queue_arns, trimprefix(s.endpoint, "queue:"), s.endpoint) : startswith(try(s.endpoint, ""), "lambda:") ? "${local.arn_prefix}:lambda:${var.region}:${local.account_id}:function:${var.environment}-${trimprefix(s.endpoint, "lambda:")}" : try(s.endpoint, "?")
+        endpoint             = startswith(try(s.endpoint, ""), "queue:") ? lookup(local.queue_arns, trimprefix(s.endpoint, "queue:"), s.endpoint) : try(s.endpoint, "?")
         raw_message_delivery = try(s.raw_message_delivery, false)
         filter_policy        = can(s.filter_policy) ? jsonencode(s.filter_policy) : null
         filter_policy_scope  = try(s.filter_policy_scope, null)
@@ -57,7 +58,8 @@ locals {
     [for name, t in local.topics : "${name}.yml: subscription keys are ${join(", ", local.subscription_keys)}, and each needs protocol and endpoint" if !alltrue([for s in try(t.subscriptions, []) : can(s.protocol) && can(s.endpoint) && alltrue([for k in keys(s) : contains(local.subscription_keys, k)])])],
     [for name, t in local.topics : "${name}.yml: two subscriptions to the same endpoint" if length(try(t.subscriptions, [])) != length(local.subscriptions[name])],
     flatten([for name, t in local.topics : [for s in try(t.subscriptions, []) : "${name}.yml: ${s.endpoint} names no queue in this stack" if startswith(try(s.endpoint, ""), "queue:") && !contains(keys(local.queues), trimprefix(s.endpoint, "queue:"))]]),
-    flatten([for name, t in local.topics : [for s in try(t.subscriptions, []) : "${name}.yml: ${s.endpoint} is subscribed as ${try(s.protocol, "?")}; queue: is sqs, lambda: is lambda" if(startswith(try(s.endpoint, ""), "queue:") && try(s.protocol, "") != "sqs") || (startswith(try(s.endpoint, ""), "lambda:") && try(s.protocol, "") != "lambda")]]),
+    flatten([for name, t in local.topics : [for s in try(t.subscriptions, []) : "${name}.yml: ${s.endpoint} is subscribed as ${try(s.protocol, "?")}; a queue: is subscribed as sqs" if startswith(try(s.endpoint, ""), "queue:") && try(s.protocol, "") != "sqs"]]),
+    flatten([for name, t in local.topics : [for s in try(t.subscriptions, []) : "${name}.yml: a Lambda function subscribes itself, from its own file in the lambda stack (sns_topic_subscription: topic:${name}), so the two stacks never wait for each other" if try(s.protocol, "") == "lambda" || startswith(try(s.endpoint, ""), "lambda:")]]),
     flatten([for name, t in local.topics : [for s in try(t.subscriptions, []) : "${name}.yml: a FIFO topic delivers only to FIFO queues, and ${s.endpoint} is not one" if try(t.fifo_topic, false) && !(startswith(try(s.endpoint, ""), "queue:") && try(local.queues[trimprefix(s.endpoint, "queue:")].fifo_queue, false))]]),
     [for name, q in local.queues : "${name}.yml: dead_letter takes max_receive_count only" if can(q.dead_letter) && !alltrue([for k in try(keys(q.dead_letter), ["?"]) : k == "max_receive_count"])],
     [for r in local.references : "${r.file}.yml: ${r.entry} is not an environment in config/, a 12-digit account ID, or one of ${join(", ", local.services)}" if !can(regex("^[0-9]{12}$", r.entry)) && !contains(local.services, r.entry) && !contains(keys(local.environment_accounts), r.entry)],

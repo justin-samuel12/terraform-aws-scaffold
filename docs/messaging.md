@@ -58,7 +58,7 @@ topic:
 | `topic:` key | Meaning |
 |---|---|
 | `fifo_topic`, `content_based_deduplication` | A FIFO topic, delivering in order to FIFO queues only |
-| `subscriptions` | Where the topic delivers: `protocol` (`sqs`, `lambda`, `https`, `email`, `email-json`) and `endpoint`. `queue:<file>` is a queue in this stack and `lambda:<file>` a function in this environment's `lambda` stack; anything else is used as written. `raw_message_delivery` (`sqs` and `https`), `filter_policy` written as YAML, and `filter_policy_scope` are optional |
+| `subscriptions` | Where the topic delivers: `protocol` (`sqs`, `https`, `email`, `email-json`) and `endpoint`. `queue:<file>` is a queue in this stack; anything else is used as written. A Lambda function subscribes itself, from its own file (below). `raw_message_delivery` (`sqs` and `https`), `filter_policy` written as YAML, and `filter_policy_scope` are optional |
 | `publishers` | Other environments by name, or account IDs, whose roles may publish; and `cloudwatch` (alarms), `events` (EventBridge) or `s3` (bucket events), publishing for this account |
 
 ## What every queue and topic gets
@@ -79,8 +79,8 @@ topic:
 - **No plain HTTP.** A subscription is `https`, never `http`.
 
 The plan refuses a misspelt key, a `queue:` naming no queue in the stack, a
-`queue:` subscribed as anything but `sqs` (or `lambda:` as anything but
-`lambda`), a FIFO topic delivering to anything but a FIFO queue, a sender that
+`queue:` subscribed as anything but `sqs`, a Lambda subscription (the function
+subscribes itself), a FIFO topic delivering to anything but a FIFO queue, a sender that
 is neither an environment in `config/` nor an account ID, and a service named
 as a queue's sender (it publishes to a topic instead).
 
@@ -111,10 +111,26 @@ them through SQS, nothing more. It reports failures message by message
 The queue's `visibility_timeout_seconds` should be at least six times the
 function's `timeout`, or a slow batch reappears while it is still running.
 
-A topic delivering straight to a function (`lambda:<file>`) needs the function
-to exist first: apply `lambda` before `messaging` for that subscription. A topic
-delivering to a queue that the function reads needs no such order, keeps
-messages while the function is down, and is usually the better design.
+**A Lambda function on a topic** subscribes itself, from its own file, the same
+way it reads a queue:
+
+```yaml
+# live/us-east-2/production/lambda/audit.yml   (code in src/audit/)
+runtime: python3.12
+handler: app.handler
+sns_topic_subscription:
+  - topic_arn: topic:exports           # this environment's topic, or a topic's ARN
+    filter_policy:
+      status:
+        - failed
+```
+
+The function's stack makes the subscription, and lets that topic, and only that
+topic, invoke it. So `lambda` always comes after `messaging`, whether its
+functions read queues, subscribe to topics, or both: the two stacks can never
+need each other. A topic delivering into a queue the function reads is still
+usually the better design, because the queue keeps messages while the function
+is down and retries them one by one.
 
 ## Another account
 

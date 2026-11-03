@@ -48,6 +48,27 @@ run "queue_consumer" {
   }
 }
 
+run "topic_subscriber" {
+  command = plan
+
+  variables {
+    schedule = null
+    topics = {
+      orders = { arn = "arn:aws:sns:us-east-2:111111111111:production-orders", filter_policy = "{\"status\":[\"failed\"]}" }
+    }
+  }
+
+  assert {
+    condition     = aws_sns_topic_subscription.topics["orders"].protocol == "lambda" && aws_sns_topic_subscription.topics["orders"].topic_arn == "arn:aws:sns:us-east-2:111111111111:production-orders"
+    error_message = "The function subscribes itself to the topic."
+  }
+
+  assert {
+    condition     = aws_lambda_permission.topics["orders"].principal == "sns.amazonaws.com" && aws_lambda_permission.topics["orders"].source_arn == "arn:aws:sns:us-east-2:111111111111:production-orders" && aws_lambda_permission.topics["orders"].statement_id == "sns-orders"
+    error_message = "Only that topic may invoke it."
+  }
+}
+
 run "rejects_a_secret_in_the_environment" {
   command = plan
 

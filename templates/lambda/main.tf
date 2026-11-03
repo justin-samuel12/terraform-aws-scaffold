@@ -5,6 +5,13 @@ data "aws_sqs_queue" "queues" {
   name = each.value
 }
 
+# Topics a function subscribes to, from the messaging stack, found by name.
+data "aws_sns_topic" "topics" {
+  for_each = local.topic_names
+
+  name = each.value
+}
+
 module "lambda_function" {
   source   = "../../modules/lambda-function"
   for_each = { for name, f in local.files : name => f if length(fileset("${local.config_dir}/src/${name}", "**")) > 0 }
@@ -24,4 +31,11 @@ module "lambda_function" {
     batch_size                         = try(each.value.event_source_mapping.batch_size, 10)
     maximum_batching_window_in_seconds = try(each.value.event_source_mapping.maximum_batching_window_in_seconds, 0)
   } : null
+  topics = {
+    for key, s in local.subscriptions[each.key] : key => {
+      arn                 = s.topic != null ? data.aws_sns_topic.topics[s.topic].arn : s.arn
+      filter_policy       = s.filter_policy
+      filter_policy_scope = s.filter_policy_scope
+    }
+  }
 }

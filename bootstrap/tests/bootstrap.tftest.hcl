@@ -1,7 +1,8 @@
 # The state bucket, with and without a replica, against a mocked AWS -- docs/configuration.md.
 mock_provider "aws" {
   mock_resource "aws_s3_bucket" {
-    defaults = { arn = "arn:aws:s3:::example-terraform-state" }
+    override_during = plan
+    defaults        = { arn = "arn:aws:s3:::example-terraform-state" }
   }
 
   mock_data "aws_iam_policy_document" {
@@ -68,8 +69,13 @@ run "other_accounts_reach_only_their_keys" {
   }
 
   assert {
-    condition     = length(var.account_prefixes["222222222222"]) == 2
-    error_message = "Each other account is listed with the key patterns of its own environments."
+    condition     = one([for st in data.aws_iam_policy_document.state.statement : st if st.sid == "ReadWriteOwnKeys222222222222"]).resources == toset(["arn:aws:s3:::example-terraform-state/us-east-2/production/*", "arn:aws:s3:::example-terraform-state/global/production/*"])
+    error_message = "Another account reads and writes only its own environments' keys."
+  }
+
+  assert {
+    condition     = one(one([for st in data.aws_iam_policy_document.state.statement : st if st.sid == "ListOwnKeys222222222222"]).condition).values == tolist(["us-east-2/production/*", "global/production/*", "env:/*"])
+    error_message = "It lists only under those keys, and under env:/, where Terraform's backend looks for workspaces on init."
   }
 }
 

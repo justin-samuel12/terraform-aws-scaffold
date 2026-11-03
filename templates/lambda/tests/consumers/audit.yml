@@ -1,0 +1,7 @@
+runtime: python3.12
+handler: app.handler
+sns_topic_subscription:
+  - topic_arn: topic:orders
+    filter_policy:
+      status:
+        - failed

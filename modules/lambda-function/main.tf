@@ -106,3 +106,27 @@ resource "aws_lambda_event_source_mapping" "queue" {
 
   depends_on = [aws_iam_role_policy.function]
 }
+
+# The function subscribes itself to its topics, so the stack that owns the topics never waits for this one. Each topic, and only
+# that topic, may invoke it; the permission is in place before the subscription is made.
+resource "aws_lambda_permission" "topics" {
+  for_each = var.topics
+
+  statement_id  = "sns-${each.key}"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.function.function_name
+  principal     = "sns.amazonaws.com"
+  source_arn    = each.value.arn
+}
+
+resource "aws_sns_topic_subscription" "topics" {
+  for_each = var.topics
+
+  topic_arn           = each.value.arn
+  protocol            = "lambda"
+  endpoint            = aws_lambda_function.function.arn
+  filter_policy       = each.value.filter_policy
+  filter_policy_scope = each.value.filter_policy_scope
+
+  depends_on = [aws_lambda_permission.topics]
+}
