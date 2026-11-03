@@ -7,7 +7,7 @@ flowchart TB
   live --> region["us-east-2/ · us-west-2/"]
   region --> shared["shared/<br/><sub>hub · logging · ecr · session-manager · documents</sub>"]
   region --> env["operations/ · production/ · staging/"]
-  env --> stacks["network · security-groups · endpoints · keys · backups<br/>certificates · load-balancers · waf · databases · storage<br/>buckets · compute · records · access · patching · lambda"]
+  env --> stacks["network · security-groups · endpoints · keys · backups<br/>certificates · load-balancers · waf · databases · storage<br/>buckets · messaging · compute · records · access · patching · lambda"]
 
   classDef g fill:#f3f0ff,stroke:#6741d9,color:#25125e
   classDef s fill:#fff4e5,stroke:#e8590c,color:#5c2a00
@@ -128,7 +128,60 @@ a commit that leaves it stale.
 
 ## Dependencies
 
-Within an environment and region: network, then security groups, then endpoints
-and load balancers, then keys and backups, then databases and storage, then
-compute. Every
-environment may read `shared`; `shared` reads no environment.
+No stack reads another's state. A stack finds what it needs from other stacks
+by name or tag when it plans, so it depends on another only when it looks
+something up there. Applied too early, its plan fails naming what is missing,
+and nothing changes. Every environment may read `shared`; `shared` reads no
+environment.
+
+## Apply order
+
+`templates/needs.yml` says, for every template, which stacks it looks things
+up in. It is one file, outside the templates' own folders, because templates
+read the `.yml` files in their folder as their settings. Terraform never reads
+it; `make order` and `make check` do.
+
+```yaml
+# templates/needs.yml
+compute:
+  needs:                     # applied first, always
+    - "{region}/{environment}/network"
+    - "{region}/{environment}/security-groups"
+    - "{region}/{environment}/keys"
+    - global/{environment}/iam
+    - global/shared/dns
+  when_present:              # applied first if the stack exists; never required
+    - "{region}/{environment}/load-balancers"
+```
+
+`{region}` and `{environment}` are the stack's own (a global stack's region is
+the primary). `{other_regions}` and `{each_region}` list the regions in
+`config/`, and `when_primary` applies only to the primary region's stack: the
+primary hub needs every other hub, because it requests the peering. An
+environment's own stack that does not exist falls back to the shared one, so
+`global/{environment}/iam` is `global/shared/iam` until the environment has an
+account of its own. `named_in_files` lists stacks a template's files name
+directly, such as CloudFront's origin bucket, which are checked but not
+ordered.
+
+```bash
+make order                                     # every stack, in waves
+make order STACK=us-east-2/production          # one environment, and everything it needs
+make order STACK=us-east-2/production/compute  # what it needs first, and what to plan again after it
+```
+
+Stacks in one wave do not depend on each other: apply them in any order, or
+side by side. Each line says whether the stack is applied (its state is in the
+bucket, a read-only check; `--offline` skips it), and the end lists any stack
+that is needed but does not exist yet. For one stack, `make order` also lists
+the stacks that look it up, which are the ones to plan again after an apply.
+
+`make check` keeps the file honest. It fails on:
+- a template that looks something up (a key, a VPC, a load balancer) without
+  listing the stack that builds it;
+- a template with no entry at all;
+- stacks that need each other in a loop, since none of them could be applied
+  first.
+
+`order_check: false` in `config/global.yml` turns the check off;
+`make order` works either way.

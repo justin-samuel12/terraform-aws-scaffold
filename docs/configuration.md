@@ -302,18 +302,49 @@ build in the wrong account.
 ## Checking without credentials
 
 ```bash
-make check                                          # everything, as CI would run it
-make check-files                                    # every stack's own files
+make check                                          # everything, as CI runs it on main
+make check CHANGED=1                                # only what changed since it last passed
 make check-files ONLY="us-east-2/operations/compute" # one or more stacks
-make check-examples                                 # every file in examples/
+make check JOBS=8                                   # more checks at a time (default 4)
 ```
 
-`check-files` plans each stack's `.yml` files through its template against a
-mocked AWS that answers like the real one: no credentials, no state, and no
-accounts needed yet (blank account IDs are filled with placeholders for the
-check). It works in a scratch copy, `.check-files/`, and never writes into
-`live/`. It catches what a real plan would refuse in your files (a misspelt key,
-a missing image, two listener rules on one host) before anyone logs in.
+`make check` runs formatting, lint, the [order check](architecture.md#apply-order)
+and the backends first, in under a minute, so a simple mistake stops it early.
+Then the slow part, side by side: every module's, template's and stack's tests,
+and every stack's and example's files.
+
+`check-files` validates each stack with no mocks, so a provider a stack does
+not configure fails here, not in AWS. Then it plans the stack's `.yml` files
+through its template against a mocked AWS that answers like the real one: no
+credentials, no state, and no accounts needed yet (blank account IDs are filled
+with placeholders for the check). It catches what a real plan would refuse in
+your files (a misspelt key, a missing image, two listener rules on one host)
+before anyone logs in. Examples are checked as `make stack` would create them,
+so a fresh clone is what is tested. Everything runs in a scratch copy under
+`.check-files/`, never in `live/`.
+
+**Only what changed.** Each check is a unit: one folder's tests, or one stack's
+or example's files. A unit's fingerprint is a hash of everything it reads: its
+files, its template, every module those use, the configuration and fixtures it
+reads, and the Terraform version. A unit that passes records its fingerprint in
+`.terraform.d/checked/`. With `CHANGED=1`, a unit whose fingerprint is unchanged
+is skipped, because it would pass again. A one-module change runs a handful of
+units, not a hundred; a change to `live/common` or `modules/ip-plan` runs nearly
+all of them, because nearly all of them read it. No git is needed, and CI gets
+the same by keeping `.terraform.d/` between runs.
+
+**In CI**, the same commands, with no logic of their own:
+
+| Stage | Runs | Time, roughly |
+|---|---|---|
+| Every push | `make fmt-check lint check-order` | under a minute |
+| Every pull request | `make check CHANGED=1 JOBS=<cores>`, with `.terraform.d/` cached | 1 to 3 minutes |
+| Pull requests touching `live/` or `config/` | `make plan` for each changed stack, with a read-only role | a minute per stack, side by side |
+| Merge to main, and nightly | `make check JOBS=<cores>` | a few minutes |
+| Apply | `make apply` after the pipeline's approval step, with `APPLY_CONFIRMED=yes` | |
+
+Providers are fetched once, by one `init`, before checks run side by side:
+concurrent downloads into one cache corrupt it.
 
 ## Running Terraform
 
@@ -324,6 +355,25 @@ make plan STACK=us-east-2/operations/network
 
 `make help` lists every target. The targets run `bin/tf`, which can also be
 called directly: `bin/tf live/us-east-2/operations/network plan`.
+
+**Apply runs exactly the plan you reviewed.** `make plan` saves the plan in the
+stack's `.terraform/`, with the fingerprint of everything it read: the stack,
+its template, its modules and `config/`. `make apply` applies that saved plan
+and nothing else, after showing its summary and asking for `yes`. It refuses
+when there is no plan, when anything the plan read has changed since, when the
+plan is older than four hours (`PLAN_MAX_AGE_MINUTES`), and when the state has
+moved since (Terraform's own check). A plan is used once. Options such as
+`ARGS='-replace=<address>'` go to `make plan`; apply takes none. A pipeline,
+which has no terminal to answer in, sets `APPLY_CONFIRMED=yes` once its own
+approval step has passed.
+
+**Every plan is checked first, once per change.** Before planning, `bin/tf`
+checks the formatting of the stack, its template and its modules, validates the
+stack, and lints the template and modules. That takes seconds, and is skipped
+while none of them has changed since it last passed. It also warns about any
+stack this one looks things up in that is not applied yet. Apply refuses in that
+case, and afterwards lists the stacks that look this one up, to plan again
+([apply order](architecture.md#apply-order)).
 
 Before Terraform runs, `bin/tf` checks that the stack's region file has a quoted
 12-digit account for the environment, that `global.yml` names the state bucket,
@@ -349,8 +399,10 @@ matters:
   so your chosen profile is used without `bin/tf`.
 
 What the wrapper adds is checking before Terraform starts (an empty account, a
-missing bucket, a stale `backend.tf`) and refusing `destroy` and the state
-commands. VPCs, subnets and Transit Gateways refuse replacement either way.
+missing bucket, a stale `backend.tf`, the stack's formatting, validity and lint,
+stacks not applied yet), applying only the saved, reviewed plan, and refusing
+`destroy` and the state commands. Plain `terraform apply` plans afresh, so what
+it applies can differ from what was reviewed. VPCs, subnets and Transit Gateways refuse replacement either way.
 
 ## Creating a stack
 

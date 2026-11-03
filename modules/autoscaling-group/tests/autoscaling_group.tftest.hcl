@@ -46,7 +46,7 @@ run "scales_behind_its_target_group" {
   }
 
   assert {
-    condition     = aws_launch_template.group.tag_specifications[0].tags.Group == "orders-api" && aws_launch_template.group.tag_specifications[0].tags.Environment == "production" && aws_launch_template.group.tag_specifications[0].tags["Patch Group"] == "production"
+    condition     = aws_launch_template.group.tag_specifications[0].tags.Group == "orders-api" && aws_launch_template.group.tag_specifications[0].tags.Environment == "production" && aws_launch_template.group.tag_specifications[0].tags["PatchGroup"] == "production"
     error_message = "Instances carry the default tags and the group's own, stamped on at launch."
   }
 

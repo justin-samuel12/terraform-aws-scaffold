@@ -10,6 +10,6 @@ run "defaults" {
 
   assert {
     condition     = output.patch_group == "operations" && local.settings.approve_after_days == 7
-    error_message = "Instances tagged Patch Group = operations are patched; patches wait a week."
+    error_message = "Instances tagged PatchGroup = operations are patched; patches wait a week."
   }
 }

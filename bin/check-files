@@ -3,7 +3,8 @@
 #   bin/check-files                     every stack in live/, with config/
 #   bin/check-files <stack> ...         those stacks, e.g. us-east-2/operations/apps
 #   bin/check-files --examples [...]    the files in examples/, with examples/config/
-# Works in a scratch mirror (.check-files/), never in live/; blank account IDs and teams are filled with placeholders.
+# Works in a scratch mirror (.check-files/), never in live/; blank account IDs and teams are filled with placeholders. Each stack is
+# validated with no mocks first, then planned with them.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -13,12 +14,14 @@ command -v yq >/dev/null || { echo "check-files: yq is required (brew install yq
 SOURCE="live"; CONFIG_SOURCE="config"
 if [[ "${1:-}" == --examples ]]; then SOURCE="examples"; CONFIG_SOURCE="examples/config"; shift; fi
 
-WORK="${REPO_ROOT}/.check-files"
-rm -rf "${WORK:?}"
+# A scratch copy of its own, so several runs can go side by side (bin/check-units).
+mkdir -p "${REPO_ROOT}/.check-files"
+WORK="$(mktemp -d "${REPO_ROOT}/.check-files/run.XXXXXX")"
 trap 'rm -rf "${WORK:?}"' EXIT
 mkdir -p "${WORK}/config" "${WORK}/live"
-ln -s ../templates "${WORK}/templates"
-ln -s ../modules "${WORK}/modules"
+ln -s "${REPO_ROOT}/templates" "${WORK}/templates"
+ln -s "${REPO_ROOT}/modules" "${WORK}/modules"
+cp -R bin "${WORK}/bin"
 cp -R live/common "${WORK}/live/common"
 cp "${CONFIG_SOURCE}"/*.yml "${WORK}/config/"
 for f in "${WORK}"/config/*-*-[0-9].yml; do
@@ -35,6 +38,8 @@ else
     while IFS= read -r d; do
         rel="${d#"${SOURCE}"/}"
         [[ "${rel}" == config* || "${rel}" == common* ]] && continue
+        # In live/, a folder is a stack once it has a main.tf; until then it is a placeholder, not checked.
+        [[ "${SOURCE}" == live && ! -f "${d}/main.tf" ]] && continue
         [[ "$(awk -F/ '{print NF}' <<<"${rel}")" == 3 ]] && stacks+=("${rel}")
     done < <(find "${SOURCE}" -mindepth 3 -maxdepth 3 -type d | sort)
 fi
@@ -44,11 +49,20 @@ mkdir -p "${TF_PLUGIN_CACHE_DIR}"
 failed=0
 for rel in "${stacks[@]}"; do
     component="${rel##*/}"
-    skeleton="$(find live -mindepth 4 -maxdepth 4 -path "*/${component}/main.tf" | sort | head -n1)"
-    [[ -n "${skeleton}" ]] || { echo "SKIP  ${rel}: no stack in live/ builds a ${component}"; continue; }
     dir="${WORK}/live/${rel}"
+    # A stack in live/ is checked as it is; an example, as make stack would create it, so a fresh clone is what is tested.
+    if [[ "${SOURCE}" == live ]]; then
+        [[ -f "live/${rel}/main.tf" ]] || { echo "FAIL  ${rel}: not a stack (no main.tf): make stack STACK=${rel}"; failed=1; continue; }
+        mkdir -p "${dir}"
+        for f in "live/${rel}"/*.tf; do [[ "$(basename "${f}")" == backend.tf ]] || cp -L "${f}" "${dir}/"; done
+    elif ! stack_out="$("${WORK}/bin/stack" "${rel}" 2>&1)"; then
+        echo "FAIL  ${rel}: make stack"; sed 's/^/      /' <<<"${stack_out}"; failed=1; continue
+    fi
+    rm -f "${dir}/backend.tf"
+    # A lock file, so init links providers from the cache instead of downloading and rewriting them (bin/check-units).
+    if [[ "${SOURCE}" == live && -f "live/${rel}/.terraform.lock.hcl" ]]; then cp "live/${rel}/.terraform.lock.hcl" "${dir}/"
+    else cp tests/lock/.terraform.lock.hcl "${dir}/"; fi
     mkdir -p "${dir}/.check"
-    for f in "$(dirname "${skeleton}")"/*.tf; do [[ "$(basename "${f}")" == backend.tf ]] || cp -L "${f}" "${dir}/"; done
     # The template reads the mirror's config, not the repository's.
     if grep -q '^variable "config_path"' "templates/${component}/variables.tf" 2>/dev/null && ! grep -q config_path "${dir}/main.tf"; then
         perl -0pi -e 's/\n}\s*\z/\n  config_path = local.config_dir\n}\n/' "${dir}/main.tf"
@@ -68,6 +82,13 @@ for rel in "${stacks[@]}"; do
     if [[ -n "${init_out}" ]]; then
         echo "FAIL  ${rel}: terraform init"
         grep -E "Error" -A4 <<<"${init_out}" | sed 's/^/      /' | head -12 || true
+        failed=1
+        continue
+    fi
+    # Validated first with no mocks, so a provider the stack does not configure fails here, not in AWS.
+    if ! out="$(cd "${dir}" && terraform validate -no-color 2>&1)"; then
+        echo "FAIL  ${rel}: terraform validate"
+        grep -E "Error" -A6 <<<"${out}" | sed 's/^/      /' | head -20 || true
         failed=1
         continue
     fi

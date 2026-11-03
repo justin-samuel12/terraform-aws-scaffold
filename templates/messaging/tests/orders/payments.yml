@@ -1,0 +1,8 @@
+queue:
+  fifo_queue: true
+  content_based_deduplication: true
+topic:
+  fifo_topic: true
+  subscriptions:
+    - protocol: sqs
+      endpoint: queue:payments

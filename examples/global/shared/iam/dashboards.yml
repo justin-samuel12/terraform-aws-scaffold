@@ -7,3 +7,4 @@ managed_policies:
 policies:
   - read-revisions
   - mount-files
+  - publish-exports

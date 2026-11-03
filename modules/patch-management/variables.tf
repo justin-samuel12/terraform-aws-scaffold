@@ -1,5 +1,5 @@
 variable "environment" {
-  description = "The environment patched: its instances carry the tag Patch Group = <environment>."
+  description = "The environment patched: its instances carry the tag PatchGroup = <environment>."
   type        = string
 }
 

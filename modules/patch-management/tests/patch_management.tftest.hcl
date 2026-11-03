@@ -15,8 +15,8 @@ run "production" {
   }
 
   assert {
-    condition     = one(aws_ssm_maintenance_window_target.instances.targets).key == "tag:Patch Group" && aws_ssm_maintenance_window_task.install.max_concurrency == "25%"
-    error_message = "Instances tagged Patch Group = production are patched a quarter at a time."
+    condition     = one(aws_ssm_maintenance_window_target.instances.targets).key == "tag:PatchGroup" && aws_ssm_maintenance_window_task.install.max_concurrency == "25%"
+    error_message = "Instances tagged PatchGroup = production are patched a quarter at a time."
   }
 }
 

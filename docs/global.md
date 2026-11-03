@@ -12,9 +12,11 @@ Each stack below is built from our own module and a template that reads the
 ## Order
 
 `baseline` first, then each region's `hub` and `logging`, then the global `dns`
-(its private zones are created with the primary hub's VPC), then the rest. A
-stack that looks something up (a log bucket, a zone, a load balancer) fails its
-plan, naming what is missing, until the stack that builds it has been applied.
+(its private zones are created with the primary hub's VPC, and every other hub
+is associated with them), then the rest. A stack that looks something up (a log
+bucket, a zone, a load balancer) fails its plan, naming what is missing, until
+the stack that builds it has been applied. `make order` works the order out
+([architecture](architecture.md#apply-order)).
 
 ## Account-wide: `live/global/shared/`
 
@@ -65,7 +67,8 @@ written as in `aws_iam_policy_document`: `effect`, `actions`, `resources`, and
 `condition` (each with `test`, `variable` and `values`).
 
 Every role EC2 assumes also gets the built-in `session-manager` policy: decrypt
-with the sessions key (`alias/shared-sessions`, and only that key) and write to
+with the sessions key (`alias/shared-sessions`, or `alias/<environment>-sessions`
+in an environment's own account, and no other key) and write to
 the `/ssm/sessions` log groups, which every server needs for Session Manager,
 whatever its role is for.
 
@@ -89,9 +92,12 @@ public:
 ```
 
 Zones are never destroyed by a plan: a public zone holds records that exist
-nowhere else. A private zone is created with the primary hub's VPC; every
-network, and every other hub, attaches its own VPC from its own stack, and the
-zone ignores its VPC list afterwards so this stack never undoes that.
+nowhere else. A private zone is created with the primary hub's VPC, and this
+stack associates every other region's hub with it, so no hub has to wait for
+`dns` and the primary hub can still be applied last. Every network attaches its
+own VPC from its own stack, and the zone ignores its VPC list afterwards so
+this stack never undoes that. Hubs must all be in the primary hub's account for
+private zones; the plan refuses one that is not.
 
 ### `cloudfront`
 
@@ -204,7 +210,8 @@ Each function gets its own role, allowed only to write its own log group plus
 the statements in its file, and its own log group kept 365 days. Functions run
 on Graviton (arm64) with JSON logs. The code is zipped with fixed file modes, so
 a different umask on another machine is not a code change. A `schedule_expression` runs it
-through EventBridge, which alone may invoke it. The plan refuses an environment
+through EventBridge, which alone may invoke it. An `event_source_mapping`
+takes messages from a queue instead ([messaging](messaging.md#sending-and-reading)). The plan refuses an environment
 variable whose name looks like a secret (password, token, key, credential): the
 AWS provider prints environment variables in plans, so a function reads its
 secrets from SSM or Secrets Manager when it runs. It also refuses a file without

@@ -60,6 +60,7 @@ resource "aws_iam_role_policy_attachment" "default_host" {
 }
 
 # The agent encrypts sessions with the sessions key and streams them to /ssm/sessions, with these credentials when it uses them.
+# The key is alias/shared-sessions in the hub account and alias/<environment>-sessions in an environment's own.
 resource "aws_iam_role_policy" "default_host_sessions" {
   count = var.create_default_host_role ? 1 : 0
 
@@ -72,7 +73,7 @@ resource "aws_iam_role_policy" "default_host_sessions" {
         Effect    = "Allow"
         Action    = ["kms:Decrypt", "kms:GenerateDataKey"]
         Resource  = "*"
-        Condition = { "ForAnyValue:StringEquals" = { "kms:ResourceAliases" = ["alias/shared-sessions"] } }
+        Condition = { "ForAnyValue:StringLike" = { "kms:ResourceAliases" = ["alias/*-sessions"] } }
       },
       {
         Effect   = "Allow"

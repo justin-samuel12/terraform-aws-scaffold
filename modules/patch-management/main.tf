@@ -50,7 +50,7 @@ resource "aws_ssm_maintenance_window_target" "instances" {
   resource_type = "INSTANCE"
 
   targets {
-    key    = "tag:Patch Group"
+    key    = "tag:PatchGroup"
     values = [var.environment]
   }
 }

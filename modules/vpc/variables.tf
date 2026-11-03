@@ -74,6 +74,8 @@ variable "transit_gateway" {
     security_group_referencing  = optional(bool, false)
     # false: the caller associates and propagates, as the gateway's owner must when it is in another account.
     route_here = optional(bool, true)
+    # true: the gateway is another account's, shared through RAM, which owns the default route table settings.
+    shared = optional(bool, false)
   })
   default = null
 
@@ -85,6 +87,12 @@ variable "transit_gateway" {
     )
     error_message = "Routes to the Transit Gateway need transit_gateway, and its subnets must name an existing tier."
   }
+}
+
+variable "transit_gateway_accepted" {
+  description = "When the gateway is another account's: its acceptance of the attachment, so routes to the gateway wait for it."
+  type        = string
+  default     = null
 }
 
 variable "flow_log_retention_days" {

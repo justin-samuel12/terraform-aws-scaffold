@@ -60,9 +60,17 @@ fi
 REGION_FILE="${REPO_ROOT}/config/${REGION}.yml"
 [[ -f "${REGION_FILE}" ]] || refuse "there is no config/${REGION}.yml."
 if [[ "${ENVIRONMENT}" == shared ]]; then ENTRY=".hub"; else ENTRY=".vpcs[\"${ENVIRONMENT}\"]"; fi
-[[ "$(yq -r "${ENTRY} | tag" "${REGION_FILE}")" == "!!map" ]] || refuse "config/${REGION}.yml has no entry for ${ENVIRONMENT}."
+# A global stack runs in the primary region, but its environment may run only elsewhere: its settings come from the first
+# region file that has it (an environment in two regions has one account and team, which the IP plan checks).
+SETTINGS_FILE="${REGION_FILE}"
+if [[ "${LOCATION}" == global && "$(yq -r "${ENTRY} | tag" "${REGION_FILE}")" != "!!map" ]]; then
+    for f in "${REPO_ROOT}"/config/*-*-[0-9].yml; do
+        [[ "$(yq -r "${ENTRY} | tag" "${f}")" == "!!map" ]] && { SETTINGS_FILE="${f}"; break; }
+    done
+fi
+[[ "$(yq -r "${ENTRY} | tag" "${SETTINGS_FILE}")" == "!!map" ]] || refuse "config/ has no entry for ${ENVIRONMENT}$([[ "${LOCATION}" != global ]] && echo " in ${REGION}.yml")."
 # The environment's own account, else the one config/global.yml gives every environment.
-ACCOUNT_FILE="${REGION_FILE}"; ACCOUNT_PATH="${ENTRY}.account_id"
+ACCOUNT_FILE="${SETTINGS_FILE}"; ACCOUNT_PATH="${ENTRY}.account_id"
 if [[ -z "$(yq -r "${ACCOUNT_PATH} // \"\"" "${ACCOUNT_FILE}")" ]]; then ACCOUNT_FILE="${REPO_ROOT}/config/global.yml"; ACCOUNT_PATH=".account_id"; fi
 ACCOUNT_ID="$(yq -r "${ACCOUNT_PATH} // \"\"" "${ACCOUNT_FILE}")"
 [[ "${ACCOUNT_ID}" =~ ^[0-9]{12}$ && "$(yq -r "${ACCOUNT_PATH} | tag" "${ACCOUNT_FILE}")" == "!!str" ]] \
@@ -85,4 +93,72 @@ fi
 # The same profile for the AWS CLI as for the provider: destroying a server calls the CLI to power it off at once.
 [[ -n "${PROFILE}" ]] && export AWS_PROFILE="${PROFILE}"
 
-exec terraform -chdir="${STACK}" "$@"
+[[ "${COMMAND}" == plan || "${COMMAND}" == apply ]] || exec terraform -chdir="${STACK}" "$@"
+
+# ---- plan and apply: apply runs exactly the plan that was reviewed -- docs/configuration.md#running-terraform.
+cd "${REPO_ROOT}"
+source bin/lib/units.sh
+NAME="${REL#live/}"
+PLAN="${STACK}/.terraform/plan.tfplan"
+PLAN_FP="${STACK}/.terraform/plan.fingerprint"
+MAX_AGE="${PLAN_MAX_AGE_MINUTES:-240}"
+FP="$(fingerprint "files:${NAME}")"
+note() { echo "bin/tf: $*" >&2; }
+stop() { echo "bin/tf: $*" >&2; exit 1; }
+shift
+
+if [[ "${COMMAND}" == plan ]]; then
+    # 1. Stacks this one looks things up in that are not applied yet: the plan fails on them, or shows their values as unknown.
+    while read -r s; do [[ -n "${s}" ]] && note "not applied yet: ${s} (make order STACK=${NAME})"; done <<<"$(bin/order --unapplied "${NAME}" 2>/dev/null || true)"
+
+    # 2. Formatting, validation and lint of this stack, its template and its modules, once for each version of their files.
+    if ! passed_before "preflight:${NAME}" "${FP}"; then
+        dirs="$(module_closure "${REL}")"
+        for d in ${dirs}; do terraform fmt -check -list=true "${d}" >/dev/null || stop "${d} is not formatted: make fmt"; done
+        terraform -chdir="${STACK}" validate -no-color >/dev/null || { terraform -chdir="${STACK}" validate -no-color >&2 || true; stop "the stack is not valid."; }
+        if command -v tflint >/dev/null; then
+            for d in ${dirs}; do
+                [[ "${d}" == live/* ]] && continue
+                tflint --chdir="${d}" --config="${REPO_ROOT}/.tflint.hcl" --format compact >&2 || stop "${d} has lint findings (make lint)."
+            done
+        fi
+        record_pass "preflight:${NAME}" "${FP}"
+    fi
+
+    # 3. The plan, saved with the fingerprint of everything it read.
+    for a in "$@"; do [[ "${a}" == -out=* ]] && stop "make plan saves the plan itself; leave out ${a}."; done
+    rm -f "${PLAN}" "${PLAN_FP}"
+    terraform -chdir="${STACK}" plan "$@" -out="${PLAN}"
+    echo "${FP} $(date +%s)" > "${PLAN_FP}"
+    note "plan saved: make apply STACK=${NAME} applies exactly this one, within ${MAX_AGE} minutes and while nothing it read changes."
+    exit 0
+fi
+
+# apply: only the saved plan, only if nothing it read has changed, only when it is recent, only once.
+for a in "$@"; do
+    [[ "${a}" == -input=false ]] || stop "options belong to the plan (make plan STACK=${NAME} ARGS='${a}'), which apply then runs as it is."
+done
+[[ -f "${PLAN}" && -f "${PLAN_FP}" ]] || stop "there is no saved plan for ${NAME}: make plan STACK=${NAME} first, and review it."
+read -r saved_fp saved_at < "${PLAN_FP}"
+[[ "${saved_fp}" == "${FP}" ]] || stop "the stack, its template, its modules or config/ changed since the plan: make plan STACK=${NAME} again."
+age=$(( ($(date +%s) - saved_at) / 60 ))
+[[ "${age}" -le "${MAX_AGE}" ]] || stop "the plan is ${age} minutes old (PLAN_MAX_AGE_MINUTES is ${MAX_AGE}): make plan STACK=${NAME} again, so it reflects AWS now."
+unapplied="$(bin/order --unapplied "${NAME}" 2>/dev/null || true)"
+[[ -z "${unapplied}" ]] || stop "apply these first, which this stack looks things up in: $(xargs <<<"${unapplied}")."
+
+terraform -chdir="${STACK}" show -no-color "${PLAN}" | grep -E '^(Plan:|No changes|Changes to Outputs)' >&2 || true
+if [[ -t 0 ]]; then
+    read -r -p "Apply the plan made $(( age )) minutes ago to ${NAME}? Only 'yes' applies: " answer
+    [[ "${answer}" == yes ]] || stop "not applied."
+else
+    # A pipeline asks a person in its own approval step, then says so.
+    [[ "${APPLY_CONFIRMED:-}" == yes ]] || stop "no terminal to confirm in: a pipeline whose approval step has passed sets APPLY_CONFIRMED=yes."
+fi
+
+# Terraform itself refuses a saved plan if the state moved since it was made. A plan is used once, applied or not.
+status=0
+terraform -chdir="${STACK}" apply -input=false "${PLAN}" || status=$?
+rm -f "${PLAN}" "${PLAN_FP}"
+[[ "${status}" == 0 ]] || exit "${status}"
+dependents="$(bin/order --dependents "${NAME}" 2>/dev/null || true)"
+[[ -z "${dependents}" ]] || note "these look ${NAME} up; plan them again: $(xargs <<<"${dependents}")"

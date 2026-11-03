@@ -5,13 +5,13 @@ SHELL := /bin/bash
 REPO_ROOT     := $(shell pwd)
 STACK_DIR      = live/$(STACK)
 EXAMPLE       := us-east-2/operations/network
-MODULES       := $(sort $(dir $(wildcard modules/*/versions.tf templates/*/versions.tf bootstrap/versions.tf)))
 STACKS        := $(sort $(patsubst %/main.tf,%,$(wildcard live/*/*/*/main.tf)))
-STACKS_TESTED := $(sort $(patsubst %/tests/,%/,$(dir $(wildcard live/*/*/*/tests/*.tftest.hcl))))
+JOBS          ?= 4
+UNITS         := nice -n 10 bin/check-units --jobs $(JOBS) $(if $(CHANGED),--changed)
 export TF_PLUGIN_CACHE_DIR ?= $(REPO_ROOT)/.terraform.d/plugin-cache
 
 .PHONY: help setup status config bootstrap backends hooks stack init plan apply output validate \
-        check fmt fmt-check lint test validate-all check-files check-examples diagram clean
+        order check fmt fmt-check lint test validate-all check-files check-examples check-order diagram clean
 
 define require_stack
 	@test -n "$(STACK)" || { echo "STACK is required, e.g. STACK=$(EXAMPLE)" >&2; exit 1; }
@@ -23,9 +23,10 @@ endef
 help: ## List targets
 	@awk 'BEGIN {FS = ":.*## "} /^##@/ {printf "\n%s\n", substr($$0, 5)} /^[a-z-]+:.*## / {printf "  %-15s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@echo
-	@echo "  STACK=<region>/<environment>/<component>, e.g. make plan STACK=$(EXAMPLE)"
-	@echo "  ARGS=  more for terraform plan or apply, e.g. ARGS='-replace=<address>' to rebuild one server on purpose"
+	@echo "  STACK=<region>/<environment>/<component>, e.g. make plan STACK=$(EXAMPLE); make order also takes <region>/<environment>"
+	@echo "  ARGS=  more for terraform plan, e.g. ARGS='-replace=<address>' to rebuild one server on purpose; apply runs that plan"
 	@echo "  ONLY=  some stacks for check-files or check-examples, e.g. ONLY=\"us-east-2/operations/compute\""
+	@echo "  CHANGED=1  skip whatever is unchanged since it last passed; JOBS=n  checks at a time (default 4)"
 
 setup: ## Guided: accounts, regions, environments, IP scope; writes config/ and the stacks, then your profiles
 	bin/setup
@@ -56,17 +57,20 @@ init: ## Connect a stack to its state
 	$(require_stack)
 	bin/tf $(STACK_DIR) init -input=false
 
-plan: ## Plan a stack: read-only, but needs credentials and takes the state lock (ARGS= for more)
+plan: ## Plan a stack and save the plan; read-only, but needs credentials and takes the state lock (ARGS= for more)
 	$(require_stack)
 	bin/tf $(STACK_DIR) plan -input=false $(ARGS)
 
-apply: ## Apply a stack, after showing the plan and asking (ARGS= for more)
+apply: ## Apply the plan make plan saved, unchanged and recent, after asking
 	$(require_stack)
-	bin/tf $(STACK_DIR) apply -input=false $(ARGS)
+	bin/tf $(STACK_DIR) apply -input=false
 
 output: ## Show a stack's outputs
 	$(require_stack)
 	bin/tf $(STACK_DIR) output
+
+order: ## The order to apply stacks in, and what is applied (STACK= an environment or one stack; read-only)
+	bin/order $(STACK)
 
 validate: ## Validate a stack without its backend
 	$(require_stack)
@@ -75,8 +79,9 @@ validate: ## Validate a stack without its backend
 
 ##@ Checks: no credentials, no state
 
-check: fmt-check lint test validate-all check-files check-examples ## All of the checks below, as CI would run them
+check: fmt-check lint check-order ## Everything below, the slow parts side by side (CHANGED=1: only what changed since it passed)
 	bin/backends --check
+	$(UNITS)
 	@echo "All checks passed."
 
 fmt: ## Format every .tf file
@@ -90,12 +95,8 @@ lint: ## Lint every module, template and stack with tflint
 	tflint --init >/dev/null
 	tflint --recursive --format compact
 
-test: ## Run every module's, template's and stack's tests against a mocked AWS
-	@mkdir -p $(TF_PLUGIN_CACHE_DIR)
-	@for m in $(MODULES) $(STACKS_TESTED); do \
-	  echo "== $$m"; \
-	  ( cd $$m && terraform init -backend=false -input=false >/dev/null && terraform test ) || exit 1; \
-	done
+test: ## Run every module's, template's and stack's tests against a mocked AWS (CHANGED=1, JOBS=n)
+	$(UNITS) test
 
 validate-all: ## Validate every stack without its backend
 	@mkdir -p $(TF_PLUGIN_CACHE_DIR)
@@ -104,11 +105,14 @@ validate-all: ## Validate every stack without its backend
 	  else echo "FAIL  $${s#live/}"; ( cd $$s && terraform validate -no-color ) | sed 's/^/      /'; failed=1; fi; \
 	done; exit $$failed
 
-check-files: ## Plan every stack's .yml files against a mocked AWS (ONLY= for some)
-	bin/check-files $(ONLY)
+check-files: ## Validate every stack, then plan its .yml files against a mocked AWS (ONLY= for some; CHANGED=1, JOBS=n)
+	$(if $(ONLY),bin/check-files $(ONLY),$(UNITS) files)
 
-check-examples: ## Plan every file in examples/ the same way, against examples/config/ (ONLY= for some)
-	bin/check-files --examples $(ONLY)
+check-examples: ## The same for examples/, each as make stack would create it (ONLY= for some; CHANGED=1, JOBS=n)
+	$(if $(ONLY),bin/check-files --examples $(ONLY),$(UNITS) example)
+
+check-order: ## Every template's lookups are in templates/needs.yml, and no stacks need each other in a loop (order_check: false turns it off)
+	bin/order --check
 
 diagram: ## Regenerate docs/diagram.md from config/ and live/
 	bin/diagram

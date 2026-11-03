@@ -1,0 +1,5 @@
+runtime: python3.12
+handler: app.handler
+event_source_mapping:
+  event_source_arn: queue:orders
+  batch_size: 5

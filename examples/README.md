@@ -25,8 +25,8 @@ The example environment runs an internal dashboards application behind an
 internal load balancer, deployed by CodeDeploy, with its database, file
 system, buckets, DNS name and certificate; monitoring collectors behind a
 network load balancer; build runners; a two-node SQL Server cluster with chosen
-addresses; a tunnel to the database; a daily Lambda function; patching and
-backups. Each file names the others by name, never by ID.
+addresses; a tunnel to the database; export requests through a topic and a
+queue to a Lambda function; a daily Lambda function; patching and backups. Each file names the others by name, never by ID.
 
 ## Account-wide: `global/shared/`
 

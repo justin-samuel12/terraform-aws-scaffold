@@ -92,7 +92,7 @@ resource "aws_route" "default_routes" {
   nat_gateway_id         = each.value.default_route == "nat" ? aws_nat_gateway.nat_gateways[each.value.zone].id : null
   transit_gateway_id     = each.value.default_route == "transit" ? var.transit_gateway.id : null
 
-  depends_on = [aws_ec2_transit_gateway_vpc_attachment.transit_gateway_vpc_attachment]
+  depends_on = [aws_ec2_transit_gateway_vpc_attachment.transit_gateway_vpc_attachment, terraform_data.transit_gateway_accepted]
 }
 
 resource "aws_route" "transit_routes" {
@@ -102,7 +102,14 @@ resource "aws_route" "transit_routes" {
   destination_cidr_block = each.value.destination
   transit_gateway_id     = var.transit_gateway.id
 
-  depends_on = [aws_ec2_transit_gateway_vpc_attachment.transit_gateway_vpc_attachment]
+  depends_on = [aws_ec2_transit_gateway_vpc_attachment.transit_gateway_vpc_attachment, terraform_data.transit_gateway_accepted]
+}
+
+# An attachment to another account's gateway carries no traffic until that account accepts it; routes wait for the acceptance.
+resource "terraform_data" "transit_gateway_accepted" {
+  count = var.transit_gateway == null ? 0 : 1
+
+  input = var.transit_gateway_accepted
 }
 
 resource "aws_ec2_transit_gateway_vpc_attachment" "transit_gateway_vpc_attachment" {
@@ -114,8 +121,8 @@ resource "aws_ec2_transit_gateway_vpc_attachment" "transit_gateway_vpc_attachmen
   appliance_mode_support                          = var.transit_gateway.appliance_mode ? "enable" : "disable"
   security_group_referencing_support              = var.transit_gateway.security_group_referencing ? "enable" : "disable"
   dns_support                                     = "enable"
-  transit_gateway_default_route_table_association = false
-  transit_gateway_default_route_table_propagation = false
+  transit_gateway_default_route_table_association = var.transit_gateway.shared ? null : false
+  transit_gateway_default_route_table_propagation = var.transit_gateway.shared ? null : false
 
   tags = { Name = "${var.name}-attachment" }
 }

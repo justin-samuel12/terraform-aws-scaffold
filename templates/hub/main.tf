@@ -91,21 +91,6 @@ module "route53_resolver" {
   forward       = module.ip_plan.dns.forward
 }
 
-# The primary hub's VPC is the one each private zone was created with; the other hubs attach themselves.
-data "aws_route53_zone" "private" {
-  for_each = local.network.primary ? toset([]) : module.ip_plan.dns.private_zones
-
-  name         = each.key
-  private_zone = true
-}
-
-resource "aws_route53_zone_association" "private" {
-  for_each = local.network.primary ? toset([]) : module.ip_plan.dns.private_zones
-
-  zone_id = data.aws_route53_zone.private[each.key].zone_id
-  vpc_id  = module.vpc.vpc_id
-}
-
 # The other regions' hubs, found by their tags; each must be applied before the primary hub requests its peering.
 data "aws_ec2_transit_gateway" "peers" {
   for_each = toset(local.peer_regions)

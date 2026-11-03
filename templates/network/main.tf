@@ -67,7 +67,9 @@ module "vpc" {
     propagation_route_table_ids = { for table in local.network.propagates_to : table => data.aws_ec2_transit_gateway_route_table.route_tables[table].id }
     security_group_referencing  = local.network.security_group_referencing
     route_here                  = false
+    shared                      = local.cross_account
   }
+  transit_gateway_accepted = local.cross_account ? aws_ec2_transit_gateway_vpc_attachment_accepter.network[0].id : null
 
   depends_on = [aws_ram_resource_share_accepter.network]
 }

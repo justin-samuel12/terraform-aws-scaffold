@@ -1,0 +1,9 @@
+queue:
+  senders:
+    - staging
+    - events
+topic:
+  fifo_topic: true
+  subscriptions:
+    - protocol: sqs
+      endpoint: queue:fifo

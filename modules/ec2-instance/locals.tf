@@ -1,7 +1,7 @@
 locals {
   tags = merge(var.tags, {
-    Group         = var.group
-    "Patch Group" = var.environment
+    Group      = var.group
+    PatchGroup = var.environment
   }, var.backup ? { Backup = "standard" } : {})
 
   volumes = merge([for member in keys(var.members) : { for name, v in var.volumes : "${member}/${name}" => merge(v, { member = member, name = name }) }]...)

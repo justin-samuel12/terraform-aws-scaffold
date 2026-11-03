@@ -77,10 +77,11 @@ checks only what the stack adds: its identity from its path.
 
 | Template | Builds | Finds |
 |---|---|---|
-| `templates/hub` | Transit Gateway and its route tables, the egress VPC, the VPN once HQ's IP is set | nothing; it is built first |
+| `templates/hub` | Transit Gateway and its route tables, the egress VPC, the VPN once HQ's IP is set | the primary hub finds the other regions' hubs, to peer with them |
 | `templates/network` | The environment's VPC, attached to its segment's route table | the region's hub, by its `Component = hub` tag |
 
-Build order: both hubs, then each environment's network.
+Build order: the other regions' hubs, then the primary hub (it requests the peering), then the global `dns`, then each
+environment's network. `make order` works it out ([architecture](architecture.md#apply-order)).
 
 ## IP plan
 
@@ -111,7 +112,7 @@ vpcs:
 | `segment` | `restricted`, `standard` or `shared`: the hub route table it joins, which decides what it can reach | always `shared`; not written |
 | `public` | `true` for a public tier (internet-facing load balancers), else `false` | always has one; not written |
 | `amazon_side_asn` | not allowed | the Transit Gateway's BGP ASN, 64512 to 65534, different for each hub |
-| `primary` | not allowed | `true` on exactly one hub. The primary is built first, requests the peering, is HQ's preferred VPN path, and is where `global` stacks run. Moving it is a one-line change |
+| `primary` | not allowed | `true` on exactly one hub. The primary is built after the other hubs, requests the peering, is HQ's preferred VPN path, and is where `global` stacks run. Moving it is a one-line change |
 | `security_group_referencing` | not allowed: every VPC follows its region's hub | `false` by default. `true` lets security groups in VPCs attached to this hub reference each other's groups (`group:<environment>/<group>`, [security groups](security-groups.md#groups-in-other-environments)). Same region only: never across the peering |
 
 Adding an environment is one entry under `vpcs` and one `make stack`. The

@@ -1,5 +1,0 @@
-description: Build runners
-services:
-  - ec2
-managed_policies:
-  - AmazonSSMManagedInstanceCore

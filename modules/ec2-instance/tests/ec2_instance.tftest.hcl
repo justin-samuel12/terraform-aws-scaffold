@@ -33,7 +33,7 @@ run "sql_nodes" {
   }
 
   assert {
-    condition     = aws_instance.servers["sqlserver-02"].tags["Patch Group"] == "production" && aws_instance.servers["sqlserver-02"].tags.Backup == "standard" && aws_instance.servers["sqlserver-02"].tags.Subnet == "data-az2"
+    condition     = aws_instance.servers["sqlserver-02"].tags["PatchGroup"] == "production" && aws_instance.servers["sqlserver-02"].tags.Backup == "standard" && aws_instance.servers["sqlserver-02"].tags.Subnet == "data-az2"
     error_message = "Patched with the environment, backed up, and tagged with its subnet."
   }
 

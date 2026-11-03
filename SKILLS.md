@@ -1,7 +1,8 @@
 # Operating rules for AI assistants in this repository
 
 This repository manages AWS infrastructure: the network hubs, every
-environment's VPCs and workloads, IAM, DNS, storage and Lambda functions. A
+environment's VPCs and workloads, IAM, DNS, storage, queues and topics, and
+Lambda functions. A
 careless command here takes down DNS, access, or compute for everything that
 runs on it.
 
@@ -151,7 +152,7 @@ Expected of everything added from here on:
 | `terraform apply` | Only a human applies. No flags, no directory, no exceptions. |
 | `terraform destroy` | Same. |
 | `state mv` / `state rm` / `state push`, or anything else that writes state | Mutates state. |
-| `-auto-approve` | Removes the only confirmation that exists. |
+| `-auto-approve`, or `APPLY_CONFIRMED=yes` | Removes the only confirmation that exists. `APPLY_CONFIRMED` is for a pipeline whose own approval step a person has passed, never for an assistant. |
 | Any `make` target that applies | A wrapper does not make it safer. |
 | `git push` (esp. `--force`) | Publishes. Irreversible for others. |
 | `git commit` unless explicitly asked | The user commits their own work. |

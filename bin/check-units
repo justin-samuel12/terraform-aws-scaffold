@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# Runs units of checking side by side, and skips any that already passed exactly as they are -- docs/configuration.md#checking-without-credentials.
+#   bin/check-units [--changed] [--jobs N] [test] [files] [example]
+#     --changed   skip every unit whose fingerprint (everything it reads) is the one it last passed with
+#     --jobs N    units at a time (default 4)
+#     kinds       test (terraform test), files (live stacks' files), example (examples/); all three by default
+# No credentials, no state. A failing unit's output is shown at the end; nothing is recorded for it.
+set -euo pipefail
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "${REPO_ROOT}"
+source bin/lib/units.sh
+
+export TF_PLUGIN_CACHE_DIR="${TF_PLUGIN_CACHE_DIR:-${REPO_ROOT}/.terraform.d/plugin-cache}"
+mkdir -p "${TF_PLUGIN_CACHE_DIR}"
+export TF_IN_AUTOMATION=1
+
+# One unit, run by a worker: skipped if unchanged since it passed, else checked, and recorded only on a pass.
+if [[ "${1:-}" == --one ]]; then
+    unit="$2"; changed="$3"; log="$4"
+    kind="${unit%%:*}"; path="${unit#*:}"
+    fp="$(fingerprint "${unit}")"
+    if [[ "${changed}" == 1 ]] && passed_before "${unit}" "${fp}"; then echo "same  ${unit}"; exit 0; fi
+    start=$SECONDS
+    case "${kind}" in
+        test)
+            ok=0
+            # Modules and templates commit no lock file; the shared one means init only links from the cache.
+            [[ "${path}" == modules/* || "${path}" == templates/* ]] && cp tests/lock/.terraform.lock.hcl "${path}/.terraform.lock.hcl"
+            for attempt in 1 2 3; do
+                if (cd "${path}" && terraform init -backend=false -input=false -no-color >"${log}" 2>&1); then ok=1; break; fi
+                sleep 3
+            done
+            [[ "${ok}" == 1 ]] && (cd "${path}" && terraform test -no-color >"${log}" 2>&1) || ok=0 ;;
+        files) bin/check-files "${path}" >"${log}" 2>&1 && ok=1 || ok=0 ;;
+        example) bin/check-files --examples "${path}" >"${log}" 2>&1 && ok=1 || ok=0 ;;
+    esac
+    if [[ "${ok}" == 1 ]] && ! grep -q '^SKIP' "${log}"; then
+        record_pass "${unit}" "${fp}"; printf 'ok    %-58s %4ss\n' "${unit}" "$((SECONDS - start))"
+    else
+        printf 'FAIL  %-58s %4ss\n' "${unit}" "$((SECONDS - start))"; exit 1
+    fi
+    exit 0
+fi
+
+CHANGED=0; JOBS=4; KINDS=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --changed) CHANGED=1 ;;
+        --jobs) JOBS="$2"; shift ;;
+        test | files | example) KINDS+=" $1" ;;
+        *) echo "bin/check-units: unknown argument $1" >&2; exit 2 ;;
+    esac
+    shift
+done
+KINDS="${KINDS:- test files example}"
+[[ "${JOBS}" =~ ^[1-9][0-9]*$ ]] || { echo "bin/check-units: --jobs takes a number" >&2; exit 2; }
+
+units="$(all_units | while read -r u; do [[ " ${KINDS} " == *" ${u%%:*} "* ]] && echo "${u}"; done)"
+[[ -n "${units}" ]] || { echo "Nothing to check."; exit 0; }
+TF_VERSION="$(terraform version -json | jq -r .terraform_version)"; export TF_VERSION
+
+# Providers are fetched once, by one init, before units run side by side. Every folder checked then has a lock file (its own, or
+# tests/lock's), so its init only links from the cache: an init without one downloads the provider again and rewrites the cache,
+# which breaks any check starting that provider at the same moment.
+(cd tests/lock && terraform init -backend=false -input=false >/dev/null) || { echo "bin/check-units: could not fetch the providers in tests/lock" >&2; exit 1; }
+
+LOGS="$(mktemp -d)"; trap 'rm -rf "${LOGS:?}"' EXIT
+echo "Checking $(wc -l <<<"${units}" | tr -d ' ') units, ${JOBS} at a time$([[ "${CHANGED}" == 1 ]] && echo ', skipping any unchanged since it passed')"
+start=$SECONDS
+set +e
+while read -r u; do printf '%s\0%s\0' "${u}" "${LOGS}/$(tr '/:' '%=' <<<"${u}").log"; done <<<"${units}" \
+    | xargs -0 -n2 -P "${JOBS}" sh -c 'bin/check-units --one "$1" "'"${CHANGED}"'" "$2"' _ | tee "${LOGS}/summary"
+set -e
+
+failed="$(grep '^FAIL' "${LOGS}/summary" | awk '{print $2}' || true)"
+same="$(grep -c '^same' "${LOGS}/summary" || true)"
+checked="$(grep -c '^ok' "${LOGS}/summary" || true)"
+if [[ -n "${failed}" ]]; then
+    for u in ${failed}; do
+        echo; echo "== ${u}"
+        grep -E 'Error|FAIL|fail|SKIP' -A8 "${LOGS}/$(tr '/:' '%=' <<<"${u}").log" | sed 's/\x1b\[[0-9;]*m//g' | head -40 | sed 's/^/   /' || true
+    done
+    echo; echo "$(wc -w <<<"${failed}" | tr -d ' ') failed, ${checked} passed, ${same} unchanged, in $((SECONDS - start))s."
+    exit 1
+fi
+echo "${checked} passed, ${same} unchanged since they last passed, in $((SECONDS - start))s."

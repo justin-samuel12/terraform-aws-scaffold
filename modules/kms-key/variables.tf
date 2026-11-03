@@ -23,3 +23,20 @@ variable "replica_regions" {
   type        = set(string)
   default     = []
 }
+
+variable "caller_accounts" {
+  description = "Purpose -> other accounts that may use the key, still only through its named services; their own IAM must allow it too."
+  type        = map(set(string))
+  default     = {}
+
+  validation {
+    condition     = alltrue(flatten([for accounts in values(var.caller_accounts) : [for a in accounts : can(regex("^[0-9]{12}$", a))]]))
+    error_message = "caller_accounts are 12-digit account IDs."
+  }
+}
+
+variable "service_principals" {
+  description = "Purpose -> AWS services that use the key themselves, for this account only, without .amazonaws.com (sns, events, cloudwatch)."
+  type        = map(set(string))
+  default     = {}
+}

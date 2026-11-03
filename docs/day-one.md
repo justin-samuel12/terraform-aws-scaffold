@@ -45,16 +45,17 @@ it, or checks and uses one that already exists
 
 ## 3. Create the stacks
 
-Only Ohio's `shared` and `operations` stacks, and the global ones, exist as
-examples. Create the rest with `make stack STACK=<region>/<environment>/<component>`,
-which calls the matching template and writes `backend.tf`:
+`make setup` creates every stack `config/` calls for, empty or from `examples/`.
+To add one by hand, `make stack STACK=<region>/<environment>/<component>` calls
+the matching template and writes `backend.tf`. `make order` lists what exists
+and what is still missing. What every environment has:
 
-- [ ] Each additional region's `shared`: `hub` (exists for Oregon), `logging`,
+- [ ] Each region's `shared`: `hub`, `logging`,
       `session-manager`, `documents`, `ecr` as needed.
 - [ ] Each environment, in each region it runs in: `network`,
       `security-groups`, `endpoints`, `keys`, `backups`, then whichever of
       `load-balancers`, `certificates`, `waf`, `databases`, `storage`,
-      `buckets`, `access`, `patching`, `compute`, `records` and
+      `buckets`, `messaging`, `access`, `patching`, `compute`, `records` and
       `lambda` it uses.
 - [ ] With an account per environment: each environment account's own
       `global/<environment>/baseline`, `global/<environment>/iam`,
@@ -68,17 +69,21 @@ which calls the matching template and writes `backend.tf`:
 Plans are read-only; applies are made by a person, one stack at a time,
 reviewing each plan. A stack that looks something up fails its plan, naming
 what is missing, until the stack that builds it has been applied.
+`make order STACK=<region>/<environment>` works the order out from the
+templates, in waves, and shows what is already applied
+([architecture](architecture.md#apply-order)). By hand, one safe order is:
 
 1. `global/shared/baseline`
 2. Each region's `shared/hub`, the primary region last: it requests and accepts
    the peering with the others
-3. Each region's `shared/logging`, then `global/shared/dns`
+3. Each region's `shared/logging`, then `global/shared/dns`, which creates the
+   private zones and associates every hub with them
 4. `global/shared/iam`
 5. Each region's `shared/session-manager` and `shared/documents`
 6. Per environment and region: `network`, `security-groups`, `endpoints`,
    `keys`, `backups`
 7. `certificates`, then `load-balancers`, then `waf`
-8. `databases`, `storage`, `buckets`
+8. `databases`, `storage`, `buckets`, `messaging`
 9. `patching`, `access`
 10. `compute`, then `records`
 11. `ecr`, `lambda`, `global/shared/cloudfront` as needed
@@ -94,17 +99,18 @@ The files are the environment's own: nothing is built until they exist.
 - [ ] Every group of servers in `compute` (listener rule priorities from 1000),
       each with a pinned image ID.
 - [ ] Databases, file systems and buckets.
+- [ ] Queues and topics, and the policies that let servers and functions use them.
 - [ ] Patching windows, production later than staging.
 
 ## 6. Not included: add before you need it
 
 | Item | Why it is not here | What to add |
 |---|---|---|
-| CI pipeline | depends on your CI system | a pipeline that runs `make check` and plans every changed stack on a pull request; applies stay manual |
+| CI pipeline | depends on your CI system | the stages in [configuration](configuration.md#checking-without-credentials): `make check CHANGED=1` with `.terraform.d/` cached on every pull request, a plan of every changed stack, the full `make check` on main; applies stay manual |
 | CI role | depends on your CI system | an IAM role trusting your CI's OIDC provider, for plans, and for uploading CodeDeploy revisions and starting deployments |
 | CodeDeploy revisions | one bucket per environment, your naming | a `buckets/revisions.yml` file, and a shared `read-revisions` policy for deployed groups' roles ([compute](compute.md#deploying-with-codedeploy)) |
 | Machine images | images are pinned by ID; building them is a pipeline of its own | EC2 Image Builder, or Packer, producing images with the SSM and CodeDeploy agents |
-| Monitoring and alerting | depends on where alerts go | an SNS topic per environment, and alarms for instance status, load balancer 5xx and unhealthy hosts, database CPU and storage, VPN tunnels, and failed backups |
+| Monitoring and alerting | depends on where alerts go | an alerts topic per environment in `messaging` (with `cloudwatch` as a publisher), and alarms for instance status, load balancer 5xx and unhealthy hosts, database CPU and storage, VPN tunnels, and failed backups |
 | Budgets | per organization | AWS Budgets with alerts per account |
 | Secrets | values never pass through Terraform | Secrets Manager secrets created empty, or with write-only values, for applications to read |
 | Network inspection | not every network needs it | AWS Network Firewall in the hub's egress VPC ([network](network.md)) |

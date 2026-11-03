@@ -155,4 +155,9 @@ run "another_account" {
     condition     = local.cross_account && length(aws_ram_resource_share_accepter.network) == 1 && length(aws_ec2_transit_gateway_vpc_attachment_accepter.network) == 1
     error_message = "In another account: this account accepts the hub's share, and the hub's owner accepts the attachment before routing it."
   }
+
+  assert {
+    condition     = aws_ec2_transit_gateway_vpc_attachment_accepter.network[0].transit_gateway_default_route_table_association == false
+    error_message = "The hub's owner sets the default route table settings when it accepts; the attachment leaves them to it, so plans stay quiet."
+  }
 }

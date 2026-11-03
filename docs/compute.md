@@ -168,7 +168,7 @@ protocol, so a change AWS cannot make in place builds the new group first.
   holds.
 - Root and data disks encrypted with the environment's data key, detailed
   monitoring, automatic recovery.
-- The tags `Group = <group>`, `Patch Group = <environment>` (patching) and
+- The tags `Group = <group>`, `PatchGroup = <environment>` (patching) and
   `Backup = standard`.
 
 ## Auto Scaling groups

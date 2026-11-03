@@ -1,6 +1,7 @@
 account_id: ""
 organization_sharing: false
 repository: terraform-aws-scaffold
+order_check: true # make check refuses a lookup missing from templates/needs.yml, and stacks that need each other in a loop
 state:
   bucket: ""
   region: us-east-2

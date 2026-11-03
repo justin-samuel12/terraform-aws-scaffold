@@ -32,7 +32,7 @@ flowchart LR
 
 ## `keys`
 
-No settings. Two customer-managed KMS keys per environment, both multi-Region:
+No settings. Three customer-managed KMS keys per environment, all multi-Region:
 created in the stack's region and replicated to every other region in
 `config/`, so a copy or restore there uses the same key.
 
@@ -40,6 +40,7 @@ created in the stack's region and replicated to every other region in
 |---|---|
 | `alias/<environment>-data` | RDS, EFS, EBS, Secrets Manager, and AWS Backup reading them |
 | `alias/<environment>-backup` | the backup vaults only |
+| `alias/<environment>-messages` | SQS queues and SNS topics; SNS, EventBridge, alarms and S3 events use it as themselves, for this account ([messaging](messaging.md)) |
 
 A backup cannot be read with the live key, nor live data with the backup key.
 Each key's policy lets the account administer it through IAM, and lets only the

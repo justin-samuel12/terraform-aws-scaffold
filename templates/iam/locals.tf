@@ -4,7 +4,8 @@ locals {
   policy_files = { for name in fileset("${local.config_dir}/policies", "*.yml") : trimsuffix(name, ".yml") => yamldecode(file("${local.config_dir}/policies/${name}")) }
 
   # Built in: what every server needs for Session Manager, whatever its role is for. Sessions are encrypted with the sessions key
-  # and streamed to /ssm/sessions; the agent does both with the server's own credentials -- docs/systems-manager.md.
+  # and streamed to /ssm/sessions; the agent does both with the server's own credentials -- docs/systems-manager.md. The key is
+  # alias/shared-sessions in the hub account and alias/<environment>-sessions in an environment's own, so any *-sessions alias.
   builtin_policies = {
     session-manager = {
       description = "Session Manager on every server: decrypt with the sessions key, write session logs"
@@ -13,7 +14,7 @@ locals {
           effect    = "Allow"
           actions   = ["kms:Decrypt", "kms:GenerateDataKey"]
           resources = ["*"]
-          condition = [{ test = "ForAnyValue:StringEquals", variable = "kms:ResourceAliases", values = ["alias/shared-sessions"] }]
+          condition = [{ test = "ForAnyValue:StringLike", variable = "kms:ResourceAliases", values = ["alias/*-sessions"] }]
         },
         {
           effect    = "Allow"

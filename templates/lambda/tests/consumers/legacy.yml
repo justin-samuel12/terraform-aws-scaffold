@@ -1,0 +1,5 @@
+runtime: python3.12
+handler: app.handler
+event_source_mapping:
+  event_source_arn: arn:aws:sqs:us-east-2:222222222222:legacy-events
+  batch: 5

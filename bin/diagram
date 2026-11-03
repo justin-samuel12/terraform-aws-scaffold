@@ -10,6 +10,7 @@ command -v jq >/dev/null || { echo "bin/diagram: jq is required." >&2; exit 1; }
 
 # The IP plan is pure Terraform with no provider: evaluate it, no AWS involved.
 export TF_PLUGIN_CACHE_DIR="${TF_PLUGIN_CACHE_DIR:-${REPO_ROOT}/.terraform.d/plugin-cache}"
+mkdir -p "${TF_PLUGIN_CACHE_DIR}"
 terraform -chdir=modules/ip-plan init -backend=false -input=false >/dev/null
 networks="$(echo 'jsonencode(local.networks)' | terraform -chdir=modules/ip-plan console | jq -r 'fromjson')"
 

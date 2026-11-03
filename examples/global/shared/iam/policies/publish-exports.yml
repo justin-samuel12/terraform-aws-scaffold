@@ -1,0 +1,16 @@
+description: Publish export requests to each environment's exports topic, encrypted with its messages key
+statement:
+  - actions:
+      - sns:Publish
+    resources:
+      - arn:aws:sns:*:*:*-exports
+  - actions:
+      - kms:GenerateDataKey
+      - kms:Decrypt
+    resources:
+      - "*"
+    condition:
+      - test: StringLike
+        variable: kms:ViaService
+        values:
+          - sns.*.amazonaws.com

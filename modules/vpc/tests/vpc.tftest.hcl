@@ -49,8 +49,37 @@ run "spoke" {
   }
 
   assert {
+    condition     = aws_ec2_transit_gateway_vpc_attachment.transit_gateway_vpc_attachment[0].transit_gateway_default_route_table_association == false
+    error_message = "On this account's own gateway the attachment stays out of the default route table; on one shared through RAM the setting is left to its owner."
+  }
+
+  assert {
     condition     = aws_subnet.subnets["data-usw2-az2"].tags.Name == "vpc-01-data-usw2-az2" && aws_subnet.subnets["data-usw2-az2"].tags.Subnet == "data-az2" && aws_subnet.subnets["data-usw2-az2"].tags.Tier == "data"
     error_message = "Subnet names follow <vpc>-<tier>-<zone letter>."
+  }
+}
+
+run "another_accounts_gateway" {
+  command = plan
+
+  variables {
+    subnets = {
+      private = { cidrs = ["10.62.0.0/19", "10.62.32.0/19", "10.62.64.0/19"], default_route = "transit" }
+      transit = { cidrs = ["10.62.252.0/28", "10.62.252.16/28", "10.62.252.32/28"], default_route = "none" }
+    }
+    transit_gateway = {
+      id                         = "tgw-0123456789abcdef0"
+      subnets                    = "transit"
+      association_route_table_id = "tgw-rtb-standard"
+      route_here                 = false
+      shared                     = true
+    }
+    transit_gateway_accepted = "tgw-attach-accepted"
+  }
+
+  assert {
+    condition     = terraform_data.transit_gateway_accepted[0].input == "tgw-attach-accepted" && length(aws_ec2_transit_gateway_route_table_association.route_table_association) == 0
+    error_message = "Routes to the gateway wait for its owner to accept the attachment, and the owner associates it, not this account."
   }
 }
 

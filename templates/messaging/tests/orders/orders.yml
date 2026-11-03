@@ -1,0 +1,24 @@
+queue:
+  visibility_timeout_seconds: 180
+  dead_letter:
+    max_receive_count: 3
+  senders:
+    - operations
+    - production
+  consumers:
+    - "222222222222"
+topic:
+  subscriptions:
+    - protocol: sqs
+      endpoint: queue:orders
+      raw_message_delivery: true
+    - protocol: lambda
+      endpoint: lambda:audit
+    - protocol: email
+      endpoint: orders-team@example.com
+      filter_policy:
+        status:
+          - failed
+  publishers:
+    - cloudwatch
+    - operations

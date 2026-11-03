@@ -8,8 +8,8 @@ flowchart TB
   hq["HQ<br/>on-premises"]
   subgraph us_east_2["Ohio · us-east-2"]
     direction TB
-    hub_us_east_2["Hub<br/>Transit Gateway · egress 10.40.0.0/20"]:::built
-    operations_us_east_2["operations<br/>10.42.0.0/16"]:::built
+    hub_us_east_2["Hub<br/>Transit Gateway · egress 10.40.0.0/20"]:::planned
+    operations_us_east_2["operations<br/>10.42.0.0/16"]:::planned
     production_us_east_2["production<br/>10.41.0.0/16"]:::planned
   end
   subgraph us_west_2["Oregon · us-west-2"]
@@ -31,31 +31,7 @@ flowchart TB
 
 | Stack | Template | Modules |
 |---|---|---|
-| `global/shared/baseline` | `templates/baseline` | account-baseline, ip-plan |
-| `global/shared/cloudfront` | `templates/cloudfront` | cloudfront-distribution, waf-web-acl |
-| `global/shared/dns` | `templates/dns` | ip-plan, route |
-| `global/shared/iam` | `templates/iam` | iam-role |
-| `us-east-2/operations/access` | `templates/access` | ssm-document |
-| `us-east-2/operations/backups` | `templates/backups` | backup-plan, ip-plan |
-| `us-east-2/operations/buckets` | `templates/buckets` | s |
-| `us-east-2/operations/certificates` | `templates/certificates` | acm-certificate |
-| `us-east-2/operations/compute` | `templates/compute` | iam-role, ip-plan, placement, server-group |
-| `us-east-2/operations/databases` | `templates/databases` | iam-role, rds-instance |
-| `us-east-2/operations/endpoints` | `templates/endpoints` | ip-plan, vpc-endpoint |
-| `us-east-2/operations/keys` | `templates/keys` | ip-plan, kms-key |
-| `us-east-2/operations/lambda` | `templates/lambda` | lambda-function |
-| `us-east-2/operations/load-balancers` | `templates/load-balancers` | ip-plan, load-balancer |
-| `us-east-2/operations/network` | `templates/network` | ip-plan, vpc |
-| `us-east-2/operations/patching` | `templates/patching` | patch-management |
-| `us-east-2/operations/records` | `templates/records` | route |
-| `us-east-2/operations/security-groups` | `templates/security-groups` | ip-plan, security-group |
-| `us-east-2/operations/storage` | `templates/storage` | efs-file-system |
-| `us-east-2/operations/waf` | `templates/waf` | waf-web-acl |
-| `us-east-2/shared/documents` | `templates/documents` | ssm-document |
-| `us-east-2/shared/ecr` | `templates/ecr` | ecr-repository, ip-plan |
-| `us-east-2/shared/hub` | `templates/hub` | ip-plan, prefix-list, route, transit-gateway, vpc, vpn |
-| `us-east-2/shared/logging` | `templates/logging` | log-bucket |
-| `us-east-2/shared/session-manager` | `templates/session-manager` | ip-plan, kms-key, session-manager-preferences |
+| (none yet) | | |
 
 ## Subnets
 

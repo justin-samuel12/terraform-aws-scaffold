@@ -26,3 +26,28 @@ run "nothing_listed" {
     error_message = "Without files, no functions."
   }
 }
+
+run "queue_consumers" {
+  command = plan
+
+  variables {
+    config_dir = "tests/consumers"
+  }
+
+  override_data {
+    target = data.aws_sqs_queue.queues["orders"]
+    values = { arn = "arn:aws:sqs:us-east-2:111111111111:operations-orders" }
+  }
+
+  assert {
+    condition     = local.queue_names == { orders = "operations-orders" } && toset(keys(module.lambda_function)) == toset(["orders", "legacy"])
+    error_message = "queue:orders is this environment's queue, found by name; a queue's ARN is used as it is."
+  }
+
+  assert {
+    condition     = contains(local.problems, "legacy.yml: event_source_mapping takes event_source_arn (queue:<name>, or a queue's ARN), batch_size and maximum_batching_window_in_seconds")
+    error_message = "A misspelt event_source_mapping key is named."
+  }
+
+  expect_failures = [output.arns]
+}

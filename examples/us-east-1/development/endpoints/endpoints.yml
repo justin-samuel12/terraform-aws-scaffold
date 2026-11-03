@@ -4,5 +4,7 @@ interface:
   - ssmmessages
   - ec2messages
   - secretsmanager
+  - sqs
+  - sns
 gateway:
   - s3

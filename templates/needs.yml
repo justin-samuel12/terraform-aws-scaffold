@@ -1,0 +1,125 @@
+# What each template looks things up in, so which stacks are applied before it -- docs/architecture.md#apply-order.
+# make order and make check read this file; Terraform never does. One entry per template, if only needs: [].
+
+access:
+  needs: []
+
+backups:
+  needs:
+    - "{region}/{environment}/keys"
+
+baseline:
+  needs: []
+
+buckets:
+  needs:
+    - "{region}/{environment}/keys"
+
+certificates:
+  needs:
+    - global/shared/dns
+
+cloudfront:
+  needs: []
+  # Its files name the origin bucket and the us-east-1 certificate; apply those stacks first.
+  named_in_files:
+    - buckets
+    - certificates
+    - logging
+
+compute:
+  needs:
+    - "{region}/{environment}/network"
+    - "{region}/{environment}/security-groups"
+    - "{region}/{environment}/keys"
+    - global/{environment}/iam
+    - global/shared/dns
+  when_present:
+    - "{region}/{environment}/load-balancers"
+
+databases:
+  needs:
+    - "{region}/{environment}/network"
+    - "{region}/{environment}/security-groups"
+    - "{region}/{environment}/keys"
+
+dns:
+  # Private zones are created with the primary hub and associated with every other hub.
+  needs:
+    - "{each_region}/shared/hub"
+
+documents:
+  needs: []
+
+ecr:
+  needs: []
+
+endpoints:
+  needs:
+    - "{region}/{environment}/network"
+
+hub:
+  needs: []
+  # The primary hub requests the peering with every other hub, so they come first.
+  when_primary:
+    - "{other_regions}/shared/hub"
+
+iam:
+  needs: []
+
+keys:
+  needs: []
+
+lambda:
+  needs: []
+  when_present:
+    - "{region}/{environment}/messaging"
+
+load-balancers:
+  needs:
+    - "{region}/{environment}/network"
+    - "{region}/{environment}/security-groups"
+    - "{region}/{environment}/logging"
+  when_present:
+    - "{region}/{environment}/certificates"
+
+logging:
+  needs: []
+
+messaging:
+  needs:
+    - "{region}/{environment}/keys"
+
+network:
+  needs:
+    - "{region}/shared/hub"
+    - global/shared/dns
+
+patching:
+  needs: []
+
+records:
+  needs:
+    - global/shared/dns
+  when_present:
+    - "{region}/{environment}/compute"
+    - "{region}/{environment}/load-balancers"
+
+security-groups:
+  needs:
+    - "{region}/{environment}/network"
+    - "{region}/shared/hub"
+
+session-manager:
+  needs: []
+
+storage:
+  needs:
+    - "{region}/{environment}/network"
+    - "{region}/{environment}/security-groups"
+    - "{region}/{environment}/keys"
+
+waf:
+  needs:
+    - "{region}/{environment}/load-balancers"
+    - "{region}/{environment}/logging"

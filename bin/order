@@ -1,0 +1,197 @@
+#!/usr/bin/env bash
+# The order to apply stacks in, worked out from templates/needs.yml -- docs/architecture.md#apply-order.
+#   bin/order                                   every stack, in waves
+#   bin/order <region>/<environment>            one environment's stacks and everything they need
+#   bin/order <region>/<environment>/<component> what one stack needs first, and what to plan again after it
+#   bin/order --check                           make check: every lookup is declared, and no stacks need each other in a loop
+#   bin/order --unapplied <stack>               for bin/tf: the stacks it needs that are missing or not applied, one per line
+#   bin/order --dependents <stack>              for bin/tf: the stacks that look it up, directly or not, one per line
+# Read-only. Whether a stack is applied comes from its state in the bucket (--offline skips that).
+set -euo pipefail
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
+cd "${REPO_ROOT}"
+
+CHECK=0; OFFLINE=0; TARGET=""; QUERY=""
+for a in "$@"; do
+    case "${a}" in
+        --check) CHECK=1 ;;
+        --unapplied | --dependents) QUERY="${a#--}" ;;
+        --offline) OFFLINE=1 ;;
+        -*) echo "bin/order: unknown option ${a}" >&2; exit 2 ;;
+        *) TARGET="${a#live/}"; TARGET="${TARGET%/}" ;;
+    esac
+done
+
+if [[ "${CHECK}" == 1 && "$(yq -r '.order_check // true' "${CONFIG_DIR}/global.yml")" == false ]]; then
+    echo "order check: off (order_check: false in config/global.yml)"
+    exit 0
+fi
+
+PRIMARY="$(primary_region)"
+REGIONS="$(region_files | xargs)"
+NEEDS="templates/needs.yml"
+NEED_KEYS="needs when_present when_primary named_in_files"
+
+# A lookup, by data source, and the components that build what it finds.
+builders_of() {
+    case "$1" in
+        kms_key) echo keys ;;
+        sqs_queue) echo messaging ;;
+        security_group) echo security-groups ;;
+        vpc | subnet | subnets) echo "network hub" ;;
+        route_tables) echo network ;;
+        ec2_transit_gateway | ec2_transit_gateway_route_table | ram_resource_share | route53_resolver_rule | ec2_managed_prefix_list) echo hub ;;
+        route53_zone) echo dns ;;
+        acm_certificate) echo certificates ;;
+        s3_bucket) echo "logging buckets" ;;
+        lb | lb_listener | lb_target_group) echo load-balancers ;;
+        iam_instance_profile) echo iam ;;
+        instance) echo compute ;;
+    esac
+}
+
+stacks="$(find live -mindepth 4 -maxdepth 4 -name main.tf -not -path 'live/common/*' | sed 's#^live/##; s#/main.tf$##' | sort)"
+exists() { grep -qx "$1" <<<"${stacks}"; }
+
+# The graph, in one pass: every stack -> the stacks it needs (required, then optional ones that exist) and the required ones
+# that do not exist yet. {region} is a global stack's primary region; an environment's own stack that does not exist falls back
+# to the shared one (logging, iam).
+graph="$(yq -o=json '.' "${NEEDS}" | jq -c --arg stacks "${stacks}" --arg regions "${REGIONS}" --arg primary "${PRIMARY}" '
+  . as $needs
+  | ($stacks | split("\n") | map(select(. != ""))) as $all
+  | ($regions | split(" ") | map(select(. != ""))) as $regions
+  | def expand($e; $region; $env):
+      ($e | gsub("\\{environment\\}"; $env) | gsub("\\{region\\}"; $region)) as $x
+      | if ($x | contains("{other_regions}")) then $regions[] | select(. != $region) as $r | $x | gsub("\\{other_regions\\}"; $r)
+        elif ($x | contains("{each_region}")) then $regions[] as $r | $x | gsub("\\{each_region\\}"; $r)
+        else $x end;
+    def resolve($p):
+      ($p | split("/")) as $parts
+      | if ($all | index($p)) then $p
+        elif $parts[1] != "shared" and ($all | index("\($parts[0])/shared/\($parts[2])")) then "\($parts[0])/shared/\($parts[2])"
+        else "?" + $p end;
+  [ $all[] as $s
+    | ($s | split("/")) as [$loc, $env, $comp]
+    | (if $loc == "global" then $primary else $loc end) as $region
+    | ($needs[$comp] // {}) as $n
+    | ([($n.needs // [])[], (if $loc == $primary then ($n.when_primary // [])[] else empty end)] | map(expand(.; $region; $env)) | map(resolve(.))) as $required
+    | ([($n.when_present // [])[] | expand(.; $region; $env) | resolve(.)] | map(select(startswith("?") | not))) as $optional
+    | {($s): {
+        needs: ([$required[], $optional[]] | map(select(startswith("?") | not and . != $s)) | unique),
+        missing: ($required | map(select(startswith("?")) | ltrimstr("?")) | unique)
+      }}
+  ] | add // {}')"
+
+# Waves: each holds the stacks whose needs are all in earlier waves; what is left over needs itself, through a loop.
+WAVES='
+def closure_in($g; $start; $within):
+  {set: $start}
+  | until((([.set[] | $g[.].needs[]? | select(IN($within[]))] + .set) | unique) == .set; .set = (([.set[] | $g[.].needs[]? | select(IN($within[]))] + .set) | unique))
+  | .set;
+def waves($g; $nodes):
+  {left: $nodes, done: [], out: []}
+  | until(.left == [] or .loop != null;
+      . as $s
+      | ([$s.left[] | select(([$g[.].needs[] | select(IN($nodes[]))] - $s.done) == [])]) as $ready
+      | if $ready == [] then .loop = $s.left
+        else .out += [$ready] | .done += $ready | .left -= $ready end)
+  | if .loop then .loop as $left | .loop = [$left[] | select(. as $n | closure_in($g; [$g[$n].needs[] | select(IN($left[]))]; $left) | index($n))] else . end;
+def closure($g; $start):
+  {set: $start}
+  | until((([.set[] | $g[.].needs[]?] + .set) | unique) == .set; .set = (([.set[] | $g[.].needs[]?] + .set) | unique))
+  | .set;
+'
+
+if [[ "${CHECK}" == 1 ]]; then
+    problems=""
+    for t in $(yq -r 'keys | .[]' "${NEEDS}"); do
+        [[ -d "templates/${t}" ]] || { problems+="${NEEDS}: ${t} is not a template"$'\n'; continue; }
+        bad_keys="$(T="${t}" yq -r '.[strenv(T)] // {} | keys | .[]' "${NEEDS}" | while read -r k; do [[ " ${NEED_KEYS} " == *" ${k} "* ]] || echo "${k}"; done | xargs)"
+        [[ -z "${bad_keys}" ]] || problems+="${NEEDS}: ${t} has unknown key ${bad_keys} (keys are ${NEED_KEYS// /, })"$'\n'
+        declared=" ${t} $(T="${t}" yq -r '.[strenv(T)] // {} | [.needs // [], .when_present // [], .when_primary // [], .named_in_files // []] | flatten | .[]' "${NEEDS}" | sed 's#.*/##' | xargs) "
+        for d in $(grep -ho 'data "aws_[a-z0-9_]*"' "templates/${t}"/*.tf 2>/dev/null | sed 's/data "aws_//; s/"//' | sort -u); do
+            b="$(builders_of "${d}")"; [[ -n "${b}" ]] || continue
+            hit=0; for c in ${b}; do [[ "${declared}" == *" ${c} "* ]] && hit=1; done
+            [[ "${hit}" == 1 ]] || problems+="templates/${t} looks up aws_${d} (built by ${b// / or }), but its entry in ${NEEDS} does not list it"$'\n'
+        done
+    done
+    for t in templates/*/; do t="$(basename "${t}")"; T="${t}" yq -e 'has(strenv(T))' "${NEEDS}" >/dev/null 2>&1 || problems+="${NEEDS} has no entry for ${t}: every template says what it needs, if only needs: []"$'\n'; done
+    loop="$(jq -r "${WAVES}"' . as $g | waves($g; keys) | .loop // [] | .[]' <<<"${graph}")"
+    [[ -z "${loop}" ]] || problems+="these stacks need each other in a loop, so none of them can be applied first: $(xargs <<<"${loop}")"$'\n'
+    if [[ -n "${problems}" ]]; then printf '%s' "${problems}" | sed 's/^/order check: /' >&2; exit 1; fi
+    echo "order check: every lookup is declared in ${NEEDS}; $(jq 'length' <<<"${graph}") stacks, no loops"
+    exit 0
+fi
+
+# Applied: the stack's state exists in the bucket (a read-only HEAD of its key).
+bucket="$(yq -r '.state.bucket // ""' "${CONFIG_DIR}/global.yml")"; bucket_region="$(yq -r '.state.region // ""' "${CONFIG_DIR}/global.yml")"
+profile="$(profile_for shared)"
+status_of() {
+    [[ "${OFFLINE}" == 1 || -z "${bucket}" ]] && return 0
+    local key; key="$(sed -n 's/^ *key *= *"\(.*\)"/\1/p' "live/$1/backend.tf" 2>/dev/null)"
+    [[ -n "${key}" ]] || return 0
+    if aws s3api head-object --bucket "${bucket}" --key "${key}" --region "${bucket_region}" ${profile:+--profile "${profile}"} >/dev/null 2>&1; then
+        printf '%s✓ applied%s' "${C_OK}" "${C_END}"
+    else printf '%s· not yet%s' "${C_DIM}" "${C_END}"; fi
+}
+
+print_waves() { # print_waves <json array of waves>
+    local n=0 wave s first
+    while read -r wave; do
+        n=$((n + 1)); first=1
+        for s in $(jq -r '.[]' <<<"${wave}"); do
+            if [[ "${first}" == 1 ]]; then printf '  Wave %-3s ' "${n}"; first=0; else printf '           '; fi
+            printf '%-44s %s\n' "${s}" "$(status_of "${s}")"
+        done
+    done <<<"$(jq -c '.[]' <<<"$1")"
+}
+
+missing_for() { # missing_for <json array of stacks> -> lines "stack needs missing"
+    jq -r --argjson set "$1" '. as $g | $set[] | . as $s | $g[$s].missing[] | "\($s) needs \(.), which does not exist yet: make stack STACK=\(.)"' <<<"${graph}"
+}
+
+if [[ -z "${TARGET}" || "$(tr -cd / <<<"${TARGET}" | wc -c | tr -d ' ')" == 1 ]]; then
+    if [[ -z "${TARGET}" ]]; then start="$(jq -c 'keys' <<<"${graph}")"; title="every stack"
+    else
+        start="$(jq -c --arg p "${TARGET}/" '[keys[] | select(startswith($p))]' <<<"${graph}")"
+        [[ "${start}" != "[]" ]] || { echo "bin/order: no stacks under live/${TARGET}" >&2; exit 1; }
+        title="${TARGET}, with everything it needs"
+    fi
+    result="$(jq -c --argjson start "${start}" "${WAVES}"' . as $g | waves($g; closure($g; $start))' <<<"${graph}")"
+    head1 "Order for ${title}"
+    print_waves "$(jq -c '.out' <<<"${result}")"
+    loop="$(jq -r '.loop // [] | join(" ")' <<<"${result}")"
+    [[ -z "${loop}" ]] || bad "these need each other in a loop, so none can go first: ${loop}"
+    missing="$(missing_for "$(jq -c '.done' <<<"${result}")")"
+    if [[ -n "${missing}" ]]; then echo; while read -r m; do warn "${m}"; done <<<"${missing}"; fi
+    echo
+    [[ "${OFFLINE}" == 1 || -z "${bucket}" ]] && say "Stacks in one wave do not depend on each other.$([[ -z "${bucket}" ]] && echo " No state bucket yet, so nothing is applied.")" \
+        || say "Stacks in one wave do not depend on each other. Next: whatever is not yet applied in the first wave that has any."
+    echo
+    exit 0
+fi
+
+exists "${TARGET}" || { echo "bin/order: no stack at live/${TARGET}" >&2; exit 1; }
+
+if [[ "${QUERY}" == unapplied ]]; then
+    # Direct needs only: a need that is applied had its own needs applied first.
+    jq -r --arg t "${TARGET}" '.[$t].missing[] | "\(.) (does not exist)"' <<<"${graph}"
+    [[ "${OFFLINE}" == 1 || -z "${bucket}" ]] && exit 0
+    for s in $(jq -r --arg t "${TARGET}" '.[$t].needs[]' <<<"${graph}"); do
+        [[ "$(status_of "${s}")" == *"not yet"* ]] && echo "${s}" &
+    done
+    wait
+    exit 0
+fi
+result="$(jq -c --arg t "${TARGET}" "${WAVES}"' . as $g | waves($g; closure($g; [$t]) - [$t])' <<<"${graph}")"
+after="$(jq -r --arg t "${TARGET}" '. as $g | {set: [$t]} | until(([.set[] as $s | $g | to_entries[] | select(.value.needs | index($s)) | .key] + .set | unique) == .set; .set = ([.set[] as $s | $g | to_entries[] | select(.value.needs | index($s)) | .key] + .set | unique)) | .set - [$t] | .[]' <<<"${graph}")"
+if [[ "${QUERY}" == dependents ]]; then [[ -n "${after}" ]] && echo "${after}"; exit 0; fi
+head1 "${TARGET}"
+if [[ "$(jq '.out | length' <<<"${result}")" == 0 ]]; then say "Needs nothing applied first."
+else say "Needs, applied first:"; print_waves "$(jq -c '.out' <<<"${result}")"; fi
+missing="$(missing_for "$(jq -c --arg t "${TARGET}" '.done + [$t]' <<<"${result}")")"
+if [[ -n "${missing}" ]]; then while read -r m; do warn "${m}"; done <<<"${missing}"; fi
+echo
+if [[ -z "${after}" ]]; then say "Nothing looks it up."
+else say "Looks it up, so plan again after applying it:"; while read -r s; do say "  ${s}"; done <<<"${after}"; fi
+echo

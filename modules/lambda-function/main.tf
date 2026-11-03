@@ -91,3 +91,18 @@ resource "aws_lambda_permission" "schedule" {
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.schedule[0].arn
 }
+
+# Messages that fail are reported one by one, so a batch is not retried whole for one bad message.
+resource "aws_lambda_event_source_mapping" "queue" {
+  count = var.queue == null ? 0 : 1
+
+  event_source_arn                   = var.queue.arn
+  function_name                      = aws_lambda_function.function.arn
+  batch_size                         = var.queue.batch_size
+  maximum_batching_window_in_seconds = var.queue.maximum_batching_window_in_seconds
+  function_response_types            = ["ReportBatchItemFailures"]
+
+  tags = { Name = "lambda-${var.name}" }
+
+  depends_on = [aws_iam_role_policy.function]
+}

@@ -25,7 +25,8 @@ sequenceDiagram
 ## `session-manager`
 
 Every session in the region is encrypted with a key of its own (`alias/shared-sessions`,
-usable only by Session Manager), streamed to the CloudWatch log group
+or `alias/<environment>-sessions` in an environment's own account, usable only by
+Session Manager), streamed to the CloudWatch log group
 `/ssm/sessions` (kept 365 days), closed after 20 idle minutes, and never longer
 than 8 hours. Optional overrides in `session-manager.yml`:
 
@@ -110,9 +111,11 @@ A patch baseline per operating system (Windows, Amazon Linux 2023, Ubuntu)
 approving security and critical patches once they are `approve_after_days` old,
 so a bad patch can be caught first; the environment as the patch group; and a
 maintenance window that runs `AWS-RunPatchBaseline` on every instance tagged
-`Patch Group = <environment>`, a quarter at a time, stopping if more than one in
+`PatchGroup = <environment>`, a quarter at a time, stopping if more than one in
 ten fail, rebooting only when a patch needs it, with output in
 `/ssm/patching/<environment>` (kept 365 days). Compute tags its instances.
+`PatchGroup` has no space, unlike AWS's older `Patch Group`: servers expose their
+tags through instance metadata, which refuses a launch with a space in a tag key.
 
 Give production a later window and a longer wait than staging, so staging takes
 each patch first.

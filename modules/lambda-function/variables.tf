@@ -81,3 +81,18 @@ variable "log_retention_days" {
   type        = number
   default     = 365
 }
+
+variable "queue" {
+  description = "An SQS queue the function takes its messages from, in batches; failed messages go back to the queue on their own, the rest are deleted. null for none."
+  type = object({
+    arn                                = string
+    batch_size                         = optional(number, 10)
+    maximum_batching_window_in_seconds = optional(number, 0)
+  })
+  default = null
+
+  validation {
+    condition     = var.queue == null || try(var.queue.batch_size >= 1 && var.queue.batch_size <= 10000 && var.queue.maximum_batching_window_in_seconds >= 0 && var.queue.maximum_batching_window_in_seconds <= 300, false)
+    error_message = "queue.batch_size is 1 to 10000, and maximum_batching_window_in_seconds 0 to 300."
+  }
+}

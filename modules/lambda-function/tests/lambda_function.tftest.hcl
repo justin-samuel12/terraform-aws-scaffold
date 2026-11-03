@@ -29,6 +29,25 @@ run "scheduled_function" {
   }
 }
 
+run "queue_consumer" {
+  command = plan
+
+  variables {
+    schedule = null
+    queue    = { arn = "arn:aws:sqs:us-east-2:111111111111:production-orders", batch_size = 5 }
+  }
+
+  assert {
+    condition     = aws_lambda_event_source_mapping.queue[0].batch_size == 5 && aws_lambda_event_source_mapping.queue[0].function_response_types == toset(["ReportBatchItemFailures"]) && length(aws_cloudwatch_event_rule.schedule) == 0
+    error_message = "The queue triggers the function in batches, and failed messages are reported one by one."
+  }
+
+  assert {
+    condition     = local.statements[1].Resource == var.queue.arn && contains(local.statements[1].Action, "sqs:DeleteMessage") && local.statements[2].Condition.StringLike["kms:ViaService"] == "sqs.*.amazonaws.com"
+    error_message = "The function may read and delete only its own queue's messages, and decrypt them only through SQS."
+  }
+}
+
 run "rejects_a_secret_in_the_environment" {
   command = plan
 
