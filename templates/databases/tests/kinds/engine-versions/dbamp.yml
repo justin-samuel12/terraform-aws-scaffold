@@ -1,0 +1,4 @@
+engine: custom-sqlserver-se
+engine_version: 16.00.4185.3.dbamp-v1
+source_image_id: ami-0123456789abcdef0
+description: SQL Server 2022 Standard from our media, with DBAmp's prerequisites

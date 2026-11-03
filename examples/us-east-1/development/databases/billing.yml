@@ -1,0 +1,21 @@
+engine: sqlserver-se
+engine_version: "16.00"
+instance_class: db.m6i.xlarge
+allocated_storage: 200
+max_allocated_storage: 1000
+multi_az: true
+timezone: Eastern Standard Time
+character_set_name: SQL_Latin1_General_CP1_CI_AS
+options:
+  SQLSERVER_BACKUP_RESTORE:
+    bucket: sqlserver-backups
+  TDE: {}
+# Placeholders for the company's own domain: the join account's secret and two domain controllers.
+domain_fqdn: corp.example.com
+domain_ou: OU=RDS,OU=Servers,DC=corp,DC=example,DC=com
+domain_auth_secret_arn: arn:aws:secretsmanager:us-east-1:111111111111:secret:development-rds-domain-join
+domain_dns_ips:
+  - 10.40.0.10
+  - 10.40.0.11
+security_groups:
+  - billing-database

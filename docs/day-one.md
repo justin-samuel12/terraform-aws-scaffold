@@ -55,7 +55,7 @@ and what is still missing. What every environment has:
 - [ ] Each environment, in each region it runs in: `network`,
       `security-groups`, `endpoints`, `keys`, `backups`, then whichever of
       `load-balancers`, `certificates`, `waf`, `databases`, `storage`,
-      `buckets`, `messaging`, `access`, `patching`, `compute`, `records` and
+      `buckets`, `messaging`, `access`, `patching`, `compute`, `containers`, `kubernetes`, `records` and
       `lambda` it uses.
 - [ ] With an account per environment: each environment account's own
       `global/<environment>/baseline`, `global/<environment>/iam`,
@@ -83,9 +83,9 @@ templates, in waves, and shows what is already applied
 6. Per environment and region: `network`, `security-groups`, `endpoints`,
    `keys`, `backups`
 7. `certificates`, then `load-balancers`, then `waf`
-8. `databases`, `storage`, `buckets`, `messaging`
+8. `buckets`, then `databases`, `storage`, `messaging`
 9. `patching`, `access`
-10. `compute`, then `records`
+10. `compute`, `containers` and `kubernetes`, then `records`
 11. `ecr`, `lambda`, `global/shared/cloudfront` as needed
 
 ## 5. What each environment needs written

@@ -35,6 +35,8 @@ variable "roles" {
     services         = set(string)
     managed_policies = optional(list(string), [])
     policies         = optional(list(string), [])
+    # Policies made elsewhere (a role in a stack attaching the account's shared policies, made by the iam stack), by ARN.
+    policy_arns = optional(list(string), [])
     statements = optional(list(object({
       effect    = optional(string, "Allow")
       actions   = list(string)

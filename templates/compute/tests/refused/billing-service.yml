@@ -1,0 +1,4 @@
+blueprint: backend-service/v1
+priority: 1300
+tier: data
+instance_type: m7i.24xlarge

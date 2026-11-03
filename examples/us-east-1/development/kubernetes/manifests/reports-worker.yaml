@@ -1,0 +1,47 @@
+# The reports worker: no Service or Ingress, since nothing calls it; it reads from S3 with its own IAM role (reports-worker.yml).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: reports
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: reports-worker
+  namespace: reports
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reports-worker
+  namespace: reports
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: reports-worker
+  template:
+    metadata:
+      labels:
+        app: reports-worker
+    spec:
+      serviceAccountName: reports-worker
+      containers:
+        - name: reports-worker
+          image: 111111111111.dkr.ecr.us-east-1.amazonaws.com/reports-worker:2.0.0
+          env:
+            - name: VAULT_ADDR
+              value: https://vault.example.internal:8200
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              memory: 1Gi
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL

@@ -1,0 +1,17 @@
+tier: ops
+desired_count: 1
+security_groups:
+  - workers
+enable_execute_command: false
+capacity_provider_strategy:
+  - capacity_provider: FARGATE_SPOT
+    weight: 1
+container_definitions:
+  - name: worker
+    image: public.ecr.aws/docker/library/python:3.12
+    command: ["python", "worker.py"]
+  - name: sidecar
+    image: public.ecr.aws/aws-observability/aws-otel-collector:latest
+    essential: false
+    health_check:
+      command: ["CMD-SHELL", "exit 0"]

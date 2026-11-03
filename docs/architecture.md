@@ -7,7 +7,7 @@ flowchart TB
   live --> region["us-east-2/ · us-west-2/"]
   region --> shared["shared/<br/><sub>hub · logging · ecr · session-manager · documents</sub>"]
   region --> env["operations/ · production/ · staging/"]
-  env --> stacks["network · security-groups · endpoints · keys · backups<br/>certificates · load-balancers · waf · databases · storage<br/>buckets · messaging · compute · records · access · patching · lambda"]
+  env --> stacks["network · security-groups · endpoints · keys · backups<br/>certificates · load-balancers · waf · databases · storage<br/>buckets · messaging · compute · containers · kubernetes · records · access · patching · lambda"]
 
   classDef g fill:#f3f0ff,stroke:#6741d9,color:#25125e
   classDef s fill:#fff4e5,stroke:#e8590c,color:#5c2a00

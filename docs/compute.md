@@ -24,7 +24,7 @@ flowchart LR
   tg["🎯 target_group"] --> lr["🔀 listener_rules<br/>on a shared load balancer"]
   base --> tg
   base --> tga["🔗 target_group_attachments<br/>a load balancer's own groups"]
-  base --> cd["🚀 codedeploy"]
+  base --> cd["🚀 CodeDeploy tag<br/>its applications"]
   base --> r53["🧭 route53_records"]
 
   classDef core fill:#e8f1fb,stroke:#2f6fb3,stroke-width:2px,color:#0b2545
@@ -137,7 +137,7 @@ target_group_attachments:
 | `backup` | In the environment's AWS Backup plan (default `true`) |
 | `user_data` | A boot script beside the file, run when a server is first built. Never secrets: user data is readable by anyone who can describe the instance |
 | `members` | Per server: `subnet` (`data-az1`), `instance_type`, and `ip` or `ips` (host numbers in the subnet's reserved block) |
-| `tags` | Extra tags |
+| `tags` | Extra tags. `CodeDeploy` lists the applications its servers run ([below](#deploying-with-codedeploy)); `isContainerized: true` marks them containerized |
 
 Then one block per optional feature, each named after its AWS resource. Leave
 a block out and the feature is off; any combination works:
@@ -148,7 +148,6 @@ a block out and the feature is off; any combination works:
 | `target_group` | the group's own target group | `port` (required), `protocol` (`HTTP`, or `HTTPS` to servers that terminate TLS), `slow_start` (30 to 900 seconds), `health_check` (`path`, default `/`; `matcher`, default `200-399`), `stickiness` (`cookie_duration` in seconds) |
 | `listener_rules` | rules on a shared load balancer's listener, forwarding to the group's target group; needs `target_group` | each: `load_balancer` by name, `listener` port (default 443), `host_header` and/or `path_pattern`, `priority` from 1000 up (1 to 999 are the load balancer's own rules). `path_pattern: ["/*"]` at the highest priority number takes everything left over |
 | `target_group_attachments` | registration in target groups from the load-balancers stack, such as a network load balancer's | `<load balancer>/<target>: <port>` |
-| `codedeploy` | a CodeDeploy application and deployment group ([below](#deploying-with-codedeploy)) | `deployment_config_name`: `CodeDeployDefault.OneAtATime`, `CodeDeployDefault.HalfAtATime`, `CodeDeployDefault.AllAtOnce`, or a custom configuration |
 | `route53_records` | DNS aliases to the group's load balancer | each: `name`, `zone`, `private_zone`, and `load_balancer` when it is not the first listener rule's |
 
 A group's own target group is named `<environment>-<group>-<suffix>`, cut to
@@ -177,13 +176,13 @@ A group that should grow and shrink with load says `autoscaling` instead of
 `count`:
 
 ```yaml
-# live/us-east-2/production/compute/orders-api.yml
+# live/us-east-2/production/compute/accounts-service.yml
 instance_type: m6i.large
 ami: ami-0123456789abcdef0
 tier: private
-iam_instance_profile: orders-api
+iam_instance_profile: accounts-service
 security_groups:
-  - orders-api
+  - accounts-service
 autoscaling:
   min_size: 2
   max_size: 6
@@ -198,7 +197,7 @@ target_group:
 listener_rules:
   - load_balancer: internal
     host_header:
-      - orders.internal.example.com
+      - accounts.internal.example.com
     priority: 1100
 codedeploy:
   deployment_config_name: CodeDeployDefault.OneAtATime
@@ -249,17 +248,67 @@ load-balancers stack (a network load balancer's, which has no rules).
 
 ## Deploying with CodeDeploy
 
-With a `codedeploy` block, the group gets a CodeDeploy application named
-`<environment>-<group>` and a deployment group named after the environment,
-which finds its servers by two tags that must both match, `Environment` and
-`Group`, so a deployment cannot reach another environment's servers or another
-group's. A group behind a load balancer deploys with traffic control: each
-server leaves every target group it is in, its own and any network load
-balancer's, while it is updated. Every deployment rolls back by itself on
-failure. The environment's CodeDeploy service role, `codedeploy-<environment>`,
-is created by this stack when the first group has a `codedeploy` block.
+Servers say which applications they run, in their `CodeDeploy` tag, and the
+compute stack builds every application they name. Nothing else lists them:
+add the tag to a group and its application appears; remove it from the last
+group and it goes.
 
-What a deployed group also needs, outside this stack:
+```yaml
+# live/us-east-2/production/compute/api.yml
+tags:
+  CodeDeploy: "['external-api-service', 'reports:Function=api']"
+  Function: api
+```
+
+- **One group can run several applications, and one application can span
+  several groups.** Each listed application becomes a tag
+  `CodeDeploy:<application>` on the group's servers. A YAML list works as well
+  as the quoted string.
+- **An application has the same name in every environment** (`external-api-service`),
+  so a pipeline deploys to one name. Its **deployment groups**, by default one
+  per branch deployed from, are `master`, `development` and `adhoc`. Each finds
+  its servers by their `CodeDeploy:<application>` tag and this environment's
+  `Environment` tag, so a deployment never reaches another environment's
+  servers.
+- **A selector narrows it further:** `reports:Function=api` deploys `reports`
+  only to servers also tagged `Function = api`. Every server running an
+  application must give it the same selector, or none.
+- **Auto Scaling groups** are deployed to by name, so instances launched later
+  get the current release.
+- **Behind a load balancer**, with more than one server, each server leaves
+  every target group it is in while it is updated.
+- **A shared, containerized application:** when every server running it is
+  tagged `isContainerized: true`, the application is shared by the
+  environments. The first to create it owns it (an `EnvironmentOwner` tag), and
+  each environment adds one deployment group, `primary-<environment>`. Whether
+  it already exists, and whose it is, is read from AWS during the plan
+  (read-only, with the stack's credentials).
+
+How an application deploys is configuration anyone can change, in review:
+
+| Where | What |
+|---|---|
+| `config/global.yml`, `codedeploy:` | the defaults for every application: `deployment_group_names`, `deployment_config_name` (default `CodeDeployDefault.OneAtATime`), `auto_rollback_configuration.events` (default `DEPLOYMENT_FAILURE`) |
+| `deployments/<application>.yml` beside the server files | one application's own values for any of those keys |
+
+```yaml
+# live/us-east-2/production/compute/deployments/external-api-service.yml
+deployment_config_name: CodeDeployDefault.HalfAtATime
+```
+
+The plan refuses a malformed `CodeDeploy` tag, servers that disagree on an
+application's selector, a deployment file for an application no server runs,
+and the old `codedeploy:` block, saying where its settings went. The
+environment's CodeDeploy service role, `codedeploy-<environment>-<region>`, is created
+here with the first application.
+
+**The GitHub connection.** With `codedeploy.bootstrap` set in
+`config/global.yml` (a repository and a commit), each new application's last
+deployment group (or its `primary-<environment>` group) starts a deployment of
+that commit and stops it at once, so CodeDeploy's connection to GitHub exists
+before the first real release. Without it, nothing is started.
+
+What a deployed application also needs, outside this stack:
 
 - the **CodeDeploy agent in its image**;
 - a **revisions bucket**: a file in the environment's `buckets` stack (for

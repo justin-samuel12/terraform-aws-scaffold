@@ -51,3 +51,12 @@ dns:
   inbound: false
   forward:
   private_zones:
+codedeploy:
+  deployment_group_names:
+    - master
+    - development
+    - adhoc
+  deployment_config_name: CodeDeployDefault.OneAtATime
+  auto_rollback_configuration:
+    events:
+      - DEPLOYMENT_FAILURE

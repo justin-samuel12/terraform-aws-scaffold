@@ -21,6 +21,7 @@ trap 'rm -rf "${WORK:?}"' EXIT
 mkdir -p "${WORK}/config" "${WORK}/live"
 ln -s "${REPO_ROOT}/templates" "${WORK}/templates"
 ln -s "${REPO_ROOT}/modules" "${WORK}/modules"
+ln -s "${REPO_ROOT}/blueprints" "${WORK}/blueprints"
 cp -R bin "${WORK}/bin"
 cp -R live/common "${WORK}/live/common"
 cp "${CONFIG_SOURCE}"/*.yml "${WORK}/config/"
@@ -68,7 +69,7 @@ for rel in "${stacks[@]}"; do
         perl -0pi -e 's/\n}\s*\z/\n  config_path = local.config_dir\n}\n/' "${dir}/main.tf"
     fi
     find "${SOURCE}/${rel}" -maxdepth 1 -name '*.yml' -exec cp {} "${dir}/" \;
-    for extra in src policies; do [[ -d "${SOURCE}/${rel}/${extra}" ]] && cp -R "${SOURCE}/${rel}/${extra}" "${dir}/"; done
+    for extra in src policies deployments; do [[ -d "${SOURCE}/${rel}/${extra}" ]] && cp -R "${SOURCE}/${rel}/${extra}" "${dir}/"; done
     region="${rel%%/*}"; [[ "${region}" == global ]] && region="${primary}"
     zones="$(yq -o=json -I=0 '.zones // []' "${WORK}/config/${region}.yml" 2>/dev/null | sed 's/,/, /g')"
     sed -e "s/zone_ids = \[[^]]*\]/zone_ids = ${zones:-[]}/" -e "s/region = \"us-east-1\", name = \"us-east-1\"/region = \"${region}\", name = \"${region}\"/" \

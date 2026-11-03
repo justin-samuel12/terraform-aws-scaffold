@@ -1,3 +1,6 @@
+# Roles are global, so the name carries the region: one function name in two regions is two roles.
+data "aws_region" "current" {}
+
 # The zip's file modes are fixed, so a different umask on another machine is not a code change.
 data "archive_file" "code" {
   type             = "zip"
@@ -7,7 +10,7 @@ data "archive_file" "code" {
 }
 
 resource "aws_iam_role" "function" {
-  name = "lambda-${var.name}"
+  name = "lambda-${var.name}-${data.aws_region.current.region}"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"

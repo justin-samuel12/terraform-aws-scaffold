@@ -137,7 +137,7 @@ flowchart LR
   base["baseline"] --> hub["hub"] --> log["logging"] --> dns["dns"] --> iam["iam"]
   iam --> net["network"] --> sg["security-groups"] --> ep["endpoints"]
   ep --> keys["keys · backups"] --> cert["certificates"] --> lb["load-balancers · waf"]
-  lb --> data["databases · storage · buckets · messaging"] --> comp["compute"] --> rec["records"]
+  lb --> data["databases · storage · buckets · messaging"] --> comp["compute · containers · kubernetes"] --> rec["records"]
 
   classDef g fill:#f3f0ff,stroke:#6741d9,color:#25125e
   classDef s fill:#fff4e5,stroke:#e8590c,color:#5c2a00
@@ -176,6 +176,9 @@ tests/             the configs tests run against
 | [docs/endpoints.md](docs/endpoints.md) | VPC endpoints |
 | [docs/load-balancers.md](docs/load-balancers.md) | load balancers, listeners, rules |
 | [docs/compute.md](docs/compute.md) | servers, Auto Scaling, target groups, CodeDeploy, DNS |
+| [docs/containers.md](docs/containers.md) | ECS on Fargate: services, a task role per app, rolling and blue/green (canary, linear) deployments |
+| [docs/kubernetes.md](docs/kubernetes.md) | EKS Auto Mode clusters, per-app pod identities, and how apps run on Kubernetes |
+| [docs/blueprints.md](docs/blueprints.md) | one definition per kind of app; each app a few lines per environment |
 | [docs/data.md](docs/data.md) | keys, backups, databases, file systems, buckets |
 | [docs/messaging.md](docs/messaging.md) | SQS queues, SNS topics, Lambda consumers |
 | [docs/systems-manager.md](docs/systems-manager.md) | Session Manager, documents, tunnels, patching |

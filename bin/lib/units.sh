@@ -43,11 +43,13 @@ unit_inputs() {
         files)
             component="${path##*/}"
             dirs=($(module_closure "live/${path}") live/common config tests/mock)
+            [[ "${component}" == compute ]] && dirs+=(blueprints)
             echo bin/check-files ;;
         example)
             component="${path##*/}"
             dirs=("examples/${path}" examples/config live/common tests/mock)
             [[ -d "templates/${component}" ]] && dirs+=($(module_closure "templates/${component}"))
+            [[ "${component}" == compute ]] && dirs+=(blueprints)
             printf '%s\n' bin/check-files bin/stack bin/backends ;;
     esac
     echo tests/lock/.terraform.lock.hcl

@@ -1,0 +1,7 @@
+image: nginx:1.27
+security_groups:
+  - web
+environment:
+  DB_PASSWORD: hunter2
+secrets:
+  API_KEY: the-key-itself

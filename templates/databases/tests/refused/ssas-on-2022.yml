@@ -1,0 +1,8 @@
+engine: sqlserver-ee
+engine_version: "16.00"
+instance_class: db.r6i.xlarge
+allocated_storage: 200
+multi_az: false
+options:
+  SSAS: {}
+domain: d-1234567890

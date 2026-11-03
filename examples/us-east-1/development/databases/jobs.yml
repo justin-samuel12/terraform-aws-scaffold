@@ -1,0 +1,9 @@
+engine: aurora-mysql
+engine_version: 8.0.mysql_aurora.3.08.0
+instance_class: db.serverless
+instances: 2
+serverlessv2_scaling_configuration:
+  min_capacity: 0.5
+  max_capacity: 16
+security_groups:
+  - jobs-database

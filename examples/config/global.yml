@@ -58,3 +58,18 @@ dns:
       - 192.168.10.11
   private_zones:
     - internal.example.com
+# How every CodeDeploy application deploys, unless its compute stack's deployments/<application>.yml says otherwise.
+# Servers say which applications they run in their CodeDeploy tag -- docs/compute.md#deploying-with-codedeploy.
+codedeploy:
+  deployment_group_names: # one per branch deployed from; a shared, containerized application gets primary-<environment> instead
+    - master
+    - development
+    - adhoc
+  deployment_config_name: CodeDeployDefault.OneAtATime
+  auto_rollback_configuration:
+    events:
+      - DEPLOYMENT_FAILURE
+  # bootstrap: a GitHub revision deployed and stopped once per application, so CodeDeploy's GitHub connection exists first.
+  # bootstrap:
+  #   repository: <organization>/<repository>
+  #   commit_id: <a commit in it>

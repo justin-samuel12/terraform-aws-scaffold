@@ -1,0 +1,4 @@
+# Where the billing database's native SQL Server backups go (databases/billing.yml), for restoring elsewhere or exporting.
+backup: true
+expiration:
+  days: 90

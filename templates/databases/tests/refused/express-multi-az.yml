@@ -1,0 +1,5 @@
+engine: sqlserver-ex
+engine_version: "16.00"
+instance_class: db.t3.small
+allocated_storage: 20
+multi_az: true

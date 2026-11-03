@@ -1,0 +1,3 @@
+engine: aurora-postgresql
+engine_version: "16.6"
+instance_class: db.serverless

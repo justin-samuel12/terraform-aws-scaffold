@@ -6,5 +6,11 @@ interface:
   - secretsmanager
   - sqs
   - sns
+  - ecr.api # containers pull images and write logs without going through the hub
+  - ecr.dkr
+  - logs
+  - ec2 # RDS Custom's agent, with monitoring and events below (docs/data.md)
+  - monitoring
+  - events
 gateway:
   - s3

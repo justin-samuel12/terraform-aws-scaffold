@@ -45,7 +45,7 @@ builders_of() {
         acm_certificate) echo certificates ;;
         s3_bucket) echo "logging buckets" ;;
         lb | lb_listener | lb_target_group) echo load-balancers ;;
-        iam_instance_profile) echo iam ;;
+        iam_instance_profile | iam_policy) echo iam ;;
         instance) echo compute ;;
     esac
 }

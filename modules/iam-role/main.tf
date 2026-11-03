@@ -49,6 +49,13 @@ resource "aws_iam_role_policy_attachment" "policies" {
   policy_arn = aws_iam_policy.policies[each.value.policy].arn
 }
 
+resource "aws_iam_role_policy_attachment" "shared" {
+  for_each = merge([for name, r in var.roles : { for i, arn in r.policy_arns : "${name}/${i}" => { role = name, arn = arn } }]...)
+
+  role       = aws_iam_role.roles[each.value.role].name
+  policy_arn = each.value.arn
+}
+
 resource "aws_iam_role_policy" "own" {
   for_each = { for name, r in var.roles : name => r if length(r.statements) > 0 }
 

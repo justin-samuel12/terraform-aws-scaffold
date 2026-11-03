@@ -131,3 +131,16 @@ output "organization_sharing" {
   description = "true: the accounts are in one AWS Organization with RAM sharing turned on, so shares reach them without invitations. false: each account accepts the hub's share. organization_sharing in config/global.yml."
   value       = try(tobool(local.global.organization_sharing), false)
 }
+
+output "codedeploy" {
+  description = "CodeDeploy defaults from config/global.yml (codedeploy:), which each application can override in its compute stack's deployments/<application>.yml: deployment_group_names (default master, development and adhoc, one per branch deployed from), deployment_config_name (default CodeDeployDefault.OneAtATime), auto_rollback_configuration.events (default DEPLOYMENT_FAILURE); bootstrap = { repository, commit_id }, a GitHub revision deployed and stopped once when the last of those groups is created, so CodeDeploy's GitHub connection is in place; null for none."
+  value = {
+    groups                 = [for g in try(local.global.codedeploy.deployment_group_names, ["master", "development", "adhoc"]) : tostring(g)]
+    deployment_config_name = tostring(try(local.global.codedeploy.deployment_config_name, "CodeDeployDefault.OneAtATime"))
+    rollback_events        = [for e in try(local.global.codedeploy.auto_rollback_configuration.events, ["DEPLOYMENT_FAILURE"]) : tostring(e)]
+    bootstrap = try(local.global.codedeploy.bootstrap.repository, null) == null ? null : {
+      repository = tostring(local.global.codedeploy.bootstrap.repository)
+      commit_id  = tostring(local.global.codedeploy.bootstrap.commit_id)
+    }
+  }
+}

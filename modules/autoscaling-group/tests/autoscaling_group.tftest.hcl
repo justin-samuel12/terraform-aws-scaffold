@@ -9,18 +9,18 @@ mock_provider "aws" {
 }
 
 variables {
-  name               = "orders-api"
+  name               = "accounts-service"
   environment        = "production"
   image_id           = "ami-0123456789abcdef0"
   instance_type      = "m6i.large"
-  security_group_ids = ["sg-orders-api"]
-  instance_profile   = "orders-api"
+  security_group_ids = ["sg-accounts-service"]
+  instance_profile   = "accounts-service"
   kms_key_arn        = "arn:aws:kms:us-east-2:111111111111:key/mrk-data"
   subnet_ids         = ["subnet-private-1", "subnet-private-2", "subnet-private-3"]
   min_size           = 2
   max_size           = 6
   desired_capacity   = 2
-  target_group_arns  = ["arn:aws:elasticloadbalancing:us-east-2:111111111111:targetgroup/app-orders-api-ab12/1"]
+  target_group_arns  = ["arn:aws:elasticloadbalancing:us-east-2:111111111111:targetgroup/app-accounts-service-ab12/1"]
   target_tracking_configuration = {
     predefined_metric_type = "ASGAverageCPUUtilization"
     target_value           = 50
@@ -31,7 +31,7 @@ run "scales_behind_its_target_group" {
   command = plan
 
   assert {
-    condition     = aws_autoscaling_group.group.name == "production-orders-api" && aws_autoscaling_group.group.health_check_type == "ELB" && length(aws_autoscaling_group.group.vpc_zone_identifier) == 3
+    condition     = aws_autoscaling_group.group.name == "production-accounts-service" && aws_autoscaling_group.group.health_check_type == "ELB" && length(aws_autoscaling_group.group.vpc_zone_identifier) == 3
     error_message = "One group across every zone of its tier, healthy only while its load balancer says so."
   }
 
@@ -46,7 +46,7 @@ run "scales_behind_its_target_group" {
   }
 
   assert {
-    condition     = aws_launch_template.group.tag_specifications[0].tags.Group == "orders-api" && aws_launch_template.group.tag_specifications[0].tags.Environment == "production" && aws_launch_template.group.tag_specifications[0].tags["PatchGroup"] == "production"
+    condition     = aws_launch_template.group.tag_specifications[0].tags.Group == "accounts-service" && aws_launch_template.group.tag_specifications[0].tags.Environment == "production" && aws_launch_template.group.tag_specifications[0].tags["PatchGroup"] == "production"
     error_message = "Instances carry the default tags and the group's own, stamped on at launch."
   }
 

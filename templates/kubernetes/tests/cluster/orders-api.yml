@@ -1,0 +1,7 @@
+statement:
+  - actions:
+      - sqs:SendMessage
+    resources:
+      - arn:aws:sqs:us-east-2:111111111111:operations-orders
+managed_policies:
+  - AmazonS3ReadOnlyAccess

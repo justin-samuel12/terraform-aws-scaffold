@@ -42,6 +42,8 @@ databases:
     - "{region}/{environment}/network"
     - "{region}/{environment}/security-groups"
     - "{region}/{environment}/keys"
+  when_present:
+    - "{region}/{environment}/buckets" # SQL Server native backups write to one
 
 dns:
   # Private zones are created with the primary hub and associated with every other hub.
@@ -123,3 +125,17 @@ waf:
   needs:
     - "{region}/{environment}/load-balancers"
     - "{region}/{environment}/logging"
+
+kubernetes:
+  needs:
+    - "{region}/{environment}/network"
+    - "{region}/{environment}/security-groups"
+    - "{region}/{environment}/keys"
+
+containers:
+  needs:
+    - "{region}/{environment}/network"
+    - "{region}/{environment}/security-groups"
+    - "{region}/{environment}/keys"
+  when_present:
+    - "{region}/{environment}/load-balancers"

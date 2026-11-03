@@ -1,0 +1,6 @@
+service_acount: orders-api
+statement:
+  - actions:
+      - "*"
+    resources:
+      - "*"

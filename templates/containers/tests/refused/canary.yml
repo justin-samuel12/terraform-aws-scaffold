@@ -1,0 +1,11 @@
+image: nginx:1.27
+port: 80
+security_groups:
+  - web
+listener_rules:
+  - load_balancer: internal
+    host_header:
+      - canary.example.com
+    priority: 1400
+deployment:
+  deployment_config_name: CodeDeployDefault.ECSCanary10Percent5Minutes

@@ -1,0 +1,13 @@
+description: The jobs database (Aurora MySQL Serverless v2)
+ingress:
+  - description: MySQL from the backend services
+    from_port: 3306
+    to_port: 3306
+    source:
+      - backend-services
+egress:
+  - description: Nothing leaves but replies; one internal rule keeps AWS from adding allow-all
+    from_port: 3306
+    to_port: 3306
+    destination:
+      - self

@@ -11,7 +11,7 @@ UNITS         := nice -n 10 bin/check-units --jobs $(JOBS) $(if $(CHANGED),--cha
 export TF_PLUGIN_CACHE_DIR ?= $(REPO_ROOT)/.terraform.d/plugin-cache
 
 .PHONY: help setup status config bootstrap backends hooks stack init plan apply output validate \
-        order check fmt fmt-check lint test validate-all check-files check-examples check-order diagram clean
+        order render check fmt fmt-check lint test validate-all check-files check-examples check-order diagram clean
 
 define require_stack
 	@test -n "$(STACK)" || { echo "STACK is required, e.g. STACK=$(EXAMPLE)" >&2; exit 1; }
@@ -71,6 +71,9 @@ output: ## Show a stack's outputs
 
 order: ## The order to apply stacks in, and what is applied (STACK= an environment or one stack; read-only)
 	bin/order $(STACK)
+
+render: ## Apps on blueprints: all of them, or APP=<app> across its environments (read-only)
+	bin/render $(APP)
 
 validate: ## Validate a stack without its backend
 	$(require_stack)

@@ -1,6 +1,5 @@
 locals {
-  routed   = length(var.routes) > 0
-  deployed = var.deployment_config_name != null
+  routed = length(var.routes) > 0
 
   target_group_names = concat(aws_lb_target_group.group[*].name, [for t in values(var.targets) : t.name])
 

@@ -1,0 +1,52 @@
+# An internal HTTP service behind a load balancer, reached by path (/<app>/*), deployed by CodeDeploy -- docs/blueprints.md.
+# An app on it is a file in a compute stack: blueprint: backend-service/v1, the keys under allows, and the ones under requires.
+description: An internal HTTP service behind a load balancer, reached by path, deployed by CodeDeploy
+allows:
+  - count
+  - instance_type
+  - ami
+  - target_group.health_check
+  - target_group.stickiness
+  - tags.Owner
+requires:
+  - priority # its listener rule's priority on the shared load balancer, 1000 or more, unique there
+instance_types:
+  - t3.small
+  - t3.medium
+  - t3.large
+  - t3.xlarge
+# Every app on this blueprint gets a role of its own with these permissions: one identity per app, for Vault's AWS auth.
+role:
+  managed_policies:
+    - AmazonSSMManagedInstanceCore
+    - CloudWatchAgentServerPolicy
+  policies: # the account's shared policies, made by the iam stack
+    - session-manager
+    - read-revisions
+# The group every app on it gets, as in a compute file: {app}, {environment}, {region} and {priority} are filled in.
+group:
+  count: 1
+  instance_type: t3.small
+  ami: ami-0123456789abcdef0
+  tier: private
+  security_groups:
+    - backend-services
+  root_block_device:
+    volume_size: 30
+  user_data: boot.sh # beside this file
+  backup: true
+  target_group:
+    port: 443
+    protocol: HTTPS
+    health_check:
+      path: /{app}/status
+      matcher: "200"
+  listener_rules:
+    - load_balancer: internal
+      path_pattern:
+        - /{app}/*
+      priority: "{priority}"
+  tags:
+    CodeDeploy: "['{app}']"
+    ServerRole: appsvc
+    WorkloadType: services

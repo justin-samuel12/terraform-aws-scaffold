@@ -26,7 +26,11 @@ internal load balancer, deployed by CodeDeploy, with its database, file
 system, buckets, DNS name and certificate; monitoring collectors behind a
 network load balancer; build runners; a two-node SQL Server cluster with chosen
 addresses; a tunnel to the database; export requests through a topic and a
-queue to a Lambda function; a daily Lambda function; patching and backups. Each file names the others by name, never by ID.
+queue to a Lambda function; a daily Lambda function; patching and backups;
+and the same kind of app three ways: on servers (compute, with two backend
+services on a blueprint), on ECS Fargate (containers: a rolling service and a
+blue/green canary), and on EKS Auto Mode (kubernetes: the cluster, two app
+identities, and sample manifests). Each file names the others by name, never by ID.
 
 ## Account-wide: `global/shared/`
 
@@ -62,7 +66,9 @@ queue to a Lambda function; a daily Lambda function; patching and backups. Each 
 | `databases` | `dashboards.yml` | PostgreSQL, Multi-AZ, storage that grows |
 | `storage` | `shared-files.yml` | EFS with an access point |
 | `buckets` | `revisions.yml`, `exports.yml` | CodeDeploy revisions that expire; a backed-up bucket with object lock |
-| `compute` | `dashboards.yml`, `api.yml`, `collector.yml`, `runner.yml`, `sqlserver.yml` | the shapes of a group: a target group, listener rules, CodeDeploy and DNS records; an Auto Scaling group that tracks CPU; behind a network load balancer; plain; pinned with chosen addresses and a data disk |
+| `compute` | `dashboards.yml`, `api.yml`, `collector.yml`, `runner.yml`, `sqlserver.yml`, `accounts-service.yml`, `inventory-service.yml` | the shapes of a group: a target group, listener rules, CodeDeploy and DNS records; an Auto Scaling group that tracks CPU; behind a network load balancer; plain; pinned with chosen addresses and a data disk; two backend services on a blueprint ([blueprints](../docs/blueprints.md)) |
+| `containers` | `orders-api.yml`, `checkout.yml` | ECS on Fargate: a rolling service scaling on CPU; a blue/green canary through CodeDeploy ([containers](../docs/containers.md)) |
+| `kubernetes` | `cluster.yml`, `orders-api.yml`, `reports-worker.yml`, `manifests/` | EKS Auto Mode: the cluster, two app identities, and the Kubernetes files an app team writes, not applied by Terraform ([kubernetes](../docs/kubernetes.md)) |
 | `records` | `runner.yml`, `sql.yml` | an A record to a server, a CNAME |
 | `access` | `dashboards-db.yml` | a Session Manager tunnel to the database |
 | `patching` | `patching.yml` | the maintenance window and approval delay |

@@ -1,0 +1,7 @@
+description: The Kubernetes API (EKS), for people running kubectl from the office or the VPN
+ingress:
+  - description: kubectl, from the office and the VPN
+    from_port: 443
+    to_port: 443
+    source:
+      - hq

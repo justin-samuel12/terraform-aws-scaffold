@@ -14,8 +14,8 @@ output "servers" {
 }
 
 output "codedeploy_applications" {
-  description = "Group -> the CodeDeploy application to deploy to, for the groups CodeDeploy deploys."
-  value       = { for group, g in module.server_group : group => g.codedeploy_application if g.codedeploy_application != null }
+  description = "Application -> its deployment groups here, and whether this environment manages the application itself (a shared one may be another's)."
+  value       = { for app, a in module.codedeploy_application : app => { deployment_groups = a.deployment_groups, managed_here = a.managed_here } }
 }
 
 output "autoscaling_groups" {

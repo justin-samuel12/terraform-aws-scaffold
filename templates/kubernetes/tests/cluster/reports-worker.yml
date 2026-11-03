@@ -1,0 +1,12 @@
+namespace: reports
+service_account: worker
+statement:
+  - actions:
+      - s3:GetObject
+    resources:
+      - arn:aws:s3:::operations-reports/*
+    condition:
+      - test: StringEquals
+        variable: aws:ResourceAccount
+        values:
+          - "111111111111"

@@ -1,7 +1,7 @@
 count: 2
 instance_type: m6i.large
 ami: ami-0123456789abcdef0
-iam_instance_profile: orders-api
+iam_instance_profile: accounts-service
 autoscaling:
   min_size: 2
   max_size: 6

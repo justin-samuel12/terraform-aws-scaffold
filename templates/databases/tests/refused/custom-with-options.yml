@@ -1,0 +1,6 @@
+engine: custom-sqlserver-ee
+engine_version: 16.00.4185.3.v1
+instance_class: db.m6i.xlarge
+allocated_storage: 200
+options:
+  TDE: {}

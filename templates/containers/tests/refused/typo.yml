@@ -1,0 +1,5 @@
+image: nginx:1.27
+port: 80
+security_groups:
+  - web
+desired_cuont: 2

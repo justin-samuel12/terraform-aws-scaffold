@@ -1,0 +1,8 @@
+engine: custom-sqlserver-se
+engine_version: 16.00.4185.3.dbamp-v1
+license_model: bring-your-own-media
+instance_class: db.m6i.xlarge
+allocated_storage: 200
+multi_az: true
+security_groups:
+  - salesforce-sync-database

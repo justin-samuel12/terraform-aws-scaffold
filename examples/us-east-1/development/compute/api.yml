@@ -21,8 +21,8 @@ listener_rules:
     host_header:
       - api.example.com
     priority: 1100
-codedeploy:
-  deployment_config_name: CodeDeployDefault.OneAtATime
+tags:
+  CodeDeploy: "['external-api-service']" # the CodeDeploy applications its servers run; how each rolls out: deployments/<application>.yml
 route53_records:
   - name: api
     zone: example.com

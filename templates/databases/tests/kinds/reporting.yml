@@ -1,0 +1,6 @@
+engine: aurora-postgresql
+engine_version: "16.6"
+instance_class: db.r6g.large
+instances: 2
+security_groups:
+  - reporting-database

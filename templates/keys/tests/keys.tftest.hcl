@@ -34,7 +34,7 @@ run "operations" {
   }
 
   assert {
-    condition     = local.service_principals.messages == ["sns", "events", "cloudwatch", "s3"] && !contains(keys(local.service_principals), "data")
-    error_message = "SNS, EventBridge and alarms use the messages key as themselves; no service does so with the data key."
+    condition     = local.service_principals.messages == ["sns", "events", "cloudwatch", "s3"] && local.service_principals.data == ["rds"] && !contains(keys(local.service_principals), "backup")
+    error_message = "SNS, EventBridge and alarms use the messages key as themselves; only RDS does so with the data key (an Active Directory secret), and none with the backup key."
   }
 }

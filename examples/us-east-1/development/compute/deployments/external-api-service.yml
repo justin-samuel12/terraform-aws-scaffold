@@ -1,0 +1,6 @@
+# How external-api-service deploys here, where it differs from codedeploy: in config/global.yml. Anything left out uses those.
+deployment_config_name: CodeDeployDefault.HalfAtATime
+auto_rollback_configuration:
+  events:
+    - DEPLOYMENT_FAILURE
+    - DEPLOYMENT_STOP_ON_REQUEST

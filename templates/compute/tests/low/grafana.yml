@@ -15,9 +15,9 @@ listener_rules:
     host_header:
       - grafana.example.com
     priority: 10
-codedeploy:
-  deployment_config_name: CodeDeployDefault.OneAtATime
 route53_records:
   - name: grafana
     zone: example.com
     private_zone: true
+tags:
+  CodeDeploy: "['grafana']"

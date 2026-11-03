@@ -1,0 +1,11 @@
+namespace: orders-api
+service_account: orders-api
+managed_policies:
+  - AdministratorAccess
+statement:
+  - action: s3:GetObject
+  - actions: s3:PutObject
+    resources: arn:aws:s3:::operations-billing/*
+    condition:
+      - test: StringEquals
+        variable: aws:ResourceAccount

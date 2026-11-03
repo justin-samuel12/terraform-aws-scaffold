@@ -1,0 +1,134 @@
+# The orders API as it runs in the cluster. Owned by the app team and deployed by kubectl, Helm or Argo CD; Terraform never
+# applies this. The namespace and service account match orders-api.yml, so its pods get the app's IAM role.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: orders-api
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: orders-api
+  namespace: orders-api
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orders-api
+  namespace: orders-api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: orders-api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0 # a new pod must be ready before an old one stops
+  template:
+    metadata:
+      labels:
+        app: orders-api
+    spec:
+      serviceAccountName: orders-api
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: orders-api
+      containers:
+        - name: orders-api
+          image: 111111111111.dkr.ecr.us-east-1.amazonaws.com/orders-api:1.4.2 # a repository in the ecr stack
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: VAULT_ADDR
+              value: https://vault.example.internal:8200
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+---
+# Auto Mode replaces every node at least every 21 days; this keeps two pods serving while it does.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: orders-api
+  namespace: orders-api
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: orders-api
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orders-api
+  namespace: orders-api
+spec:
+  type: ClusterIP
+  selector:
+    app: orders-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+# Becomes a rule on the shared internal ALB and a target group of the pods' addresses, made and kept up to date by Auto Mode.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: orders-api
+  namespace: orders-api
+  annotations:
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "15"
+    alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: "3"
+    alb.ingress.kubernetes.io/success-codes: "200"
+spec:
+  ingressClassName: internal
+  rules:
+    - host: orders-api.development.example.internal
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: orders-api
+                port:
+                  number: 80
+# Rolling is the default: new pods start, pass readiness, then old ones stop. For a canary or blue/green instead:
+# - Argo Rollouts: replace the Deployment with a Rollout (same pod template) and a canary strategy, such as setWeight 10,
+#   pause, setWeight 50, pause; with trafficRouting.alb it shifts the ALB's weights between a stable and a canary Service,
+#   and analysis can roll back on errors.
+# - By hand: run orders-api-blue and orders-api-green Deployments and Services, and split traffic with a weighted
+#   forward action (alb.ingress.kubernetes.io/actions.<name>) on the Ingress, moving the weights 90/10, 50/50, 0/100.

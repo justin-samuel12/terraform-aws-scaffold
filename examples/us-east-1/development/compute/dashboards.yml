@@ -16,8 +16,8 @@ listener_rules:
     host_header:
       - dashboards.example.com
     priority: 1000
-codedeploy:
-  deployment_config_name: CodeDeployDefault.OneAtATime
+tags:
+  CodeDeploy: "['dashboards']" # the CodeDeploy applications its servers run; how each rolls out: deployments/<application>.yml
 route53_records:
   - name: dashboards
     zone: example.com

@@ -49,10 +49,39 @@ data "aws_security_group" "groups" {
   tags   = { Name = each.key }
 }
 
+# Roles made in the iam stack, by name; an application on a blueprint has its own, made below, instead.
 data "aws_iam_instance_profile" "profiles" {
-  for_each = local.usable ? toset([for f in values(local.files) : f.iam_instance_profile]) : toset([])
+  for_each = local.usable ? toset([for group, f in local.files : f.iam_instance_profile if !contains(keys(local.app_role_names), group)]) : toset([])
 
   name = each.key
+}
+
+# The account's shared policies a blueprint's role takes (session-manager, read-revisions), made by the iam stack.
+data "aws_iam_policy" "shared" {
+  for_each = local.usable ? local.app_role_policies : toset([])
+
+  name = each.key
+}
+
+# One role and instance profile per application on a blueprint: the blueprint's permissions, the application's own identity.
+module "app_roles" {
+  source = "../../modules/iam-role"
+  count  = local.usable && length(local.app_role_names) > 0 ? 1 : 0
+
+  roles = {
+    for group, name in local.app_role_names : name => {
+      description      = "${group}'s servers in ${var.environment}, ${var.region} (blueprint ${local.blueprint_refs[group]})"
+      services         = ["ec2"]
+      managed_policies = try(tolist(local.blueprints[local.blueprint_refs[group]].role.managed_policies), [])
+      policy_arns      = [for p in try(local.blueprints[local.blueprint_refs[group]].role.policies, []) : data.aws_iam_policy.shared[p].arn]
+      statements = [for st in try(local.blueprints[local.blueprint_refs[group]].role.statement, []) : {
+        effect    = try(st.effect, "Allow")
+        actions   = tolist(st.actions)
+        resources = [for r in tolist(st.resources) : replace(replace(replace(r, "{app}", group), "{environment}", var.environment), "{region}", var.region)]
+        condition = [for c in try(st.condition, []) : { test = c.test, variable = c.variable, values = [for v in c.values : replace(replace(tostring(v), "{app}", group), "{environment}", var.environment)] }]
+      }]
+    }
+  }
 }
 
 data "aws_kms_key" "data" {
@@ -88,13 +117,13 @@ data "aws_route53_zone" "zones" {
   private_zone = split("|", each.key)[1] == "true"
 }
 
-# One CodeDeploy service role per environment, only when some group is deployed by CodeDeploy.
+# One CodeDeploy service role per environment, only when some group's servers run an application deployed by CodeDeploy.
 module "codedeploy_role" {
   source = "../../modules/iam-role"
-  count  = local.usable && anytrue([for f in values(local.files) : can(f.codedeploy)]) ? 1 : 0
+  count  = local.usable && length(local.applications) > 0 ? 1 : 0
 
   roles = {
-    "codedeploy-${var.environment}" = {
+    "codedeploy-${var.environment}-${var.region}" = {
       description      = "CodeDeploy deploying ${var.environment}'s servers"
       services         = ["codedeploy"]
       managed_policies = ["service-role/AWSCodeDeployRole"]
@@ -130,8 +159,7 @@ module "server_group" {
       port = port
     }
   }
-  deployment_config_name = try(each.value.codedeploy.deployment_config_name, null)
-  instance_type          = try(each.value.instance_type, null)
+  instance_type = try(each.value.instance_type, null)
   autoscaling = can(each.value.autoscaling) ? {
     subnet_ids                    = data.aws_subnets.tiers[try(each.value.tier, "private")].ids
     min_size                      = each.value.autoscaling.min_size
@@ -139,17 +167,16 @@ module "server_group" {
     desired_capacity              = each.value.autoscaling.desired_capacity
     target_tracking_configuration = try(each.value.autoscaling.target_tracking_configuration, null)
   } : null
-  codedeploy_role_arn = try(module.codedeploy_role[0].arns["codedeploy-${var.environment}"], null)
 
   servers = {
     image_id           = each.value.ami
     security_group_ids = [for g in try(each.value.security_groups, []) : data.aws_security_group.groups[g].id]
-    instance_profile   = data.aws_iam_instance_profile.profiles[each.value.iam_instance_profile].name
+    instance_profile   = contains(keys(local.app_role_names), each.key) ? module.app_roles[0].instance_profiles[local.app_role_names[each.key]] : data.aws_iam_instance_profile.profiles[each.value.iam_instance_profile].name
     kms_key_arn        = data.aws_kms_key.data[0].arn
     root_size          = try(each.value.root_block_device.volume_size, 30)
     backup             = try(each.value.backup, true)
-    user_data          = try(file("${local.config_dir}/${each.value.user_data}"), null)
-    tags               = { for k, v in try(each.value.tags, {}) : k => tostring(v) }
+    user_data          = try(file(startswith(each.value.user_data, "/") ? each.value.user_data : "${local.config_dir}/${each.value.user_data}"), null)
+    tags               = local.server_tags[each.key]
     volumes = {
       for name, v in try(each.value.ebs_block_device, {}) : name => {
         device     = v.device_name
@@ -189,4 +216,28 @@ module "server_group" {
     }
     if n.group == each.key
   ]
+}
+
+data "aws_caller_identity" "current" {}
+
+# One per application the groups' CodeDeploy tags list: the same name in every environment, a deployment group per branch
+# (or per environment when shared and containerized), finding its servers by their CodeDeploy:<application> tag.
+module "codedeploy_application" {
+  source   = "../../modules/codedeploy-application"
+  for_each = local.usable ? local.applications : toset([])
+
+  name                         = each.key
+  environment                  = var.environment
+  region                       = var.region
+  account_id                   = data.aws_caller_identity.current.account_id
+  containerized                = local.containerized[each.key]
+  groups                       = local.deployment[each.key].groups
+  deployment_config_name       = local.deployment[each.key].config_name
+  rollback_events              = local.deployment[each.key].rollback_events
+  selector                     = try(local.application_selectors[each.key][0], null)
+  autoscaling_groups           = compact([for g in local.application_groups[each.key] : module.server_group[g].autoscaling_group])
+  target_group_names           = distinct(flatten([for g in local.application_groups[each.key] : module.server_group[g].target_group_names]))
+  servers_behind_load_balancer = sum(concat([0], [for g in local.application_groups[each.key] : module.server_group[g].size if length(module.server_group[g].target_group_names) > 0]))
+  service_role_arn             = module.codedeploy_role[0].arns["codedeploy-${var.environment}-${var.region}"]
+  bootstrap                    = module.ip_plan.codedeploy.bootstrap
 }

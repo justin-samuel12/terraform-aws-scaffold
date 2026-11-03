@@ -9,5 +9,9 @@ terraform {
       # aws.hub: the account that owns the hosted zones (the region's hub account).
       configuration_aliases = [aws.hub]
     }
+    external = {
+      source  = "hashicorp/external"
+      version = "~> 2.3"
+    }
   }
 }

@@ -3,8 +3,8 @@ variable "name" {
   type        = string
 
   validation {
-    condition     = can(regex("^[a-z][a-z0-9-]{0,63}$", var.name))
-    error_message = "name is lowercase letters, digits and hyphens."
+    condition     = can(regex("^[a-z][a-z0-9-]{0,40}$", var.name))
+    error_message = "name is up to 41 lowercase letters, digits and hyphens: its role, lambda-<name>-<region>, must fit IAM's 64 characters."
   }
 }
 

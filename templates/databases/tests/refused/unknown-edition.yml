@@ -1,0 +1,4 @@
+engine: sqlserver-dev
+engine_version: "16.00"
+instance_class: db.m6i.large
+allocated_storage: 20

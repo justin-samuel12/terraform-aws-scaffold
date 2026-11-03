@@ -23,15 +23,13 @@ variables {
     instance_profile   = "grafana"
     kms_key_arn        = "arn:aws:kms:us-east-2:111111111111:key/mrk-data"
   }
-  port                   = 3000
-  health                 = "/api/health"
-  routes                 = [{ listener_arn = "arn:aws:elasticloadbalancing:us-east-2:111111111111:listener/app/internal/abc/def", hosts = ["grafana.example.com"], priority = 1010 }]
-  deployment_config_name = "CodeDeployDefault.OneAtATime"
-  codedeploy_role_arn    = "arn:aws:iam::111111111111:role/codedeploy-operations"
-  names                  = [{ zone_id = "Z0PRIVATE", name = "grafana.example.com", lb_dns_name = "internal-123.us-east-2.elb.amazonaws.com", lb_zone_id = "Z3AADJGX6KTTL2" }]
+  port   = 3000
+  health = "/api/health"
+  routes = [{ listener_arn = "arn:aws:elasticloadbalancing:us-east-2:111111111111:listener/app/internal/abc/def", hosts = ["grafana.example.com"], priority = 1010 }]
+  names  = [{ zone_id = "Z0PRIVATE", name = "grafana.example.com", lb_dns_name = "internal-123.us-east-2.elb.amazonaws.com", lb_zone_id = "Z3AADJGX6KTTL2" }]
 }
 
-run "routed_and_deployed" {
+run "routed" {
   command = plan
 
   assert {
@@ -40,39 +38,23 @@ run "routed_and_deployed" {
   }
 
   assert {
-    condition     = aws_codedeploy_app.group[0].name == "operations-grafana" && aws_codedeploy_deployment_group.group[0].deployment_config_name == "CodeDeployDefault.OneAtATime"
-    error_message = "Deployed one server at a time, under a name no other environment shares."
-  }
-
-  assert {
-    condition     = aws_codedeploy_deployment_group.group[0].deployment_style[0].deployment_option == "WITH_TRAFFIC_CONTROL" && aws_codedeploy_deployment_group.group[0].auto_rollback_configuration[0].enabled
-    error_message = "Each server leaves the target group while it updates, and a failed deployment rolls back."
+    condition     = output.size == length(var.servers.members)
+    error_message = "Its size, for deciding whether deployments drain servers from the load balancer, is its number of servers."
   }
 }
 
-run "not_deployed_and_internal" {
+run "internal" {
   command = plan
 
   variables {
-    routes                 = []
-    deployment_config_name = null
-    names                  = []
+    routes = []
+    names  = []
   }
 
   assert {
-    condition     = length(aws_codedeploy_app.group) == 0 && length(aws_lb_target_group.group) == 0 && length(aws_lb_listener_rule.routes) == 0
-    error_message = "Without deployment_config_name and routes: just the servers, untouched by CodeDeploy."
+    condition     = length(aws_lb_target_group.group) == 0 && length(aws_lb_listener_rule.routes) == 0
+    error_message = "Without routes: just the servers, in no target group of their own."
   }
-}
-
-run "rejects_unknown_strategy" {
-  command = plan
-
-  variables {
-    deployment_config_name = "not a config!"
-  }
-
-  expect_failures = [var.deployment_config_name]
 }
 
 run "joins_a_network_load_balancer_too" {
@@ -89,8 +71,8 @@ run "joins_a_network_load_balancer_too" {
   }
 
   assert {
-    condition     = length(aws_codedeploy_deployment_group.group[0].load_balancer_info[0].target_group_info) == 2
-    error_message = "A deployment takes each server out of every group it is in, not only its own."
+    condition     = length(output.target_group_names) == 2 && contains(output.target_group_names, "internal-nlb-syslog-ab12")
+    error_message = "Every group its servers are in, its own and the network load balancer's, so a deployment takes each server out of all of them."
   }
 }
 
@@ -130,7 +112,7 @@ run "as_an_auto_scaling_group" {
   }
 
   assert {
-    condition     = length(aws_codedeploy_deployment_group.group[0].ec2_tag_set) == 0 && length(aws_codedeploy_deployment_group.group[0].autoscaling_groups) == 1
-    error_message = "CodeDeploy deploys to the Auto Scaling group by name, so instances it launches later get the current release."
+    condition     = output.size == 4
+    error_message = "An Auto Scaling group counts as its largest size, for whether deployments drain servers first."
   }
 }

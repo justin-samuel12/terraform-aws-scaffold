@@ -99,23 +99,6 @@ variable "routes" {
   }
 }
 
-variable "deployment_config_name" {
-  description = "The CodeDeploy deployment configuration releases roll out with: CodeDeployDefault.OneAtATime, CodeDeployDefault.HalfAtATime, CodeDeployDefault.AllAtOnce, or a custom one. null: the group is not deployed by CodeDeploy."
-  type        = string
-  default     = null
-
-  validation {
-    condition     = var.deployment_config_name == null || can(regex("^[A-Za-z0-9._-]{1,100}$", coalesce(var.deployment_config_name, "-")))
-    error_message = "deployment_config_name is a CodeDeploy deployment configuration's name, such as CodeDeployDefault.OneAtATime, or left out."
-  }
-}
-
-variable "codedeploy_role_arn" {
-  description = "The environment's CodeDeploy service role; required when deployment_config_name is set."
-  type        = string
-  default     = null
-}
-
 variable "names" {
   description = "DNS names for it: each an alias to a load balancer, in a zone."
   type = list(object({

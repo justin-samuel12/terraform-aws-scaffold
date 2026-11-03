@@ -1,0 +1,9 @@
+# RDS Custom, not RDS: DBAmp is a Salesforce linked server installed on the server itself, which RDS does not allow.
+engine: custom-sqlserver-se
+engine_version: 16.00.4195.2.v1
+instance_class: db.m6i.xlarge
+allocated_storage: 200
+multi_az: true
+timezone: Eastern Standard Time
+security_groups:
+  - salesforce-sync-database

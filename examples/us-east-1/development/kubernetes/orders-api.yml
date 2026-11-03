@@ -1,0 +1,17 @@
+# The orders API's pods run as service account orders-api in namespace orders-api (the defaults: the file's name).
+# Their role is development-orders-api-us-east-1; Vault's AWS auth knows the app by it.
+statement:
+  - actions:
+      - sqs:SendMessage
+    resources:
+      - arn:aws:sqs:us-east-1:*:development-exports
+  - actions:
+      - kms:GenerateDataKey
+      - kms:Decrypt
+    resources:
+      - "*"
+    condition:
+      - test: StringEquals
+        variable: kms:ViaService
+        values:
+          - sqs.us-east-1.amazonaws.com
