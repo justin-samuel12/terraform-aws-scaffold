@@ -112,3 +112,12 @@ run "rejects_unknown_engine" {
 
   expect_failures = [var.engine]
 }
+
+run "pinned_versions_are_not_upgraded" {
+  command = plan
+
+  assert {
+    condition     = alltrue([for i in aws_rds_cluster_instance.instance : !i.auto_minor_version_upgrade])
+    error_message = "16.6 is pinned: no automatic minor upgrades, or the next plan would try to go back after AWS's."
+  }
+}

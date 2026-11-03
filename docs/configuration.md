@@ -244,8 +244,15 @@ It works out which of four situations it is in:
 
 With environments in accounts of their own, the bucket's policy lets each of
 those accounts read and write only its own environments' state keys
-(`us-east-2/production/*`, `global/production/*`); a bucket someone else owns
-needs the same from its owner.
+(`us-east-2/production/*`, `global/production/*`), and list only under them and
+under `env:/`, where Terraform's S3 backend looks for workspaces when a stack
+starts. A bucket someone else owns needs the same from its owner.
+
+**Run `make bootstrap` again** whenever that list changes: after adding an
+environment in an account of its own, or a region for one, and once after
+updating this repository, so a bucket made before `env:/` was allowed gets it.
+Until then, that account's `make init` is refused with a message saying it may
+not read its state. The run plans only the policy change, and asks first.
 
 ## Prerequisites
 

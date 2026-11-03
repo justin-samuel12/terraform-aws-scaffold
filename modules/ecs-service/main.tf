@@ -105,63 +105,11 @@ resource "aws_lb_target_group" "targets" {
   }
 }
 
-# Rolling: ECS replaces tasks a few at a time and rolls back by itself when new ones never become healthy.
+# Rolling: ECS replaces tasks a few at a time and rolls back by itself when new ones never become healthy. How many tasks run is
+# always Application Auto Scaling's (below), fixed at desired_count or within autoscaling's range, so adding or removing
+# autoscaling later changes the scaling target in place instead of replacing the service.
 resource "aws_ecs_service" "service" {
-  count = !local.blue_green && !local.scaled ? 1 : 0
-
-  name                               = local.service_name
-  cluster                            = var.cluster.arn
-  task_definition                    = aws_ecs_task_definition.task.arn
-  desired_count                      = var.desired_count
-  platform_version                   = "LATEST"
-  enable_execute_command             = var.execute_command != null
-  enable_ecs_managed_tags            = true
-  propagate_tags                     = "SERVICE"
-  health_check_grace_period_seconds  = local.routed ? 60 : null
-  deployment_minimum_healthy_percent = var.deployment.minimum_healthy_percent
-  deployment_maximum_percent         = var.deployment.maximum_percent
-
-  deployment_controller {
-    type = "ECS"
-  }
-
-  deployment_circuit_breaker {
-    enable   = true
-    rollback = true
-  }
-
-  dynamic "capacity_provider_strategy" {
-    for_each = var.capacity_provider_strategy
-    content {
-      capacity_provider = capacity_provider_strategy.value.capacity_provider
-      weight            = capacity_provider_strategy.value.weight
-      base              = capacity_provider_strategy.value.base
-    }
-  }
-
-  network_configuration {
-    subnets          = local.network.subnets
-    security_groups  = local.network.security_groups
-    assign_public_ip = false
-  }
-
-  dynamic "load_balancer" {
-    for_each = local.routed ? [local.live_target] : []
-    content {
-      target_group_arn = aws_lb_target_group.targets[load_balancer.value].arn
-      container_name   = local.front.name
-      container_port   = local.front.port
-    }
-  }
-
-  tags = { Name = local.service_name, Service = var.name }
-
-  depends_on = [aws_lb_listener_rule.routes, aws_iam_role_policy.task]
-}
-
-# The same, with autoscaling owning the number of tasks once it is running.
-resource "aws_ecs_service" "scaled" {
-  count = !local.blue_green && local.scaled ? 1 : 0
+  count = !local.blue_green ? 1 : 0
 
   name                               = local.service_name
   cluster                            = var.cluster.arn
@@ -215,6 +163,12 @@ resource "aws_ecs_service" "scaled" {
   }
 
   depends_on = [aws_lb_listener_rule.routes, aws_iam_role_policy.task]
+}
+
+# Services made before autoscaling and fixed counts shared one resource keep their place: nothing is replaced.
+moved {
+  from = aws_ecs_service.scaled
+  to   = aws_ecs_service.service
 }
 
 # Blue/green: Terraform registers each task definition; CodeDeploy puts it into service and owns which target group is live.
@@ -334,18 +288,17 @@ resource "aws_lb_listener_rule" "routes_blue_green" {
   }
 }
 
+# Every service has one: without autoscaling it holds the count at desired_count, so editing desired_count still changes it.
 resource "aws_appautoscaling_target" "service" {
-  count = local.scaled ? 1 : 0
-
   service_namespace  = "ecs"
   resource_id        = "service/${var.cluster.name}/${local.service_name}"
   scalable_dimension = "ecs:service:DesiredCount"
-  min_capacity       = var.autoscaling.min_capacity
-  max_capacity       = var.autoscaling.max_capacity
+  min_capacity       = local.scaled ? var.autoscaling.min_capacity : var.desired_count
+  max_capacity       = local.scaled ? var.autoscaling.max_capacity : var.desired_count
 
   tags = { Name = local.service_name, Service = var.name }
 
-  depends_on = [aws_ecs_service.scaled, aws_ecs_service.blue_green]
+  depends_on = [aws_ecs_service.service, aws_ecs_service.blue_green]
 }
 
 resource "aws_appautoscaling_policy" "service" {
@@ -353,9 +306,9 @@ resource "aws_appautoscaling_policy" "service" {
 
   name               = "${local.service_name}-${lower(replace(var.autoscaling.predefined_metric_type, "ECSService", ""))}"
   policy_type        = "TargetTrackingScaling"
-  service_namespace  = aws_appautoscaling_target.service[0].service_namespace
-  resource_id        = aws_appautoscaling_target.service[0].resource_id
-  scalable_dimension = aws_appautoscaling_target.service[0].scalable_dimension
+  service_namespace  = aws_appautoscaling_target.service.service_namespace
+  resource_id        = aws_appautoscaling_target.service.resource_id
+  scalable_dimension = aws_appautoscaling_target.service.scalable_dimension
 
   target_tracking_scaling_policy_configuration {
     target_value       = var.autoscaling.target_value

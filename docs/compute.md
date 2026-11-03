@@ -281,8 +281,11 @@ tags:
   tagged `isContainerized: true`, the application is shared by the
   environments. The first to create it owns it (an `EnvironmentOwner` tag), and
   each environment adds one deployment group, `primary-<environment>`. Whether
-  it already exists, and whose it is, is read from AWS during the plan
-  (read-only, with the stack's credentials).
+  it already exists, and whose it is, is read from AWS during the plan with the
+  AWS CLI (read-only). `bin/tf` gives the CLI the stack's profile; with plain
+  `terraform`, export `AWS_PROFILE` first. The plan stops, saying why, if the
+  CLI's credentials are another account's or any check fails, so a failed check
+  is never mistaken for a missing application.
 
 How an application deploys is configuration anyone can change, in review:
 
@@ -303,10 +306,13 @@ environment's CodeDeploy service role, `codedeploy-<environment>-<region>`, is c
 here with the first application.
 
 **The GitHub connection.** With `codedeploy.bootstrap` set in
-`config/global.yml` (a repository and a commit), each new application's last
-deployment group (or its `primary-<environment>` group) starts a deployment of
-that commit and stops it at once, so CodeDeploy's connection to GitHub exists
-before the first real release. Without it, nothing is started.
+`config/global.yml` (a repository and a commit), each new application also gets
+a deployment group of its own, `connection-check`, which requires a tag no
+server carries. A deployment of that commit is started there and stopped, so
+CodeDeploy's connection to GitHub exists before the first real release, and no
+server is ever touched by it. If CodeDeploy refuses, the apply says so, with
+AWS's reason; it never reports a connection that was not made. Without
+`bootstrap`, nothing is started.
 
 What a deployed application also needs, outside this stack:
 

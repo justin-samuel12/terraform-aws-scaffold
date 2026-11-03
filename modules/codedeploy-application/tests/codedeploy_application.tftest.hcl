@@ -40,8 +40,8 @@ run "fixed_servers" {
   }
 
   assert {
-    condition     = length(data.external.ownership) == 0 && local.bootstrap_group == "adhoc"
-    error_message = "A non-shared application needs no ownership check; a bootstrap would run on the last group."
+    condition     = length(data.external.ownership) == 0 && length(aws_codedeploy_deployment_group.connection) == 0
+    error_message = "A non-shared application needs no ownership check, and without a bootstrap there is no connection-check group."
   }
 }
 
@@ -79,4 +79,17 @@ run "rejects_uppercase_name" {
   }
 
   expect_failures = [var.name]
+}
+
+run "bootstrap_goes_to_a_group_of_no_servers" {
+  command = plan
+
+  variables {
+    bootstrap = { repository = "example/connection-check", commit_id = "0123456789abcdef0123456789abcdef01234567" }
+  }
+
+  assert {
+    condition     = aws_codedeploy_deployment_group.connection[0].deployment_group_name == "connection-check" && length(aws_codedeploy_deployment_group.connection[0].ec2_tag_set) == 2 && !contains(keys(aws_codedeploy_deployment_group.groups), "connection-check")
+    error_message = "The connection deployment goes to a group of its own, which needs a tag no server carries, never to master, development or adhoc."
+  }
 }

@@ -2,6 +2,9 @@ locals {
   sqlserver = startswith(var.engine, "sqlserver-")
   custom    = startswith(var.engine, "custom-")
   major     = split(".", var.engine_version)[0]
+  # A version pinned below its major (postgres 16.4, SQL Server 16.00.4215.2.v1) gets no automatic minor upgrades: AWS moving it
+  # would make the next plan try to go back. A major alone (16, 8.0, 16.00) is upgraded by AWS, and Terraform accepts the prefix.
+  pinned = length(split(".", var.engine_version)) > (var.engine == "postgres" ? 1 : 2)
 
   # SQL Server's families and option groups are named by edition and major version: sqlserver-se-16.0, 16.00.
   family = local.sqlserver ? "${var.engine}-${local.major}.0" : "${var.engine}${var.engine_version}"

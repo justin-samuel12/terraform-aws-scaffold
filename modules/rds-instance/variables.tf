@@ -251,3 +251,14 @@ variable "license_model" {
     error_message = "Developer edition comes only from our own media: license_model bring-your-own-media, with a custom engine version."
   }
 }
+
+variable "password_generation" {
+  description = "RDS Custom: raise it by one to set a new dbadmin password on the database and in its secret together (rotation, or recovery if the two ever disagree)."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.password_generation >= 1 && floor(var.password_generation) == var.password_generation
+    error_message = "password_generation is a whole number from 1, raised by one to set a new password."
+  }
+}

@@ -127,7 +127,7 @@ fi
 
 # Applied: the stack's state exists in the bucket (a read-only HEAD of its key).
 bucket="$(yq -r '.state.bucket // ""' "${CONFIG_DIR}/global.yml")"; bucket_region="$(yq -r '.state.region // ""' "${CONFIG_DIR}/global.yml")"
-# A stack's state is read with its own environment's profile (the shared one for shared stacks), since with an account per
+# A stack's state is looked for with its own environment's profile (the shared one for shared stacks), since with an account per
 # environment each may read only its own keys. Only "not found" means not applied; anything else is "cannot check", with why.
 state_of() { # state_of <stack> -> applied | not-applied | unknown <why> | (nothing, when there is nothing to check)
     [[ "${OFFLINE}" == 1 || -z "${bucket}" ]] && return 0
@@ -135,9 +135,12 @@ state_of() { # state_of <stack> -> applied | not-applied | unknown <why> | (noth
     key="$(sed -n 's/^ *key *= *"\(.*\)"/\1/p' "live/$1/backend.tf" 2>/dev/null)"
     [[ -n "${key}" ]] || return 0
     env="$(cut -d/ -f2 <<<"$1")"; p="$(profile_for "${env}")"; [[ -n "${p}" ]] || p="$(profile_for shared)"
-    if err="$(aws s3api head-object --bucket "${bucket}" --key "${key}" --region "${bucket_region}" ${p:+--profile "${p}"} 2>&1 >/dev/null)"; then echo applied
-    elif [[ "${err}" == *"(404)"* || "${err}" == *"Not Found"* ]]; then echo not-applied
-    elif [[ "${err}" == *"(403)"* || "${err}" == *Forbidden* || "${err}" == *AccessDenied* ]]; then echo "unknown ${p:-the active credentials} may not read its state"
+    # Listed under its own key, which an environment's account may do (head-object answers 403 for a missing key without a
+    # bucket-wide list permission, so it cannot tell "not applied" from "not allowed").
+    local out
+    if out="$(aws s3api list-objects-v2 --bucket "${bucket}" --prefix "${key}" --max-keys 2 --query "length(Contents[?Key=='${key}'] || \`[]\`)" --output text --region "${bucket_region}" ${p:+--profile "${p}"} 2>&1)"; then
+        [[ "${out}" =~ ^[1-9] ]] && echo applied || echo not-applied
+    elif err="${out}"; [[ "${err}" == *AccessDenied* || "${err}" == *Forbidden* ]]; then echo "unknown ${p:-the active credentials} may not read its state"
     else echo "unknown ${p:-the active credentials} could not reach the bucket (expired login? aws sso login --profile ${p:-<name>})"; fi
 }
 status_of() {

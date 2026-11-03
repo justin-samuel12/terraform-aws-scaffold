@@ -50,6 +50,11 @@ run "rolling" {
   }
 
   assert {
+    condition     = aws_appautoscaling_target.service.min_capacity == var.desired_count && aws_appautoscaling_target.service.max_capacity == var.desired_count && length(aws_appautoscaling_policy.service) == 0
+    error_message = "Without autoscaling the count is held at desired_count by the same scaling target, so adding autoscaling later changes it in place, never replacing the service."
+  }
+
+  assert {
     condition     = !aws_ecs_service.service[0].network_configuration[0].assign_public_ip && aws_ecs_service.service[0].enable_execute_command && aws_ecs_service.service[0].name == "development-orders-api"
     error_message = "Private, no public address, ECS Exec on, named <environment>-<name>."
   }
@@ -103,7 +108,7 @@ run "scaled_on_requests" {
   }
 
   assert {
-    condition     = length(aws_ecs_service.scaled) == 1 && length(aws_ecs_service.service) == 0 && aws_appautoscaling_target.service[0].resource_id == "service/development/development-orders-api" && aws_appautoscaling_target.service[0].max_capacity == 6
+    condition     = length(aws_ecs_service.service) == 1 && aws_appautoscaling_target.service.resource_id == "service/development/development-orders-api" && aws_appautoscaling_target.service.max_capacity == 6
     error_message = "With autoscaling, the service that leaves its count to it, between 2 and 6."
   }
 }

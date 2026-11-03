@@ -116,12 +116,20 @@ resource "aws_secretsmanager_secret" "password" {
   tags = { Name = var.name }
 }
 
+# Written after the database, in the same apply and with the same password. A build that fails writes nothing, so its retry
+# writes the password it actually used; a replaced database rewrites it. Raising password_generation resets both together.
 resource "aws_secretsmanager_secret_version" "password" {
   count = local.custom ? 1 : 0
 
   secret_id                = aws_secretsmanager_secret.password[0].id
   secret_string_wo         = jsonencode({ username = "dbadmin", password = local.password })
-  secret_string_wo_version = 1
+  secret_string_wo_version = var.password_generation
+
+  depends_on = [aws_db_instance.database]
+
+  lifecycle {
+    replace_triggered_by = [aws_db_instance.database]
+  }
 }
 
 resource "aws_db_instance" "database" {
@@ -143,7 +151,7 @@ resource "aws_db_instance" "database" {
   manage_master_user_password   = local.custom ? null : true
   master_user_secret_kms_key_id = local.custom ? null : var.kms_key_arn
   password_wo                   = local.custom ? local.password : null
-  password_wo_version           = local.custom ? 1 : null
+  password_wo_version           = local.custom ? var.password_generation : null
 
   multi_az               = var.multi_az
   db_subnet_group_name   = aws_db_subnet_group.database.name
@@ -178,7 +186,7 @@ resource "aws_db_instance" "database" {
   final_snapshot_identifier = "${var.name}-final"
 
   # RDS Custom upgrades only when we choose a new version for it.
-  auto_minor_version_upgrade  = !local.custom
+  auto_minor_version_upgrade  = !local.custom && !local.pinned
   allow_major_version_upgrade = false
 
   performance_insights_enabled          = !local.custom
@@ -189,7 +197,7 @@ resource "aws_db_instance" "database" {
 
   tags = { Name = var.name, Backup = "standard" }
 
-  depends_on = [aws_cloudwatch_log_group.database, aws_secretsmanager_secret_version.password]
+  depends_on = [aws_cloudwatch_log_group.database, aws_secretsmanager_secret.password]
 
   # RDS Custom builds its server for hours, and Multi-AZ SQL Server takes a while too.
   timeouts {

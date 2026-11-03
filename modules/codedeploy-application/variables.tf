@@ -95,7 +95,7 @@ variable "service_role_arn" {
 }
 
 variable "bootstrap" {
-  description = "A GitHub revision deployed and stopped at once when the last of the groups (or the primary group) is created, so CodeDeploy's GitHub connection exists before the first real deployment; null for none."
+  description = "A GitHub revision deployed once, to a group of its own with no servers, then stopped, so CodeDeploy's GitHub connection exists before the first real deployment; null for none."
   type = object({
     repository = string
     commit_id  = string

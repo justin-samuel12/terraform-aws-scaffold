@@ -107,7 +107,7 @@ security_groups:
 | `timezone`, `character_set_name` | SQL Server, RDS Custom | The Windows time zone (`Eastern Standard Time`; default UTC) and the server collation (default `SQL_Latin1_General_CP1_CI_AS`). Both are fixed once the database exists |
 | `options` | SQL Server | Option name to its settings: see below |
 | `domain` | SQL Server | An AWS Managed Microsoft AD directory (`d-...`) to join |
-| `domain_fqdn`, `domain_ou`, `domain_auth_secret_arn`, `domain_dns_ips` | SQL Server, RDS Custom | A self-managed Active Directory to join, all four together |
+| `domain_fqdn`, `domain_ou`, `domain_auth_secret_arn`, `domain_dns_ips` | SQL Server, RDS Custom | A self-managed Active Directory to join, all four together. On RDS Custom, AWS documents domain joins but not this way of asking for one at creation: try it in a sandbox before relying on it |
 | `license_model` | RDS Custom | `license-included` (default) or `bring-your-own-media` |
 | `instances` | Aurora | How many instances: the writer, then readers (default 2) |
 | `serverlessv2_scaling_configuration` | Aurora | `min_capacity` and `max_capacity` in ACUs, for `db.serverless` only |

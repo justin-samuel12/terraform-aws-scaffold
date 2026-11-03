@@ -67,7 +67,7 @@ listener_rules:
 | Key | Meaning |
 |---|---|
 | `cpu`, `memory` | The whole task's size: CPU units (1024 is one vCPU: 256, 512, 1024, 2048, 4096, 8192 or 16384) and MiB, in the range Fargate allows for that CPU. Default 256 and 512 |
-| `desired_count` | How many tasks run (default 2); with `autoscaling`, how many it starts with |
+| `desired_count` | How many tasks run (default 2); with `autoscaling`, how many it starts with. Either way the count is held by Application Auto Scaling (at `desired_count`, or within `autoscaling`'s range), so adding or removing `autoscaling` later changes it in place and never replaces the running service |
 | `tier` | The subnets the tasks run in, every zone of that tier (default `private`). Tasks never get a public address |
 | `security_groups` | By name, from the security-groups stack. At least one |
 | `image`, `port`, `command` | One container, named after the service: its image, the port it listens on, and its command if not the image's own |

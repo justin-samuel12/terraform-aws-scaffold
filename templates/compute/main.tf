@@ -175,7 +175,7 @@ module "server_group" {
     kms_key_arn        = data.aws_kms_key.data[0].arn
     root_size          = try(each.value.root_block_device.volume_size, 30)
     backup             = try(each.value.backup, true)
-    user_data          = try(file(startswith(each.value.user_data, "/") ? each.value.user_data : "${local.config_dir}/${each.value.user_data}"), null)
+    user_data          = contains(keys(local.user_data_paths), each.key) ? file(local.user_data_paths[each.key]) : null
     tags               = local.server_tags[each.key]
     volumes = {
       for name, v in try(each.value.ebs_block_device, {}) : name => {

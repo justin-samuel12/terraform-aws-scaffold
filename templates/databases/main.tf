@@ -125,6 +125,7 @@ module "rds_instance" {
   source   = "../../modules/rds-instance"
   for_each = local.instances
 
+  password_generation = try(each.value.password_generation, 1)
   name                = "${var.environment}-${each.key}"
   engine              = each.value.engine
   engine_version      = each.value.kind == "rds-custom" && contains(keys(local.custom_versions), each.value.version) ? module.engine_version[local.custom_versions[each.value.version].file].engine_version : each.value.version

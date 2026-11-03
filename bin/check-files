@@ -68,8 +68,8 @@ for rel in "${stacks[@]}"; do
     if grep -q '^variable "config_path"' "templates/${component}/variables.tf" 2>/dev/null && ! grep -q config_path "${dir}/main.tf"; then
         perl -0pi -e 's/\n}\s*\z/\n  config_path = local.config_dir\n}\n/' "${dir}/main.tf"
     fi
-    find "${SOURCE}/${rel}" -maxdepth 1 -name '*.yml' -exec cp {} "${dir}/" \;
-    for extra in src policies deployments; do [[ -d "${SOURCE}/${rel}/${extra}" ]] && cp -R "${SOURCE}/${rel}/${extra}" "${dir}/"; done
+    # Everything the stack's files may name (scripts, src/, policies/, deployments/, engine-versions/, ...), not Terraform's own.
+    rsync -a --exclude '*.tf' --exclude '.terraform' --exclude '.terraform.lock.hcl' --exclude 'tests' --exclude '.gitkeep' "${SOURCE}/${rel}/" "${dir}/"
     region="${rel%%/*}"; [[ "${region}" == global ]] && region="${primary}"
     zones="$(yq -o=json -I=0 '.zones // []' "${WORK}/config/${region}.yml" 2>/dev/null | sed 's/,/, /g')"
     sed -e "s/zone_ids = \[[^]]*\]/zone_ids = ${zones:-[]}/" -e "s/region = \"us-east-1\", name = \"us-east-1\"/region = \"${region}\", name = \"${region}\"/" \

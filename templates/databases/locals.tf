@@ -25,7 +25,7 @@ locals {
   keys = {
     rds        = local.rds_keys
     sqlserver  = concat(local.rds_keys, ["timezone", "character_set_name", "options", "domain"], local.domain)
-    rds-custom = concat(["engine", "engine_version", "instance_class", "allocated_storage", "multi_az", "security_groups", "license_model", "timezone", "character_set_name"], local.domain)
+    rds-custom = concat(["engine", "engine_version", "instance_class", "allocated_storage", "multi_az", "security_groups", "license_model", "timezone", "character_set_name", "password_generation"], local.domain)
     aurora     = ["engine", "engine_version", "instance_class", "instances", "serverlessv2_scaling_configuration", "security_groups"]
   }
   required = {

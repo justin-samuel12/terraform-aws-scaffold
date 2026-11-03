@@ -178,6 +178,26 @@ run "rds_custom" {
   }
 }
 
+run "rds_custom_new_password" {
+  command = plan
+
+  variables {
+    name                        = "salesforce-sync"
+    engine                      = "custom-sqlserver-se"
+    engine_version              = "16.00.4185.3.v1"
+    instance_class              = "db.m6i.xlarge"
+    max_storage                 = null
+    monitoring_role_arn         = null
+    custom_iam_instance_profile = "AWSRDSCustom-operations-us-east-2"
+    password_generation         = 2
+  }
+
+  assert {
+    condition     = aws_db_instance.database.password_wo_version == 2 && aws_secretsmanager_secret_version.password[0].secret_string_wo_version == 2
+    error_message = "Raising password_generation sets a new password on the database and in its secret, in one apply."
+  }
+}
+
 run "rejects_express_multi_az" {
   command = plan
 
@@ -250,4 +270,33 @@ run "rejects_a_half_set_domain" {
   }
 
   expect_failures = [var.domain_dns_ips]
+}
+
+run "upgrades_follow_the_version" {
+  command = plan
+
+  variables {
+    engine         = "sqlserver-se"
+    engine_version = "16.00.4215.2.v1"
+    instance_class = "db.m6i.xlarge"
+  }
+
+  assert {
+    condition     = !aws_db_instance.database.auto_minor_version_upgrade
+    error_message = "A version pinned below its major gets no automatic minor upgrades, or the next plan would try to undo AWS's."
+  }
+}
+
+run "a_major_alone_is_upgraded" {
+  command = plan
+
+  variables {
+    engine         = "postgres"
+    engine_version = "16"
+  }
+
+  assert {
+    condition     = aws_db_instance.database.auto_minor_version_upgrade
+    error_message = "A major version alone takes AWS's minor upgrades."
+  }
 }

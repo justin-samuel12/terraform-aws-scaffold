@@ -131,7 +131,12 @@ locals {
   priorities    = [for r in local.routes : "${r.load_balancer}:${r.listener}:${r.priority}"]
   matches       = flatten([for r in local.routes : [for h in concat(r.hosts, length(r.hosts) == 0 ? ["*"] : []) : [for p in concat(r.paths, length(r.paths) == 0 ? ["*"] : []) : "${r.load_balancer}:${r.listener} ${h}${p == "*" ? "" : p}"]]])
 
+  # A boot script is read from beside the group's file (or a blueprint's); one that is missing stops the plan, never builds
+  # servers without it.
+  user_data_paths = { for group, f in local.files : group => (startswith(f.user_data, "/") ? f.user_data : "${local.config_dir}/${f.user_data}") if can(f.user_data) }
+
   problems = concat(
+    [for group, path in local.user_data_paths : "${group}.yml: user_data ${local.files[group].user_data} is not there; it is read from beside the file" if !fileexists(path)],
     [for group, ref in local.blueprint_refs : "${group}.yml: blueprint ${ref} is <name>/v<number>, such as backend-service/v1" if !can(regex("^[a-z0-9][a-z0-9-]*/v[0-9]+$", ref))],
     [for group, ref in local.blueprint_refs : "${group}.yml: blueprint ${ref} not found: blueprints/${split("/", ref)[0]}/ has ${join(", ", [for v in fileset("${local.blueprints_dir}/${split("/", ref)[0]}", "v*.yml") : trimsuffix(v, ".yml")]) == "" ? "nothing" : join(", ", [for v in fileset("${local.blueprints_dir}/${split("/", ref)[0]}", "v*.yml") : trimsuffix(v, ".yml")])}" if can(regex("^[a-z0-9][a-z0-9-]*/v[0-9]+$", ref)) && local.blueprints[ref] == null],
     [for group, ref in local.blueprint_refs : "blueprints/${ref}.yml: it needs a group: the settings every app on it gets" if local.blueprints[ref] != null && !can(keys(local.blueprints[ref].group))],

@@ -108,7 +108,7 @@ resource "aws_rds_cluster_instance" "instance" {
   ca_cert_identifier      = "rds-ca-rsa2048-g1"
   promotion_tier          = count.index
 
-  auto_minor_version_upgrade            = true
+  auto_minor_version_upgrade            = !local.pinned
   performance_insights_enabled          = true
   performance_insights_kms_key_id       = var.kms_key_arn
   performance_insights_retention_period = 7
