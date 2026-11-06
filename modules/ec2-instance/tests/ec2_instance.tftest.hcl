@@ -1,4 +1,3 @@
-# What the module builds and refuses, against a mocked AWS -- docs/compute.md.
 mock_provider "aws" {}
 
 variables {
@@ -69,4 +68,26 @@ run "rejects_image_search" {
   }
 
   expect_failures = [var.image_id]
+}
+
+run "tags_merge" {
+  command = plan
+
+  variables {
+    tags = { BackupTier = "Daily", Function = "group-wide", Certificates = "['staging.example.com']" }
+    members = {
+      sqlserver-01 = { subnet_id = "subnet-data-1", subnet = "data-az1", instance_type = "r6i.2xlarge", tags = { Function = "sql01", DNS = "sql01", Group = "mine", Name = "mine" } }
+      sqlserver-02 = { subnet_id = "subnet-data-2", subnet = "data-az2", instance_type = "r6i.2xlarge" }
+    }
+  }
+
+  assert {
+    condition     = aws_instance.servers["sqlserver-01"].tags.Function == "sql01" && aws_instance.servers["sqlserver-01"].tags.DNS == "sql01" && aws_instance.servers["sqlserver-01"].tags.BackupTier == "Daily" && aws_instance.servers["sqlserver-02"].tags.Function == "group-wide"
+    error_message = "A server's own tags win over the group's; a server without any keeps the group's."
+  }
+
+  assert {
+    condition     = aws_instance.servers["sqlserver-01"].tags.Name == "sqlserver-01" && aws_instance.servers["sqlserver-01"].tags.Server == "sqlserver-01" && aws_instance.servers["sqlserver-01"].tags.Group == "sqlserver"
+    error_message = "The tags the module sets itself win over any server's."
+  }
 }

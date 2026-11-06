@@ -1,0 +1,26 @@
+blueprint: backend-service/v1
+listener_rule:
+  listener_arn: services/443
+  priority: 1200
+  condition:
+    path_pattern:
+      values:
+        - /accounts-service/*
+        - /accountss/*
+vpc_security_group_ids:
+  - accounts-files
+target_group:
+  health_check:
+    path: /accounts-service/health
+count: 2
+tags:
+  BackupTier: Daily
+members:
+  accounts-service-01:
+    tags:
+      DNS: accounts01
+      Slot: "01"
+  accounts-service-02:
+    tags:
+      DNS: accounts-legacy
+      Slot: "02"

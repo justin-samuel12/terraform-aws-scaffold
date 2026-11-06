@@ -1,33 +1,23 @@
-data "aws_route53_zone" "zones" {
-  provider = aws.dns
-  for_each = toset([for c in var.certificates : c.zone])
-
-  name         = each.key
-  private_zone = false
-}
-
-# Validated through DNS, so renewal is automatic for as long as the records stay.
 resource "aws_acm_certificate" "certificates" {
   for_each = var.certificates
 
-  domain_name               = each.value.domain
-  subject_alternative_names = each.value.alternative_names
-  validation_method         = "DNS"
-  key_algorithm             = "RSA_2048"
+  domain_name               = each.value.domain_name
+  subject_alternative_names = each.value.subject_alternative_names
+  validation_method         = each.value.validation_method
+  key_algorithm             = each.value.key_algorithm
 
-  tags = { Name = each.key }
+  tags = merge(each.value.tags, { Name = "${local.name_prefix}${each.key}" })
 
   lifecycle {
     create_before_destroy = true
   }
 }
 
-# Keyed by the names in config, which are known before the certificate exists; AWS fills in each record's value.
 resource "aws_route53_record" "validation" {
   provider = aws.dns
   for_each = merge([
     for name, certificate in var.certificates : {
-      for domain in concat([certificate.domain], certificate.alternative_names) : "${name}/${domain}" => { name = name, domain = domain, zone = certificate.zone }
+      for domain in concat([certificate.domain_name], certificate.subject_alternative_names) : "${name}/${domain}" => { name = name, domain = domain, zone = certificate.validation_zone }
     }
   ]...)
 

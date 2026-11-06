@@ -1,0 +1,59 @@
+account_id: ""
+state:
+  bucket: ""
+  region: us-east-2
+  key: "{region}/{environment}/{component}"
+subnets:
+  environment:
+    private:
+      size: 19
+      start: 0
+      route: hub
+      reserved: 26
+    data:
+      size: 22
+      start: 192
+      route: internal
+      reserved: 26
+    public:
+      size: 23
+      start: 216
+      route: internet
+      reserved: 26
+    ops:
+      size: 23
+      start: 228
+      route: hub
+      reserved: 26
+    transit:
+      size: 28
+      start: 252
+      route: none
+  hub:
+    public:
+      size: 24
+      start: 0
+    transit:
+      size: 28
+      start: 15
+    dns:
+      size: 28
+      start: 14
+sites:
+  office:
+    ip_address:
+    bgp_asn: 65010
+    cidrs: []
+prefix_lists:
+dns:
+  inbound: false
+  forward:
+  private_zones:
+  public_domain:
+    - example.com
+  private_domain: corp.internal
+directory:
+  enabled: false
+  name: ""
+  short_name: ""
+  edition: ""

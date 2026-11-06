@@ -46,7 +46,9 @@ the network team, and `/live/*/production/` for production's owners.
 
 Hub and spoke, owned by us. One Transit Gateway hub per region, peered; each
 environment is a spoke in its region. The hub is its own stack, separate from
-operations: it rarely changes and every environment depends on it.
+operations: it rarely changes and every environment depends on it. A small or
+ad hoc environment can instead stand off the hub, with its own NAT and VPC
+peering to the few networks it needs ([network](network.md#off-the-hub-connectivity-peering)).
 
 | Region | Hub | Spokes |
 |---|---|---|
@@ -54,10 +56,10 @@ operations: it rarely changes and every environment depends on it.
 | us-west-2 (Oregon) | `live/us-west-2/shared/hub` | staging, production DR |
 
 Ohio is the primary region: its hub in `config/us-east-2.yml` says `primary: true`, so it
-requests the peering (the other hubs are applied first), is HQ's preferred path,
+requests the peering (the other hubs are applied first), is the sites' preferred VPN path,
 and is where `global` stacks run. Oregon is the disaster-recovery region.
 
-The VPN to HQ terminates on both hubs. Spokes reach each other only
+Each site's VPN terminates on both hubs. Spokes reach each other only
 where hub route tables allow it. Modules, IP plan and routing: [network.md](network.md).
 
 ## One account, or one per environment

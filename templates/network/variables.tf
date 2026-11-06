@@ -28,3 +28,9 @@ variable "config_path" {
   type        = string
   default     = null
 }
+
+variable "config_dir" {
+  description = "The folder holding route-table/<tier>.yml, peering/<name>.yml and network-acl/<tier>.yml; null = the stack's config/ folder. Tests point it at their own."
+  type        = string
+  default     = null
+}

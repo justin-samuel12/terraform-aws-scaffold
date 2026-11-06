@@ -1,6 +1,11 @@
-# A backend service on a blueprint, with its own health check, which the blueprint allows.
 blueprint: backend-service/v1
-priority: 1210
+listener_rule:
+  listener_arn: internal/443
+  priority: 1210
+  condition:
+    path_pattern:
+      values:
+        - /inventory-service/*
 target_group:
   health_check:
     path: /inventory-service/health

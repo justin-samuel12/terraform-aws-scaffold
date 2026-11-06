@@ -16,9 +16,35 @@ provider "aws" {
   }
 }
 
-# The region's hub account, for what AWS lets only the hub's owner do: accept and route an attachment, authorize a private zone,
-# write records in the hub's zones. In single-account mode this is the same account as the provider above.
-# tflint-ignore: terraform_unused_declarations # every stack has it; only the stacks whose template takes aws.hub use it
+# tflint-ignore: terraform_unused_declarations
+provider "aws" {
+  alias               = "dns"
+  region              = local.region
+  profile             = local.profile
+  allowed_account_ids = local.hub_pinned ? [local.hub_account] : null
+
+  dynamic "assume_role" {
+    for_each = local.cross_account ? [local.hub_account] : []
+    content {
+      role_arn     = "arn:aws:iam::${assume_role.value}:role/dns-${local.environment}"
+      session_name = "dns-${local.environment}"
+    }
+  }
+
+  default_tags {
+    tags = merge(
+      {
+        ManagedBy   = "terraform"
+        Environment = local.environment
+        Component   = local.component
+        Repository  = local.repository
+      },
+      local.team == null ? {} : { Team = local.team },
+    )
+  }
+}
+
+# tflint-ignore: terraform_unused_declarations
 provider "aws" {
   alias               = "hub"
   region              = local.region
@@ -38,7 +64,7 @@ provider "aws" {
   }
 }
 
-# tflint-ignore: terraform_unused_declarations # used by its precondition, which refuses a plan without an account
+# tflint-ignore: terraform_unused_declarations
 data "aws_caller_identity" "current" {
   lifecycle {
     precondition {
@@ -55,8 +81,7 @@ check "team_set" {
   }
 }
 
-# us-east-1, for what AWS keeps only there whatever the region: CloudFront's certificates and web ACLs.
-# tflint-ignore: terraform_unused_declarations # every stack has it; only the stacks whose template takes aws.us_east_1 use it
+# tflint-ignore: terraform_unused_declarations
 provider "aws" {
   alias               = "us_east_1"
   region              = "us-east-1"

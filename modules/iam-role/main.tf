@@ -1,5 +1,3 @@
-data "aws_partition" "current" {}
-
 resource "aws_iam_role" "roles" {
   for_each = var.roles
 
@@ -7,7 +5,7 @@ resource "aws_iam_role" "roles" {
   description          = each.value.description
   max_session_duration = 3600
 
-  assume_role_policy = jsonencode({
+  assume_role_policy = each.value.assume_role_policy != null ? each.value.assume_role_policy : jsonencode({
     Version = "2012-10-17"
     Statement = [{
       Effect    = "Allow"
@@ -16,7 +14,7 @@ resource "aws_iam_role" "roles" {
     }]
   })
 
-  tags = { Name = each.key }
+  tags = { Name = "${local.name_prefix}${trimprefix(each.key, "${local.environment_tag}-")}" }
 }
 
 resource "aws_iam_role_policy_attachment" "managed" {
@@ -26,7 +24,6 @@ resource "aws_iam_role_policy_attachment" "managed" {
   policy_arn = "arn:${data.aws_partition.current.partition}:iam::aws:policy/${each.value.policy}"
 }
 
-# Shared policies, attached to every role that names them.
 resource "aws_iam_policy" "policies" {
   for_each = var.policies
 
@@ -39,7 +36,7 @@ resource "aws_iam_policy" "policies" {
     })]
   })
 
-  tags = { Name = each.key }
+  tags = { Name = "${local.name_prefix}${trimprefix(each.key, "${local.environment_tag}-")}" }
 }
 
 resource "aws_iam_role_policy_attachment" "policies" {
@@ -69,12 +66,11 @@ resource "aws_iam_role_policy" "own" {
   })
 }
 
-# Instances take a role through an instance profile; a role EC2 may assume gets one.
 resource "aws_iam_instance_profile" "profiles" {
-  for_each = { for name, r in var.roles : name => r if contains(r.services, "ec2") }
+  for_each = var.instance_profiles != null ? var.instance_profiles : { for name, r in var.roles : name => name if contains(r.services, "ec2") }
 
   name = each.key
-  role = aws_iam_role.roles[each.key].name
+  role = aws_iam_role.roles[each.value].name
 
-  tags = { Name = each.key }
+  tags = { Name = "${local.name_prefix}${trimprefix(each.key, "${local.environment_tag}-")}" }
 }

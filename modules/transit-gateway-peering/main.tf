@@ -4,14 +4,14 @@ resource "aws_ec2_transit_gateway_peering_attachment" "peering_attachment" {
   peer_transit_gateway_id = var.accepter.transit_gateway_id
   peer_region             = var.accepter.region
 
-  tags = { Name = var.name }
+  tags = { Name = "${local.name_prefix}Transit Gateway Peering to ${var.accepter.region}" }
 }
 
 resource "aws_ec2_transit_gateway_peering_attachment_accepter" "peering_attachment_accepter" {
   region                        = var.accepter.region
   transit_gateway_attachment_id = aws_ec2_transit_gateway_peering_attachment.peering_attachment.id
 
-  tags = { Name = var.name }
+  tags = { Name = "${local.name_prefix}Transit Gateway Peering from ${var.requester.region}" }
 }
 
 resource "aws_ec2_transit_gateway_route_table_association" "route_table_associations" {

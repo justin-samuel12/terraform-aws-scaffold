@@ -1,7 +1,0 @@
-description: The orders-api service's tasks (ECS), reached only by the internal load balancer
-ingress:
-  - description: The application, from its load balancer
-    from_port: 8080
-    to_port: 8080
-    source:
-      - dashboards-lb

@@ -1,0 +1,3 @@
+blueprint: aurora-postgres/v1
+vpc_security_group_ids:
+  - reporting-database

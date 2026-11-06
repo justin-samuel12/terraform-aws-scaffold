@@ -1,4 +1,3 @@
-# What the module builds and refuses, against a mocked AWS -- docs/data.md.
 mock_provider "aws" {}
 
 override_data {

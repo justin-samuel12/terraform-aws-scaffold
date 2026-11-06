@@ -1,30 +1,52 @@
 locals {
-  config_dir = coalesce(var.config_dir, path.root)
-  files      = { for name in fileset(local.config_dir, "*.yml") : trimsuffix(name, ".yml") => yamldecode(file("${local.config_dir}/${name}")) }
-  keys       = ["runtime", "handler", "memory_size", "timeout", "environment", "statement", "schedule_expression", "retention_in_days", "event_source_mapping", "sns_topic_subscription"]
+  config_dir = coalesce(var.config_dir, "${path.root}/config")
+  found      = { for path in fileset(local.config_dir, "**/*.yml") : trimsuffix(basename(path), ".yml") => path... if !startswith(path, "src/") }
+  files      = { for name, paths in local.found : name => try(yamldecode(file("${local.config_dir}/${sort(paths)[0]}")), null) }
 
-  problems = concat(
-    [for name, f in local.files : "${name}.yml: keys are ${join(", ", local.keys)}" if !alltrue([for k in try(keys(f), []) : contains(local.keys, k)])],
-    [for name, f in local.files : "${name}.yml: needs runtime and handler" if !can(f.runtime) || !can(f.handler)],
-    [for name, f in local.files : "${name}.yml: environment holds variables, as in the AWS provider: environment: { variables: { NAME: value } }" if can(f.environment) && !alltrue([for k in try(keys(f.environment), ["?"]) : k == "variables"])],
-    [for name in keys(local.files) : "${name}.yml: its code belongs in src/${name}/, which is empty or missing" if length(fileset("${local.config_dir}/src/${name}", "**")) == 0],
-    [for name, f in local.files : "${name}.yml: sns_topic_subscription is a list of topic_arn (topic:<name>, or a topic's ARN), with filter_policy and filter_policy_scope if wanted" if can(f.sns_topic_subscription) && !(can(tolist(f.sns_topic_subscription)) && alltrue([for s in try(tolist(f.sns_topic_subscription), []) : can(s.topic_arn) && alltrue([for k in try(keys(s), ["?"]) : contains(["topic_arn", "filter_policy", "filter_policy_scope"], k)])]))],
-    [for name, f in local.files : "${name}.yml: event_source_mapping takes event_source_arn (queue:<name>, or a queue's ARN), batch_size and maximum_batching_window_in_seconds" if can(f.event_source_mapping) && !(can(f.event_source_mapping.event_source_arn) && alltrue([for k in try(keys(f.event_source_mapping), ["?"]) : contains(["event_source_arn", "batch_size", "maximum_batching_window_in_seconds"], k)]))],
-  )
+  file_keys         = ["runtime", "handler", "memory_size", "timeout", "environment", "statement", "cloudwatch_event_rule", "cloudwatch_log_group", "event_source_mapping", "sns_topic_subscription"]
+  statement_keys    = ["effect", "actions", "resources", "condition"]
+  mapping_keys      = ["event_source_arn", "batch_size", "maximum_batching_window_in_seconds", "function_response_types"]
+  subscription_keys = ["topic_arn", "filter_policy", "filter_policy_scope"]
 
-  # topic:<name> is this environment's topic from the messaging stack, <environment>-<name>; the function subscribes itself.
+  statements = {
+    for name, f in local.files : name => [
+      for s in try(concat(f.statement, []), []) : {
+        effect    = try(tostring(s.effect), "Allow")
+        actions   = [for a in try(concat(s.actions, []), []) : tostring(a)]
+        resources = [for r in try(concat(s.resources, []), []) : tostring(r)]
+        condition = [for c in try(concat(s.condition, []), []) : {
+          test     = try(tostring(c.test), "")
+          variable = try(tostring(c.variable), "")
+          values   = [for v in try(concat(c.values, []), []) : tostring(v)]
+        }]
+      }
+    ]
+  }
+
   subscriptions = {
     for name, f in local.files : name => {
-      for s in try(tolist(f.sns_topic_subscription), []) : replace(trimprefix(tostring(try(s.topic_arn, "?")), "topic:"), "/^.*:/", "") => {
-        topic               = startswith(tostring(try(s.topic_arn, "")), "topic:") ? "${var.environment}-${trimprefix(s.topic_arn, "topic:")}" : null
-        arn                 = startswith(tostring(try(s.topic_arn, "")), "topic:") ? null : try(tostring(s.topic_arn), null)
+      for s in try(concat(f.sns_topic_subscription, []), []) : replace(try(tostring(s.topic_arn), "?"), "/^.*:/", "") => {
+        topic               = startswith(try(tostring(s.topic_arn), "arn:"), "arn:") ? null : "${var.environment}-${s.topic_arn}"
+        arn                 = startswith(try(tostring(s.topic_arn), "arn:"), "arn:") ? try(tostring(s.topic_arn), null) : null
         filter_policy       = can(s.filter_policy) ? jsonencode(s.filter_policy) : null
-        filter_policy_scope = try(s.filter_policy_scope, null)
+        filter_policy_scope = try(tostring(s.filter_policy_scope), null)
       }
     }
   }
   topic_names = toset(flatten([for name, subs in local.subscriptions : [for s in values(subs) : s.topic if s.topic != null]]))
+  queue_names = { for name, f in local.files : name => "${var.environment}-${f.event_source_mapping.event_source_arn}" if can(tostring(f.event_source_mapping.event_source_arn)) && !startswith(try(tostring(f.event_source_mapping.event_source_arn), "arn:"), "arn:") }
 
-  # queue:<name> is this environment's queue from the messaging stack, <environment>-<name> (with .fifo for a FIFO queue).
-  queue_names = { for name, f in local.files : name => "${var.environment}-${trimprefix(f.event_source_mapping.event_source_arn, "queue:")}" if startswith(try(f.event_source_mapping.event_source_arn, ""), "queue:") }
+  problems = concat(
+    [for name, paths in local.found : "${name}.yml is in more than one folder (${join(", ", sort(paths))}); a function's name is its file's, so it must be unique" if length(paths) > 1],
+    [for name, f in local.files : "${name}.yml: keys are ${join(", ", local.file_keys)}" if !alltrue([for k in try(keys(f), ["?"]) : contains(local.file_keys, k)])],
+    [for name, f in local.files : "${name}.yml: needs runtime and handler, as aws_lambda_function does" if !can(tostring(f.runtime)) || !can(tostring(f.handler))],
+    [for name, f in local.files : "${name}.yml: needs cloudwatch_log_group.retention_in_days, how long the function's logs are kept (365 unless there is a reason for another period)" if !can(tonumber(f.cloudwatch_log_group.retention_in_days)) || length(try(keys(f.cloudwatch_log_group), [])) != 1],
+    [for name, f in local.files : "${name}.yml: cloudwatch_event_rule takes schedule_expression" if can(f.cloudwatch_event_rule) && !(can(tostring(f.cloudwatch_event_rule.schedule_expression)) && length(try(keys(f.cloudwatch_event_rule), [])) == 1)],
+    [for name, f in local.files : "${name}.yml: environment holds variables, as in aws_lambda_function: environment.variables.NAME: value" if can(f.environment) && !alltrue([for k in try(keys(f.environment), ["?"]) : k == "variables"])],
+    [for name in keys(local.files) : "${name}.yml: its code belongs in src/${name}/, which is empty or missing" if length(fileset("${local.config_dir}/src/${name}", "**")) == 0],
+    [for name, f in local.files : "${name}.yml: statement is a list; each takes ${join(", ", local.statement_keys)}, as aws_iam_policy_document does, and needs actions and resources" if can(f.statement) && !(can(concat(f.statement, [])) && alltrue([for s in try(concat(f.statement, []), []) : length(try(concat(s.actions, []), [])) > 0 && length(try(concat(s.resources, []), [])) > 0 && alltrue([for k in try(keys(s), ["?"]) : contains(local.statement_keys, k)])]))],
+    [for name, f in local.files : "${name}.yml: a statement's condition takes test, variable and values" if !alltrue(flatten([for s in try(concat(f.statement, []), []) : [for c in try(concat(s.condition, []), []) : can(tostring(c.test)) && can(tostring(c.variable)) && can(concat(c.values, [])) && try(length(keys(c)), 0) == 3]]))],
+    [for name, f in local.files : "${name}.yml: sns_topic_subscription is a list; each takes ${join(", ", local.subscription_keys)}, with topic_arn a topic's name in this environment or its ARN" if can(f.sns_topic_subscription) && !(can(concat(f.sns_topic_subscription, [])) && alltrue([for s in try(concat(f.sns_topic_subscription, []), []) : can(tostring(s.topic_arn)) && alltrue([for k in try(keys(s), ["?"]) : contains(local.subscription_keys, k)])]))],
+    [for name, f in local.files : "${name}.yml: event_source_mapping takes ${join(", ", local.mapping_keys)}, with event_source_arn a queue's name in this environment or its ARN" if can(f.event_source_mapping) && !(can(tostring(f.event_source_mapping.event_source_arn)) && alltrue([for k in try(keys(f.event_source_mapping), ["?"]) : contains(local.mapping_keys, k)]))],
+  )
 }

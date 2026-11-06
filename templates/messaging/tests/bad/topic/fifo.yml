@@ -1,0 +1,4 @@
+fifo_topic: true
+sns_topic_subscription:
+  - protocol: sqs
+    endpoint: plain

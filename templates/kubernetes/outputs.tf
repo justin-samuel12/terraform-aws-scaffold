@@ -1,5 +1,5 @@
 output "cluster" {
-  description = "The cluster's name, ARN, API address, version, the security group EKS made for it, and the command that points kubectl at it; null with no cluster.yml."
+  description = "The cluster's name, ARN, API address, version, the security group EKS made for it, and the command that points kubectl at it; null with no cluster file."
   value = local.build ? {
     name                      = module.eks_cluster[0].name
     arn                       = module.eks_cluster[0].arn

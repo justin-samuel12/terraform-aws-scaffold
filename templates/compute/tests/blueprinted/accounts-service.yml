@@ -1,4 +1,9 @@
-# A backend service on a blueprint: everything not here comes from blueprints/backend-service/v1.yml.
 blueprint: backend-service/v1
-priority: 1200
+listener_rule:
+  listener_arn: internal/443
+  priority: 1200
+  condition:
+    path_pattern:
+      values:
+        - /accounts-service/*
 count: 2

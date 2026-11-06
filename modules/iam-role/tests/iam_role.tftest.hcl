@@ -1,4 +1,3 @@
-# What the module builds and refuses, against a mocked AWS -- docs/global.md.
 mock_provider "aws" {}
 
 override_data {
@@ -82,4 +81,45 @@ run "rejects_everything_on_everything" {
   }
 
   expect_failures = [var.roles]
+}
+
+run "trust_policy_and_profiles_as_given" {
+  command = plan
+
+  variables {
+    roles = {
+      runner = {
+        description        = "Build runners"
+        assume_role_policy = "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":\"sts:AssumeRole\",\"Principal\":{\"Service\":\"ec2.amazonaws.com\"}}]}"
+      }
+    }
+    instance_profiles = { runner-profile = "runner" }
+  }
+
+  assert {
+    condition     = jsondecode(aws_iam_role.roles["runner"].assume_role_policy).Statement[0].Principal.Service == "ec2.amazonaws.com" && toset(keys(aws_iam_instance_profile.profiles)) == toset(["runner-profile"]) && aws_iam_instance_profile.profiles["runner-profile"].role == "runner"
+    error_message = "A trust policy given whole is used as it is, and only the instance profiles named are made."
+  }
+}
+
+run "rejects_services_and_a_trust_policy_together" {
+  command = plan
+
+  variables {
+    roles = {
+      runner = { description = "Build runners", services = ["ec2"], assume_role_policy = "{}" }
+    }
+  }
+
+  expect_failures = [var.roles]
+}
+
+run "rejects_a_profile_for_a_missing_role" {
+  command = plan
+
+  variables {
+    instance_profiles = { nobody = "missing" }
+  }
+
+  expect_failures = [var.instance_profiles]
 }

@@ -1,0 +1,29 @@
+count: 2
+instance_type: r6i.xlarge
+ami: ami-0123456789abcdef0
+iam_instance_profile: runner
+vpc_security_group_ids:
+  - sqlserver
+  - monitoring-agent
+ebs_block_device:
+  - device_name: /dev/sdf
+    volume_size: 500
+    iops: 6000
+    throughput: 250
+    tags:
+      Name: data
+members:
+  sqlserver-01:
+    subnet_id: data-az1
+    private_ip: "70"
+    secondary_private_ips:
+      - "71"
+      - "72"
+  sqlserver-02:
+    subnet_id: data-az2
+    private_ip: "70"
+    secondary_private_ips:
+      - "71"
+      - "72"
+tags:
+  Backup: standard

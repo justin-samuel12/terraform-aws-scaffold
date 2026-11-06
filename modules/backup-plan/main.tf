@@ -1,92 +1,71 @@
-data "aws_partition" "current" {}
+resource "aws_backup_vault" "vaults" {
+  for_each = var.backup_vaults
 
-resource "aws_backup_vault" "vault" {
-  name        = var.environment
-  kms_key_arn = var.kms_key_arn
+  region      = each.value.region
+  name        = each.key
+  kms_key_arn = each.value.kms_key_arn
 
-  tags = { Name = var.environment }
+  tags = merge(each.value.tags, { Name = "${local.name_prefix}${trimprefix(each.key, "${local.environment_tag}-")}" })
 }
 
-# No backup is deleted before it is a week old; nothing is kept past ten years. Governance mode lets a principal allowed to bypass
-# the lock remove it; compliance mode lets nobody, and becomes permanent after changeable_for_days -- docs/data.md.
-resource "aws_backup_vault_lock_configuration" "vault" {
-  backup_vault_name   = aws_backup_vault.vault.name
-  min_retention_days  = 7
-  max_retention_days  = 3650
-  changeable_for_days = var.vault_lock == "compliance" ? 3 : null
+resource "aws_backup_vault_lock_configuration" "vaults" {
+  for_each = var.backup_vaults
+
+  region              = each.value.region
+  backup_vault_name   = aws_backup_vault.vaults[each.key].name
+  min_retention_days  = each.value.lock_configuration.min_retention_days
+  max_retention_days  = each.value.lock_configuration.max_retention_days
+  changeable_for_days = each.value.lock_configuration.changeable_for_days
 }
 
-resource "aws_backup_vault" "copy" {
-  count = var.copy == null ? 0 : 1
+resource "aws_backup_plan" "plans" {
+  for_each = var.backup_plans
 
-  region      = var.copy.region
-  name        = var.environment
-  kms_key_arn = var.copy.kms_key_arn
+  name = each.key
 
-  tags = { Name = var.environment }
-}
+  dynamic "rule" {
+    for_each = each.value.rule
+    content {
+      rule_name                    = rule.value.rule_name
+      target_vault_name            = aws_backup_vault.vaults[rule.value.target_vault_name].name
+      schedule                     = rule.value.schedule
+      schedule_expression_timezone = rule.value.schedule_expression_timezone
+      start_window                 = rule.value.start_window
+      completion_window            = rule.value.completion_window
+      enable_continuous_backup     = rule.value.enable_continuous_backup
+      recovery_point_tags          = rule.value.recovery_point_tags
 
-resource "aws_backup_vault_lock_configuration" "copy" {
-  count = var.copy == null ? 0 : 1
+      dynamic "lifecycle" {
+        for_each = rule.value.lifecycle == null ? [] : [rule.value.lifecycle]
+        content {
+          delete_after       = lifecycle.value.delete_after
+          cold_storage_after = lifecycle.value.cold_storage_after
+        }
+      }
 
-  region              = var.copy.region
-  backup_vault_name   = aws_backup_vault.copy[0].name
-  min_retention_days  = 7
-  max_retention_days  = 3650
-  changeable_for_days = var.vault_lock == "compliance" ? 3 : null
-}
+      dynamic "copy_action" {
+        for_each = rule.value.copy_action
+        content {
+          destination_vault_arn = try(aws_backup_vault.vaults[copy_action.value.destination_vault_arn].arn, copy_action.value.destination_vault_arn)
 
-resource "aws_backup_plan" "plan" {
-  name = var.environment
-
-  rule {
-    rule_name         = "daily"
-    target_vault_name = aws_backup_vault.vault.name
-    schedule          = "cron(0 7 * * ? *)"
-    start_window      = 60
-    completion_window = 360
-
-    lifecycle {
-      delete_after = var.daily_retention_days
-    }
-
-    dynamic "copy_action" {
-      for_each = var.copy == null ? [] : [1]
-      content {
-        destination_vault_arn = aws_backup_vault.copy[0].arn
-        lifecycle {
-          delete_after = var.daily_retention_days
+          dynamic "lifecycle" {
+            for_each = copy_action.value.lifecycle == null ? [] : [copy_action.value.lifecycle]
+            content {
+              delete_after       = lifecycle.value.delete_after
+              cold_storage_after = lifecycle.value.cold_storage_after
+            }
+          }
         }
       }
     }
   }
 
-  rule {
-    rule_name         = "monthly"
-    target_vault_name = aws_backup_vault.vault.name
-    schedule          = "cron(0 8 1 * ? *)"
-    start_window      = 60
-    completion_window = 720
-
-    lifecycle {
-      delete_after = var.monthly_retention_days
-    }
-
-    dynamic "copy_action" {
-      for_each = var.copy == null ? [] : [1]
-      content {
-        destination_vault_arn = aws_backup_vault.copy[0].arn
-        lifecycle {
-          delete_after = var.monthly_retention_days
-        }
-      }
-    }
-  }
-
-  tags = { Name = var.environment }
+  tags = merge(each.value.tags, { Name = "${local.name_prefix}${trimprefix(each.key, "${local.environment_tag}-")}" })
 }
 
 resource "aws_iam_role" "backup" {
+  count = length(var.backup_plans) > 0 ? 1 : 0
+
   name = "backup-${var.environment}"
 
   assume_role_policy = jsonencode({
@@ -94,26 +73,27 @@ resource "aws_iam_role" "backup" {
     Statement = [{ Effect = "Allow", Action = "sts:AssumeRole", Principal = { Service = "backup.amazonaws.com" } }]
   })
 
-  tags = { Name = "backup-${var.environment}" }
+  tags = { Name = "${local.name_prefix}backup" }
 }
 
 resource "aws_iam_role_policy_attachment" "backup" {
-  for_each = toset([
+  for_each = length(var.backup_plans) > 0 ? toset([
     "service-role/AWSBackupServiceRolePolicyForBackup",
     "service-role/AWSBackupServiceRolePolicyForRestores",
     "AWSBackupServiceRolePolicyForS3Backup",
     "AWSBackupServiceRolePolicyForS3Restore",
-  ])
+  ]) : toset([])
 
-  role       = aws_iam_role.backup.name
+  role       = aws_iam_role.backup[0].name
   policy_arn = "arn:${data.aws_partition.current.partition}:iam::aws:policy/${each.key}"
 }
 
-# A resource joins the plan by tagging itself Backup = standard, from its own stack.
 resource "aws_backup_selection" "tagged" {
-  name         = "${var.environment}-tagged"
-  plan_id      = aws_backup_plan.plan.id
-  iam_role_arn = aws_iam_role.backup.arn
+  for_each = var.backup_plans
+
+  name         = "${each.key}-tagged"
+  plan_id      = aws_backup_plan.plans[each.key].id
+  iam_role_arn = aws_iam_role.backup[0].arn
 
   selection_tag {
     type  = "STRINGEQUALS"

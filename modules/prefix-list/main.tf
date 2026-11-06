@@ -13,5 +13,5 @@ resource "aws_ec2_managed_prefix_list" "lists" {
     }
   }
 
-  tags = { Name = each.key }
+  tags = { Name = "${local.name_prefix}${each.key}" }
 }

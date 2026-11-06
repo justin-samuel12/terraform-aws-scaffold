@@ -1,0 +1,8 @@
+description: No placeholders at all, as a database blueprint
+allows:
+  - instance_class
+requires:
+  - vpc_security_group_ids
+service:
+  engine: sqlserver-se
+  instance_class: db.m6i.large

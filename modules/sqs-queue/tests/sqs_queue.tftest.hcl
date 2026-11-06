@@ -1,4 +1,3 @@
-# What the module builds and refuses, against a mocked AWS -- docs/messaging.md.
 mock_provider "aws" {
   mock_resource "aws_sqs_queue" {
     override_during = plan
@@ -6,68 +5,89 @@ mock_provider "aws" {
   }
 }
 
-override_data {
-  target = data.aws_partition.current
-  values = { partition = "aws" }
-}
-
 variables {
-  name        = "production-orders"
   kms_key_arn = "arn:aws:kms:us-east-2:111111111111:key/mrk-messages"
+  queues = {
+    production-orders = {
+      visibility_timeout_seconds = 180
+      redrive_policy             = { dead_letter_target_arn = "arn:aws:sqs:us-east-2:111111111111:production-orders-dlq", max_receive_count = 3 }
+      policy_statements = [{
+        actions    = ["sqs:SendMessage"]
+        resources  = ["arn:aws:sqs:us-east-2:111111111111:production-orders"]
+        principals = [{ type = "Service", identifiers = ["sns.amazonaws.com"] }]
+        condition  = [{ test = "ArnEquals", variable = "aws:SourceArn", values = ["arn:aws:sns:us-east-2:111111111111:production-orders"] }]
+      }]
+    }
+    production-orders-dlq = {
+      message_retention_seconds = 1209600
+      redrive_allow_policy      = { redrive_permission = "byQueue", source_queue_arns = ["arn:aws:sqs:us-east-2:111111111111:production-orders"] }
+    }
+  }
 }
 
-run "standard_queue" {
+run "queue_and_dead_letter_queue" {
   command = plan
 
   assert {
-    condition     = aws_sqs_queue.queue.name == "production-orders" && aws_sqs_queue.dead_letter.name == "production-orders-dlq" && aws_sqs_queue.dead_letter.message_retention_seconds == 1209600
-    error_message = "A queue and its dead-letter queue, which keeps failures the full 14 days."
+    condition     = toset(keys(aws_sqs_queue.queues)) == toset(["production-orders", "production-orders-dlq"]) && aws_sqs_queue.queues["production-orders"].visibility_timeout_seconds == 180
+    error_message = "One queue per entry, with the arguments it was given."
   }
 
   assert {
-    condition     = aws_sqs_queue.queue.kms_master_key_id == var.kms_key_arn && aws_sqs_queue.dead_letter.kms_master_key_id == var.kms_key_arn && aws_sqs_queue.queue.receive_wait_time_seconds == 20
-    error_message = "Both encrypted with the messages key; long polling by default."
+    condition     = alltrue([for q in aws_sqs_queue.queues : q.kms_master_key_id == var.kms_key_arn])
+    error_message = "Every queue is encrypted with the messages key."
   }
 
   assert {
-    condition     = length(local.queue_statements) == 1 && local.queue_statements[0].Sid == "DenyInsecureTransport"
-    error_message = "Without topics or other accounts, the policy only refuses anything not over TLS."
+    condition     = jsondecode(aws_sqs_queue_redrive_policy.queues["production-orders"].redrive_policy) == { deadLetterTargetArn = "arn:aws:sqs:us-east-2:111111111111:production-orders-dlq", maxReceiveCount = 3 } && toset(keys(aws_sqs_queue_redrive_policy.queues)) == toset(["production-orders"])
+    error_message = "Only a queue with a redrive_policy sends its failures on."
+  }
+
+  assert {
+    condition     = jsondecode(aws_sqs_queue_redrive_allow_policy.queues["production-orders-dlq"].redrive_allow_policy) == { redrivePermission = "byQueue", sourceQueueArns = ["arn:aws:sqs:us-east-2:111111111111:production-orders"] }
+    error_message = "The dead-letter queue accepts only the queues it names."
+  }
+
+  assert {
+    condition     = local.policies["production-orders-dlq"][0].Sid == "DenyInsecureTransport" && length(local.policies["production-orders-dlq"]) == 1
+    error_message = "Every queue's policy refuses anything not over TLS, and holds nothing else unless written."
+  }
+
+  assert {
+    condition     = jsonencode(local.policies["production-orders"][1]) == jsonencode({ Action = ["sqs:SendMessage"], Condition = { ArnEquals = { "aws:SourceArn" = ["arn:aws:sns:us-east-2:111111111111:production-orders"] } }, Effect = "Allow", Principal = { Service = ["sns.amazonaws.com"] }, Resource = ["arn:aws:sqs:us-east-2:111111111111:production-orders"] })
+    error_message = "A written statement becomes the policy's JSON, as aws_iam_policy_document writes it."
   }
 }
 
-run "fifo_with_topics_and_accounts" {
+run "fifo" {
   command = plan
 
   variables {
-    fifo                        = true
-    content_based_deduplication = true
-    topic_arns                  = ["arn:aws:sns:us-east-2:111111111111:production-orders.fifo"]
-    sender_accounts             = ["222222222222"]
-    consumer_accounts           = ["333333333333"]
+    queues = { "production-payments.fifo" = { fifo_queue = true, content_based_deduplication = true } }
   }
 
   assert {
-    condition     = aws_sqs_queue.queue.name == "production-orders.fifo" && aws_sqs_queue.dead_letter.name == "production-orders-dlq.fifo" && aws_sqs_queue.dead_letter.fifo_queue
-    error_message = "A FIFO queue's name ends in .fifo, and its dead-letter queue is FIFO too."
-  }
-
-  assert {
-    condition     = local.queue_statements[1].Condition.ArnEquals["aws:SourceArn"] == tolist(["arn:aws:sns:us-east-2:111111111111:production-orders.fifo"]) && local.queue_statements[1].Principal.Service == "sns.amazonaws.com"
-    error_message = "SNS may deliver, but only from the named topics."
-  }
-
-  assert {
-    condition     = local.queue_statements[2].Principal.AWS == ["arn:aws:iam::222222222222:root"] && contains(local.queue_statements[3].Action, "sqs:DeleteMessage") && !contains(local.queue_statements[2].Action, "sqs:ReceiveMessage")
-    error_message = "Senders only send; consumers receive and delete."
+    condition     = aws_sqs_queue.queues["production-payments.fifo"].fifo_queue && aws_sqs_queue.queues["production-payments.fifo"].content_based_deduplication
+    error_message = "A FIFO queue is named with .fifo."
   }
 }
 
-run "rejects_bad_account" {
+run "rejects_fifo_without_its_suffix" {
   command = plan
 
   variables {
-    sender_accounts = ["prod"]
+    queues = { production-payments = { fifo_queue = true } }
   }
 
-  expect_failures = [var.sender_accounts]
+  expect_failures = [var.queues]
+}
+
+run "rejects_long_polling_past_twenty_seconds" {
+  command = plan
+
+  variables {
+    queues = { production-orders = { receive_wait_time_seconds = 30 } }
+  }
+
+  expect_failures = [var.queues]
 }

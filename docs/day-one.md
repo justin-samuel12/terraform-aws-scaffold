@@ -21,10 +21,10 @@ Made by whoever owns the AWS Organization, before anything here runs:
 ## 2. Fill in `config/`
 
 - [ ] `config/global.yml`: `state.bucket` and `state.region`.
-- [ ] `config/global.yml`: `hq` (your office or data centre's VPN address,
-      BGP ASN and ranges), or leave `ip_address` empty and no VPN is built.
-- [ ] `config/global.yml`: `dns.forward` (domains to send to your own DNS
-      servers), `dns.private_zones`, `prefix_lists`.
+- [ ] `config/global.yml`: `sites`, one block per network reached over a VPN
+      (its VPN address, BGP ASN, ranges, and the domains its DNS servers
+      answer under `forward`); a site with no `ip_address` has no VPN yet.
+- [ ] `config/global.yml`: `dns.private_zones`, `prefix_lists`.
 - [ ] `config/<region>.yml`, for each region: `zones`, the hub's
       `account_id`, `team`, `cidr` and ASN, and each environment's
       `account_id`, `team`, `cidr`, `segment` and `public`. With one account
@@ -108,7 +108,7 @@ The files are the environment's own: nothing is built until they exist.
 |---|---|---|
 | CI pipeline | depends on your CI system | the stages in [configuration](configuration.md#checking-without-credentials): `make check CHANGED=1` with `.terraform.d/` cached on every pull request, a plan of every changed stack, the full `make check` on main; applies stay manual |
 | CI role | depends on your CI system | an IAM role trusting your CI's OIDC provider, for plans, and for uploading CodeDeploy revisions and starting deployments |
-| CodeDeploy revisions | one bucket per environment, your naming | a `buckets/revisions.yml` file, and a shared `read-revisions` policy for deployed groups' roles ([compute](compute.md#deploying-with-codedeploy)) |
+| CodeDeploy revisions | one bucket per environment, your naming | a `buckets/config/revisions.yml` file, and a shared `read-revisions` policy for deployed groups' roles ([compute](compute.md#deploying-with-codedeploy)) |
 | Machine images | images are pinned by ID; building them is a pipeline of its own | EC2 Image Builder, or Packer, producing images with the SSM and CodeDeploy agents |
 | Monitoring and alerting | depends on where alerts go | an alerts topic per environment in `messaging` (with `cloudwatch` as a publisher), and alarms for instance status, load balancer 5xx and unhealthy hosts, database CPU and storage, VPN tunnels, and failed backups |
 | Budgets | per organization | AWS Budgets with alerts per account |

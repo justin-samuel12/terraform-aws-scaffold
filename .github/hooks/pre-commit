@@ -1,5 +1,4 @@
 #!/bin/bash
-# Secret scan, formatting and lint -- SECURITY.md, docs/conventions.md.
 set -e
 
 if ! command -v gitleaks >/dev/null 2>&1; then
@@ -17,6 +16,5 @@ if git diff --cached --name-only --diff-filter=ACM | grep -q '\.tf$'; then
     fi
 fi
 
-# Checks, never regenerates: a hook that stages files can stage what you did not mean to commit.
 bin/diagram --check
 bin/backends --check

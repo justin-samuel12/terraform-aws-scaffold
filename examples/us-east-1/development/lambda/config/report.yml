@@ -1,0 +1,18 @@
+runtime: python3.12
+handler: app.handler
+memory_size: 256
+timeout: 30
+cloudwatch_event_rule:
+  schedule_expression: rate(1 day)
+cloudwatch_log_group:
+  retention_in_days: 365
+environment:
+  variables:
+    LEVEL: info
+    BUCKET: development-exports-111111111111-us-east-1
+statement:
+  - effect: Allow
+    actions:
+      - s3:ListBucket
+    resources:
+      - arn:aws:s3:::development-exports-*

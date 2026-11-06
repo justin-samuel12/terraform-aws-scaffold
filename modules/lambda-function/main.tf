@@ -1,14 +1,3 @@
-# Roles are global, so the name carries the region: one function name in two regions is two roles.
-data "aws_region" "current" {}
-
-# The zip's file modes are fixed, so a different umask on another machine is not a code change.
-data "archive_file" "code" {
-  type             = "zip"
-  source_dir       = var.source_dir
-  output_path      = "${path.root}/.terraform/lambda/${var.name}.zip"
-  output_file_mode = "0644"
-}
-
 resource "aws_iam_role" "function" {
   name = "lambda-${var.name}-${data.aws_region.current.region}"
 
@@ -21,10 +10,9 @@ resource "aws_iam_role" "function" {
     }]
   })
 
-  tags = { Name = "lambda-${var.name}" }
+  tags = { Name = "${local.name_prefix}${local.short_name}" }
 }
 
-# Only its own log group, plus whatever the function's file asks for.
 resource "aws_iam_role_policy" "function" {
   name   = "lambda-${var.name}"
   role   = aws_iam_role.function.id
@@ -33,9 +21,9 @@ resource "aws_iam_role_policy" "function" {
 
 resource "aws_cloudwatch_log_group" "function" {
   name              = "/aws/lambda/${var.name}"
-  retention_in_days = var.log_retention_days
+  retention_in_days = var.retention_in_days
 
-  tags = { Name = var.name }
+  tags = { Name = "${local.name_prefix}${local.short_name}" }
 }
 
 resource "aws_lambda_function" "function" {
@@ -44,7 +32,7 @@ resource "aws_lambda_function" "function" {
   runtime          = var.runtime
   handler          = var.handler
   architectures    = ["arm64"]
-  memory_size      = var.memory
+  memory_size      = var.memory_size
   timeout          = var.timeout
   filename         = data.archive_file.code.output_path
   source_code_hash = data.archive_file.code.output_base64sha256
@@ -61,32 +49,31 @@ resource "aws_lambda_function" "function" {
     log_group  = aws_cloudwatch_log_group.function.name
   }
 
-  tags = { Name = var.name }
+  tags = { Name = "${local.name_prefix}${local.short_name}" }
 
   depends_on = [aws_iam_role_policy.function]
 }
 
 resource "aws_cloudwatch_event_rule" "schedule" {
-  count = var.schedule == null ? 0 : 1
+  count = var.schedule_expression == null ? 0 : 1
 
   name                = "lambda-${var.name}"
-  schedule_expression = var.schedule
+  schedule_expression = var.schedule_expression
 
-  tags = { Name = "lambda-${var.name}" }
+  tags = { Name = "${local.name_prefix}${local.short_name}" }
 }
 
 resource "aws_cloudwatch_event_target" "schedule" {
-  count = var.schedule == null ? 0 : 1
+  count = var.schedule_expression == null ? 0 : 1
 
   rule = aws_cloudwatch_event_rule.schedule[0].name
   arn  = aws_lambda_function.function.arn
 
-  # The schedule may start firing at once; the function must already allow it.
   depends_on = [aws_lambda_permission.schedule]
 }
 
 resource "aws_lambda_permission" "schedule" {
-  count = var.schedule == null ? 0 : 1
+  count = var.schedule_expression == null ? 0 : 1
 
   statement_id  = "schedule"
   action        = "lambda:InvokeFunction"
@@ -95,23 +82,20 @@ resource "aws_lambda_permission" "schedule" {
   source_arn    = aws_cloudwatch_event_rule.schedule[0].arn
 }
 
-# Messages that fail are reported one by one, so a batch is not retried whole for one bad message.
 resource "aws_lambda_event_source_mapping" "queue" {
-  count = var.queue == null ? 0 : 1
+  count = var.event_source_mapping == null ? 0 : 1
 
-  event_source_arn                   = var.queue.arn
+  event_source_arn                   = var.event_source_mapping.event_source_arn
   function_name                      = aws_lambda_function.function.arn
-  batch_size                         = var.queue.batch_size
-  maximum_batching_window_in_seconds = var.queue.maximum_batching_window_in_seconds
-  function_response_types            = ["ReportBatchItemFailures"]
+  batch_size                         = var.event_source_mapping.batch_size
+  maximum_batching_window_in_seconds = var.event_source_mapping.maximum_batching_window_in_seconds
+  function_response_types            = var.event_source_mapping.function_response_types
 
-  tags = { Name = "lambda-${var.name}" }
+  tags = { Name = "${local.name_prefix}${local.short_name}" }
 
   depends_on = [aws_iam_role_policy.function]
 }
 
-# The function subscribes itself to its topics, so the stack that owns the topics never waits for this one. Each topic, and only
-# that topic, may invoke it; the permission is in place before the subscription is made.
 resource "aws_lambda_permission" "topics" {
   for_each = var.topics
 

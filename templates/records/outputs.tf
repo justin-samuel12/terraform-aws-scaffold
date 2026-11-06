@@ -1,6 +1,6 @@
 output "names" {
   description = "Record file -> the full name."
-  value       = module.route53_record.names
+  value       = merge(module.route53_record.names, module.own_records.names)
 
   precondition {
     condition     = length(local.problems) == 0

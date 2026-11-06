@@ -1,0 +1,10 @@
+description: A group of no known kind
+tags:
+  Kind: web-server
+  Name: web
+ingress:
+  - description: HTTPS
+    ip_protocol: tcp
+    from_port: 443
+    to_port: 443
+    cidr_ipv4: 10.0.0.0/8

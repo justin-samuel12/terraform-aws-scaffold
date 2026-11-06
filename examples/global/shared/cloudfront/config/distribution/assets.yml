@@ -1,0 +1,24 @@
+aliases:
+  - assets.example.com
+origin:
+  - origin_id: example-assets
+    domain_name: example-assets
+default_cache_behavior:
+  target_origin_id: example-assets
+  viewer_protocol_policy: redirect-to-https
+  allowed_methods:
+    - GET
+    - HEAD
+    - OPTIONS
+  cached_methods:
+    - GET
+    - HEAD
+  compress: true
+  cache_policy_id: Managed-CachingOptimized
+  response_headers_policy_id: Managed-SecurityHeadersPolicy
+price_class: PriceClass_100
+viewer_certificate:
+  acm_certificate_arn: assets.example.com
+  ssl_support_method: sni-only
+  minimum_protocol_version: TLSv1.2_2021
+web_acl_id: assets

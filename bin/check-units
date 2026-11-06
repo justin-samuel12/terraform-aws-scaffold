@@ -1,10 +1,4 @@
 #!/usr/bin/env bash
-# Runs units of checking side by side, and skips any that already passed exactly as they are -- docs/configuration.md#checking-without-credentials.
-#   bin/check-units [--changed] [--jobs N] [test] [files] [example]
-#     --changed   skip every unit whose fingerprint (everything it reads) is the one it last passed with
-#     --jobs N    units at a time (default 4)
-#     kinds       test (terraform test), files (live stacks' files), example (examples/); all three by default
-# No credentials, no state. A failing unit's output is shown at the end; nothing is recorded for it.
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
@@ -14,7 +8,6 @@ export TF_PLUGIN_CACHE_DIR="${TF_PLUGIN_CACHE_DIR:-${REPO_ROOT}/.terraform.d/plu
 mkdir -p "${TF_PLUGIN_CACHE_DIR}"
 export TF_IN_AUTOMATION=1
 
-# One unit, run by a worker: skipped if unchanged since it passed, else checked, and recorded only on a pass.
 if [[ "${1:-}" == --one ]]; then
     unit="$2"; changed="$3"; log="$4"
     kind="${unit%%:*}"; path="${unit#*:}"
@@ -24,7 +17,6 @@ if [[ "${1:-}" == --one ]]; then
     case "${kind}" in
         test)
             ok=0
-            # Modules and templates commit no lock file; the shared one means init only links from the cache.
             [[ "${path}" == modules/* || "${path}" == templates/* ]] && cp tests/lock/.terraform.lock.hcl "${path}/.terraform.lock.hcl"
             for attempt in 1 2 3; do
                 if (cd "${path}" && terraform init -backend=false -input=false -no-color >"${log}" 2>&1); then ok=1; break; fi
@@ -55,13 +47,10 @@ done
 KINDS="${KINDS:- test files example}"
 [[ "${JOBS}" =~ ^[1-9][0-9]*$ ]] || { echo "bin/check-units: --jobs takes a number" >&2; exit 2; }
 
-units="$(all_units | while read -r u; do [[ " ${KINDS} " == *" ${u%%:*} "* ]] && echo "${u}"; done)"
+units="$(all_units | while read -r u; do if [[ " ${KINDS} " == *" ${u%%:*} "* ]]; then echo "${u}"; fi; done)"
 [[ -n "${units}" ]] || { echo "Nothing to check."; exit 0; }
 TF_VERSION="$(terraform version -json | jq -r .terraform_version)"; export TF_VERSION
 
-# Providers are fetched once, by one init, before units run side by side. Every folder checked then has a lock file (its own, or
-# tests/lock's), so its init only links from the cache: an init without one downloads the provider again and rewrites the cache,
-# which breaks any check starting that provider at the same moment.
 (cd tests/lock && terraform init -backend=false -input=false >/dev/null) || { echo "bin/check-units: could not fetch the providers in tests/lock" >&2; exit 1; }
 
 LOGS="$(mktemp -d)"; trap 'rm -rf "${LOGS:?}"' EXIT

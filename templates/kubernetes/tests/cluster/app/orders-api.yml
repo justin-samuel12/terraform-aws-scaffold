@@ -1,0 +1,9 @@
+namespace: orders-api
+service_account: orders-api
+statement:
+  - actions:
+      - sqs:SendMessage
+    resources:
+      - arn:aws:sqs:us-east-2:111111111111:operations-orders
+managed_policy_arns:
+  - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess

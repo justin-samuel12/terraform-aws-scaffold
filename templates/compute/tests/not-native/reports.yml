@@ -1,0 +1,12 @@
+instance_type: m6i.large
+ami: ami-0123456789abcdef0
+tier: ops
+iam_instance_profile: reports
+autoscaling_group:
+  min_size: 2
+  max_size: 6
+  desired_capacity: 2
+autoscaling_policy:
+  target_tracking_configuration:
+    predefined_metric_type: ASGAverageCPUUtilization
+    target_value: 50

@@ -7,9 +7,6 @@ module "ip_plan" {
 module "ecr_repository" {
   source = "../../modules/ecr-repository"
 
-  repositories  = local.repositories
-  keep_images   = local.settings.keep_images
-  untagged_days = local.settings.untagged_days
-  replicate_to  = local.replicate_to
-  pull_accounts = local.pull_accounts
+  repositories              = local.ready ? local.built : {}
+  replication_configuration = local.ready ? local.replication : null
 }

@@ -1,4 +1,3 @@
-# Wiring checks against a mocked AWS -- docs/network.md.
 mock_provider "aws" {}
 
 variables {
@@ -39,7 +38,7 @@ run "ohio_hub" {
 
   assert {
     condition     = length(module.vpn) == 0
-    error_message = "No VPN until HQ's public IP is set in the IP plan."
+    error_message = "No VPN until a site's ip_address is set in config/global.yml."
   }
 }
 
@@ -64,7 +63,6 @@ run "oregon_hub" {
 run "shares_with_other_accounts" {
   command = plan
 
-  # Production takes the global account (444...); the hub and operations have their own (111...).
   variables {
     region      = "us-east-2"
     config_path = "../../tests/stacks"
@@ -78,5 +76,96 @@ run "shares_with_other_accounts" {
   assert {
     condition     = toset(keys(aws_ram_principal_association.network)) == toset(["444444444444"]) && contains(keys(aws_ram_resource_association.network), "transit-gateway")
     error_message = "The network is shared with every other account that has an environment in the region, and only those."
+  }
+}
+
+run "private_names_for_the_command_center" {
+  command = plan
+
+  override_data {
+    target = module.vpc.data.aws_availability_zones.available
+    values = { zone_ids = ["use2-az1", "use2-az2", "use2-az3"] }
+  }
+
+  variables {
+    region      = "us-east-2"
+    config_path = "../../tests/config-resolve-all"
+  }
+
+  assert {
+    condition     = contains(keys(module.route53_resolver[0].rule_arns), "corp.internal") && contains(keys(local.share_resources), "resolver-rule/corp.internal")
+    error_message = "With environments that resolve every private name, the hub forwards the private domain to its own inbound endpoint, and shares that rule."
+  }
+}
+
+run "a_vpn_per_site" {
+  command = plan
+
+  override_data {
+    target = module.vpc.data.aws_availability_zones.available
+    values = { zone_ids = ["use2-az1", "use2-az2", "use2-az3"] }
+  }
+
+  variables {
+    region      = "us-east-2"
+    config_path = "../../templates/hub/tests/sites"
+  }
+
+  assert {
+    condition     = toset(keys(module.vpn)) == toset(["office/203.0.113.10", "office/203.0.113.11", "branch/198.51.100.30"])
+    error_message = "One VPN per link of each enabled site: one per address, none for a site switched off, none for one whose ip_address is not known yet."
+  }
+
+  assert {
+    condition     = contains(local.private_ranges, "192.168.0.0/16")
+    error_message = "An enabled site's ranges outside 10.0.0.0/8 are routed through the hub."
+  }
+}
+
+run "directory_in_the_primary_hub" {
+  command = plan
+
+  override_data {
+    target = module.vpc.data.aws_availability_zones.available
+    values = { zone_ids = ["use2-az1", "use2-az2", "use2-az3"] }
+  }
+
+  override_data {
+    target = module.managed_directory[0].data.aws_secretsmanager_secret_version.admin
+    values = { secret_string = "not-a-real-password-1A!" }
+  }
+
+  variables {
+    region      = "us-east-2"
+    config_path = "../../templates/hub/tests/directory"
+  }
+
+  assert {
+    condition     = length(module.managed_directory) == 1
+    error_message = "With directory in config/global.yml, the primary hub builds it."
+  }
+
+  assert {
+    condition     = contains(keys(module.route53_resolver[0].rule_ids), "ad.corp.internal")
+    error_message = "The primary region forwards the directory's domain to its domain controllers."
+  }
+}
+
+run "no_directory_in_another_hub" {
+  command = plan
+
+  override_data {
+    target = module.vpc.data.aws_availability_zones.available
+    values = { zone_ids = ["usw2-az1", "usw2-az2", "usw2-az3"] }
+  }
+
+  variables {
+    region      = "us-west-2"
+    config_path = "../../templates/hub/tests/directory"
+  }
+
+  assert {
+    condition     = length(module.managed_directory) == 0
+    error_message = "The directory is only ever in the primary hub."
   }
 }

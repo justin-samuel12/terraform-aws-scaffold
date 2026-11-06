@@ -4,13 +4,13 @@ output "domain_name" {
 }
 
 output "bucket_policy_statement" {
-  description = "The statement the origin bucket's policy needs so this distribution, and only it, can read it."
+  description = "The statement its origin buckets' policies need so this distribution, and only it, can read them."
   value = {
     Sid       = "CloudFront${replace(title(var.name), "-", "")}"
     Effect    = "Allow"
     Principal = { Service = "cloudfront.amazonaws.com" }
     Action    = "s3:GetObject"
-    Resource  = "arn:aws:s3:::${var.origin_bucket.name}/*"
+    Resource  = [for o in var.origin : "arn:aws:s3:::${split(".s3.", o.domain_name)[0]}/*"]
     Condition = { StringEquals = { "AWS:SourceArn" = aws_cloudfront_distribution.distribution.arn } }
   }
 }

@@ -5,7 +5,7 @@ Solid boxes have a stack in `live/`; dashed boxes are in the IP plan with no sta
 
 ```mermaid
 flowchart TB
-  hq["HQ<br/>on-premises"]
+  site_office["office<br/>site"]
   subgraph us_east_2["Ohio · us-east-2"]
     direction TB
     hub_us_east_2["Hub<br/>Transit Gateway · egress 10.40.0.0/20"]:::planned
@@ -17,10 +17,10 @@ flowchart TB
     hub_us_west_2["Hub<br/>Transit Gateway · egress 10.60.0.0/20"]:::planned
     staging_us_west_2["staging<br/>10.62.0.0/16"]:::planned
   end
-  hq ---|VPN| hub_us_east_2
+  site_office ---|VPN| hub_us_east_2
   hub_us_east_2 --- operations_us_east_2
   hub_us_east_2 --- production_us_east_2
-  hq ---|VPN| hub_us_west_2
+  site_office ---|VPN| hub_us_west_2
   hub_us_west_2 --- staging_us_west_2
   hub_us_east_2 <-->|peering| hub_us_west_2
   classDef built fill:#e8f1fb,stroke:#2f6fb3,stroke-width:2px

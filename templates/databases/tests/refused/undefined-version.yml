@@ -3,3 +3,4 @@ engine_version: 16.00.4185.3.nowhere-v1
 license_model: bring-your-own-media
 instance_class: db.m6i.xlarge
 allocated_storage: 200
+password_wo_version: 1

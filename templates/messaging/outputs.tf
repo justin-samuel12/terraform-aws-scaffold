@@ -1,6 +1,6 @@
 output "queues" {
-  description = "File name -> the queue's name, ARN, URL and dead-letter queue ARN."
-  value       = { for name, q in module.sqs_queue : name => { name = q.name, arn = q.arn, url = q.url, dead_letter_arn = q.dead_letter_arn } }
+  description = "File name -> the queue's name, ARN and URL."
+  value       = { for name, full in local.queue_names : name => { name = full, arn = module.sqs_queue.arns[full], url = module.sqs_queue.urls[full] } if length(local.problems) == 0 }
 
   precondition {
     condition     = length(local.problems) == 0

@@ -1,0 +1,9 @@
+description: Ubuntu required and important updates, approved after 7 days
+operating_system: UBUNTU
+approval_rule:
+  - approve_after_days: 7
+    patch_filter:
+      - key: PRIORITY
+        values:
+          - Required
+          - Important

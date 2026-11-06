@@ -1,17 +1,17 @@
-# What the module builds and refuses, against a mocked AWS -- docs/data.md.
 mock_provider "aws" {}
 
 variables {
-  name                = "orders"
-  engine              = "mysql"
-  engine_version      = "8.0"
-  instance_class      = "db.t4g.medium"
-  storage             = 200
-  max_storage         = 1000
-  subnet_ids          = ["subnet-data-1", "subnet-data-2", "subnet-data-3"]
-  security_group_ids  = ["sg-database-mysql"]
-  kms_key_arn         = "arn:aws:kms:us-east-2:111111111111:key/mrk-data"
-  monitoring_role_arn = "arn:aws:iam::111111111111:role/rds-monitoring-operations"
+  name                   = "orders"
+  engine                 = "mysql"
+  engine_version         = "8.0"
+  instance_class         = "db.t4g.medium"
+  allocated_storage      = 200
+  max_allocated_storage  = 1000
+  multi_az               = true
+  subnet_ids             = ["subnet-data-1", "subnet-data-2", "subnet-data-3"]
+  vpc_security_group_ids = ["sg-database-mysql"]
+  kms_key_arn            = "arn:aws:kms:us-east-2:111111111111:key/mrk-data"
+  monitoring_role_arn    = "arn:aws:iam::111111111111:role/rds-monitoring-operations"
 }
 
 run "mysql" {
@@ -42,7 +42,7 @@ run "postgres" {
   command = plan
 
   variables {
-    name           = "typebot"
+    name           = "workflows"
     engine         = "postgres"
     engine_version = "16"
   }
@@ -67,14 +67,18 @@ run "sqlserver_standard" {
   command = plan
 
   variables {
-    name                   = "billing"
-    engine                 = "sqlserver-se"
-    engine_version         = "16.00"
-    instance_class         = "db.m6i.xlarge"
-    timezone               = "Eastern Standard Time"
-    character_set_name     = "SQL_Latin1_General_CP1_CI_AS"
-    backup_restore_bucket  = "development-sqlserver-backups-111111111111-us-east-1"
-    options                = { TDE = {}, SSRS = { port = 8443, settings = { MAX_MEMORY = "50" } } }
+    name               = "billing"
+    engine             = "sqlserver-se"
+    engine_version     = "16.00"
+    instance_class     = "db.m6i.xlarge"
+    timezone           = "Eastern Standard Time"
+    character_set_name = "SQL_Latin1_General_CP1_CI_AS"
+    license_model      = "license-included"
+    option = [
+      { option_name = "SQLSERVER_BACKUP_RESTORE", option_settings = [{ name = "IAM_ROLE_ARN", value = "arn:aws:iam::111111111111:role/development-sqlserver-backups" }] },
+      { option_name = "TDE" },
+      { option_name = "SSRS", port = 8443, vpc_security_group_memberships = ["sg-billing"], option_settings = [{ name = "MAX_MEMORY", value = "50" }] },
+    ]
     domain_fqdn            = "corp.example.com"
     domain_ou              = "OU=RDS,DC=corp,DC=example,DC=com"
     domain_auth_secret_arn = "arn:aws:secretsmanager:us-east-1:111111111111:secret:rds-domain-join"
@@ -102,8 +106,8 @@ run "sqlserver_standard" {
   }
 
   assert {
-    condition     = aws_db_instance.database.domain_fqdn == "corp.example.com" && aws_db_instance.database.timezone == "Eastern Standard Time" && length(aws_iam_role.backup_restore) == 1
-    error_message = "Joined to the self-managed domain, in its time zone, with a role for native backups."
+    condition     = aws_db_instance.database.domain_fqdn == "corp.example.com" && aws_db_instance.database.timezone == "Eastern Standard Time" && one([for o in aws_db_option_group.database[0].option : o.port if o.option_name == "SSRS"]) == 8443
+    error_message = "Joined to the self-managed domain, in its time zone; each option as given."
   }
 }
 
@@ -114,7 +118,7 @@ run "sqlserver_ssis_turns_on_the_clr" {
     name                 = "etl"
     engine               = "sqlserver-ee"
     engine_version       = "15.00"
-    options              = { SSIS = {} }
+    option               = [{ option_name = "SSIS" }]
     domain               = "d-1234567890"
     domain_iam_role_name = "rds-directory-operations"
   }
@@ -129,13 +133,13 @@ run "sqlserver_express" {
   command = plan
 
   variables {
-    name           = "lab"
-    engine         = "sqlserver-ex"
-    engine_version = "16.00.4185.3.v1"
-    instance_class = "db.t3.small"
-    storage        = 20
-    max_storage    = 100
-    multi_az       = false
+    name                  = "lab"
+    engine                = "sqlserver-ex"
+    engine_version        = "16.00.4185.3.v1"
+    instance_class        = "db.t3.small"
+    allocated_storage     = 20
+    max_allocated_storage = 100
+    multi_az              = false
   }
 
   assert {
@@ -152,9 +156,10 @@ run "rds_custom" {
     engine                      = "custom-sqlserver-se"
     engine_version              = "16.00.4185.3.v1"
     instance_class              = "db.m6i.xlarge"
-    max_storage                 = null
+    max_allocated_storage       = null
     monitoring_role_arn         = null
     custom_iam_instance_profile = "AWSRDSCustom-operations-us-east-2"
+    password_wo_version         = 1
   }
 
   assert {
@@ -186,90 +191,30 @@ run "rds_custom_new_password" {
     engine                      = "custom-sqlserver-se"
     engine_version              = "16.00.4185.3.v1"
     instance_class              = "db.m6i.xlarge"
-    max_storage                 = null
+    max_allocated_storage       = null
     monitoring_role_arn         = null
     custom_iam_instance_profile = "AWSRDSCustom-operations-us-east-2"
-    password_generation         = 2
+    password_wo_version         = 2
   }
 
   assert {
     condition     = aws_db_instance.database.password_wo_version == 2 && aws_secretsmanager_secret_version.password[0].secret_string_wo_version == 2
-    error_message = "Raising password_generation sets a new password on the database and in its secret, in one apply."
+    error_message = "Raising password_wo_version sets a new password on the database and in its secret, in one apply."
   }
-}
-
-run "rejects_express_multi_az" {
-  command = plan
-
-  variables {
-    engine         = "sqlserver-ex"
-    engine_version = "16.00"
-    multi_az       = true
-  }
-
-  expect_failures = [var.multi_az]
-}
-
-run "rejects_old_web_multi_az" {
-  command = plan
-
-  variables {
-    engine         = "sqlserver-web"
-    engine_version = "15.00"
-  }
-
-  expect_failures = [var.multi_az]
-}
-
-run "rejects_options_on_web" {
-  command = plan
-
-  variables {
-    engine         = "sqlserver-web"
-    engine_version = "16.00"
-    options        = { TDE = {} }
-  }
-
-  expect_failures = [var.options]
 }
 
 run "rejects_rds_custom_without_its_profile" {
   command = plan
 
   variables {
-    engine              = "custom-sqlserver-ee"
-    engine_version      = "16.00.4185.3.v1"
-    max_storage         = null
-    monitoring_role_arn = null
+    engine                = "custom-sqlserver-ee"
+    engine_version        = "16.00.4185.3.v1"
+    max_allocated_storage = null
+    monitoring_role_arn   = null
+    password_wo_version   = 1
   }
 
   expect_failures = [var.custom_iam_instance_profile]
-}
-
-run "rejects_developer_edition_without_our_media" {
-  command = plan
-
-  variables {
-    engine                      = "custom-sqlserver-dev"
-    engine_version              = "16.00.4185.3.dbamp-v1"
-    max_storage                 = null
-    monitoring_role_arn         = null
-    custom_iam_instance_profile = "AWSRDSCustom-operations-us-east-2"
-  }
-
-  expect_failures = [var.license_model]
-}
-
-run "rejects_a_half_set_domain" {
-  command = plan
-
-  variables {
-    engine         = "sqlserver-se"
-    engine_version = "16.00"
-    domain_fqdn    = "corp.example.com"
-  }
-
-  expect_failures = [var.domain_dns_ips]
 }
 
 run "upgrades_follow_the_version" {
@@ -299,4 +244,30 @@ run "a_major_alone_is_upgraded" {
     condition     = aws_db_instance.database.auto_minor_version_upgrade
     error_message = "A major version alone takes AWS's minor upgrades."
   }
+}
+
+run "rejects_options_on_postgres" {
+  command = plan
+
+  variables {
+    engine         = "postgres"
+    engine_version = "16"
+    option         = [{ option_name = "TDE" }]
+  }
+
+  expect_failures = [var.option]
+}
+
+run "rejects_rds_custom_without_a_password_version" {
+  command = plan
+
+  variables {
+    engine                      = "custom-sqlserver-ee"
+    engine_version              = "16.00.4185.3.v1"
+    max_allocated_storage       = null
+    monitoring_role_arn         = null
+    custom_iam_instance_profile = "AWSRDSCustom-operations-us-east-2"
+  }
+
+  expect_failures = [var.password_wo_version]
 }

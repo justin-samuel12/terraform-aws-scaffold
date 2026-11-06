@@ -19,7 +19,7 @@ variable "region" {
 }
 
 variable "config_dir" {
-  description = "The folder holding session-manager.yml; null = the stack's own folder. Tests point it at their own."
+  description = "The folder holding document/SSM-SessionManagerRunShell.yml and log-group/sessions.yml; null = the stack's config/ folder. Tests point it at their own."
   type        = string
   default     = null
 }

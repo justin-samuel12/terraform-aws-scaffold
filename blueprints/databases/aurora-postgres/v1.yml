@@ -1,0 +1,17 @@
+description: Aurora PostgreSQL 16, a writer and a reader on Graviton
+allows:
+  - instance_class
+  - instances
+requires:
+  - vpc_security_group_ids
+instance_classes:
+  default: db.r7g.large
+  allowed:
+    - db.r7g.large
+    - db.r7g.xlarge
+    - db.r7g.2xlarge
+    - db.r7g.4xlarge
+database:
+  engine: aurora-postgresql
+  engine_version: "16.6"
+  count: 2

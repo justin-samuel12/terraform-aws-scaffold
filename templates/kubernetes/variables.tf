@@ -19,7 +19,7 @@ variable "region" {
 }
 
 variable "config_dir" {
-  description = "The folder holding cluster.yml and one <app>.yml per app; null = the stack's own folder. Tests point it at their own."
+  description = "The folder holding cluster/<environment>.yml and app/<app>.yml, one per app; null = the stack's config/ folder. Tests point it at their own."
   type        = string
   default     = null
 }

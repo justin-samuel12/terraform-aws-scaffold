@@ -1,0 +1,23 @@
+engine: sqlserver-se
+engine_version: "16.00"
+license_model: license-included
+instance_class: db.m6i.xlarge
+allocated_storage: 200
+max_allocated_storage: 1000
+multi_az: true
+timezone: Eastern Standard Time
+character_set_name: SQL_Latin1_General_CP1_CI_AS
+option:
+  - option_name: SQLSERVER_BACKUP_RESTORE
+    option_settings:
+      - name: IAM_ROLE_ARN
+        value: development-sqlserver-backups
+  - option_name: TDE
+domain_fqdn: corp.example.com
+domain_ou: OU=RDS,OU=Servers,DC=corp,DC=example,DC=com
+domain_auth_secret_arn: arn:aws:secretsmanager:us-east-1:111111111111:secret:development-rds-domain-join
+domain_dns_ips:
+  - 10.40.0.10
+  - 10.40.0.11
+vpc_security_group_ids:
+  - billing-database

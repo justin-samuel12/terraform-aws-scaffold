@@ -1,8 +1,0 @@
-# Development's cluster: EKS Auto Mode in the private tier, its API reachable only from inside the network -- docs/kubernetes.md.
-version: "1.35" # in quotes; pick one in standard support: aws eks describe-cluster-versions
-admins:
-  - platform-admin # an IAM role in this account; an ARN works too
-viewers:
-  - developer
-security_groups:
-  - kubernetes-api # from the security-groups stack: who may reach the API on 443

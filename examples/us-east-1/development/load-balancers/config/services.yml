@@ -1,0 +1,18 @@
+load_balancer_type: application
+internal: true
+subnets:
+  - private-az1
+  - private-az2
+  - private-az4
+security_groups:
+  - services-lb
+listeners:
+  - port: 443
+    protocol: HTTPS
+    certificate_arn: services.example.com
+    default_action:
+      type: fixed-response
+      fixed_response:
+        content_type: text/plain
+        message_body: Not found
+        status_code: "404"

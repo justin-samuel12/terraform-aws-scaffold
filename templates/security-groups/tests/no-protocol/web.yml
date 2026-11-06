@@ -1,0 +1,9 @@
+description: A rule with no protocol and two peers
+tags:
+  Kind: server
+ingress:
+  - description: HTTPS
+    from_port: 443
+    to_port: 443
+    cidr_ipv4: 10.0.0.0/8
+    referenced_security_group_id: missing

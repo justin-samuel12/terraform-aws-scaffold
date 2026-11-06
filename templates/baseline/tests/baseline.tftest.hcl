@@ -1,4 +1,3 @@
-# The baseline covers every region in config/, against a mocked AWS -- docs/global.md.
 mock_provider "aws" {}
 
 variables {

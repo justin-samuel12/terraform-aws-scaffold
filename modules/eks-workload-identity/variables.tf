@@ -14,12 +14,12 @@ variable "cluster_arn" {
 }
 
 variable "roles" {
-  description = "Role name -> what it is for, the namespace and service account whose pods get it, AWS managed policies by name, and statements only it needs. One role per app, so Vault's AWS auth tells apps apart."
+  description = "Role name -> what it is for, the namespace and service account whose pods get it, the ARNs of the policies attached to it (policy_arns), and statements only it needs. One role per app, so Vault's AWS auth tells apps apart."
   type = map(object({
-    description      = string
-    namespace        = string
-    service_account  = string
-    managed_policies = optional(list(string), [])
+    description     = string
+    namespace       = string
+    service_account = string
+    policy_arns     = optional(list(string), [])
     statements = optional(list(object({
       effect    = optional(string, "Allow")
       actions   = list(string)
@@ -56,8 +56,8 @@ variable "roles" {
   }
 
   validation {
-    condition     = alltrue(flatten([for r in var.roles : [for p in r.managed_policies : !contains(["AdministratorAccess", "PowerUserAccess", "IAMFullAccess"], p)]]))
-    error_message = "An app's role never takes AdministratorAccess, PowerUserAccess or IAMFullAccess; give it statements for what it actually does."
+    condition     = alltrue(flatten([for r in var.roles : [for p in r.policy_arns : can(regex("^arn:aws[a-z-]*:iam::(aws|[0-9]{12}):policy/.+$", p)) && !contains(["AdministratorAccess", "PowerUserAccess", "IAMFullAccess"], element(split("/", p), length(split("/", p)) - 1))]]))
+    error_message = "policy_arns are policy ARNs, and an app's role never takes AdministratorAccess, PowerUserAccess or IAMFullAccess; give it statements for what it actually does."
   }
 
   validation {

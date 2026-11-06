@@ -1,0 +1,49 @@
+description: An HTTP API on ECS Fargate (ARM) behind the services load balancer, reached by path, deployed blue/green by CodeDeploy
+allows:
+  - cpu
+  - memory
+  - desired_count
+  - target_group.health_check
+  - appautoscaling_target.min_capacity
+  - appautoscaling_target.max_capacity
+  - statement
+  - enable_execute_command
+adds:
+  - network_configuration.security_groups
+requires:
+  - container_definitions
+  - listener_rule
+service:
+  cpu: 512
+  memory: 1024
+  desired_count: 2
+  network_configuration:
+    subnets:
+      - private-az1
+      - private-az2
+      - private-az3
+    security_groups:
+      - ecs-services
+      - services-lb-clients
+      - sqlserver-clients
+  runtime_platform:
+    cpu_architecture: ARM64
+  target_group:
+    health_check:
+      path: /{app}/status
+      matcher: "200"
+  appautoscaling_target:
+    min_capacity: 2
+    max_capacity: 6
+  appautoscaling_policy:
+    target_tracking_scaling_policy_configuration:
+      target_value: 60
+      predefined_metric_specification:
+        predefined_metric_type: ECSServiceAverageCPUUtilization
+  deployment_controller:
+    type: CODE_DEPLOY
+  deployment_group:
+    deployment_config_name: CodeDeployDefault.ECSCanary10Percent5Minutes
+    blue_green_deployment_config:
+      terminate_blue_instances_on_deployment_success:
+        termination_wait_time_in_minutes: 15

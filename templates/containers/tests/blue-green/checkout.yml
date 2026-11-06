@@ -1,22 +1,36 @@
 cpu: 1024
 memory: 2048
 desired_count: 3
-security_groups:
-  - checkout
+network_configuration:
+  subnets:
+    - private-az1
+    - private-az2
+  security_groups:
+    - checkout
 runtime_platform:
   cpu_architecture: ARM64
-image: 111111111111.dkr.ecr.us-east-2.amazonaws.com/checkout:2.0.0
-port: 3000
-health_check:
-  path: /ready
-listener_rules:
-  - load_balancer: internal
+container_definitions:
+  - name: checkout
+    image: 111111111111.dkr.ecr.us-east-2.amazonaws.com/checkout:2.0.0
+    portMappings:
+      - containerPort: 3000
+target_group:
+  health_check:
+    path: /ready
+listener_rule:
+  listener_arn: internal/443
+  priority: 1300
+  condition:
     host_header:
-      - checkout.example.com
+      values:
+        - checkout.example.com
     path_pattern:
-      - /api/*
-    priority: 1300
-deployment:
-  strategy: blue_green
+      values:
+        - /api/*
+deployment_controller:
+  type: CODE_DEPLOY
+deployment_group:
   deployment_config_name: CodeDeployDefault.ECSCanary10Percent5Minutes
-  termination_wait_time_in_minutes: 15
+  blue_green_deployment_config:
+    terminate_blue_instances_on_deployment_success:
+      termination_wait_time_in_minutes: 15

@@ -1,0 +1,17 @@
+tags:
+  Backup: standard
+lifecycle_configuration:
+  rule:
+    - id: reports
+      status: Enabled
+      expiration:
+        days: 400
+      noncurrent_version_expiration:
+        noncurrent_days: 90
+      abort_incomplete_multipart_upload:
+        days_after_initiation: 7
+cors_rule:
+  - allowed_methods:
+      - GET
+    allowed_origins:
+      - https://reports.example.com

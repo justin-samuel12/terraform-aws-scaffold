@@ -94,7 +94,7 @@ vpcs:
 
 | Key | Meaning |
 |---|---|
-| `hq`, `prefix_lists`, `dns` (in `global.yml`) | HQ's VPN address, BGP ASN and ranges; named address groups for security group rules ([security groups](security-groups.md#prefix-lists)); DNS forwarding between AWS and HQ ([network](network.md#dns-with-hq)), and the private hosted zones every VPC attaches to ([global](global.md#dns)) |
+| `sites`, `prefix_lists`, `dns` (in `global.yml`) | The networks reached over a VPN, each with its VPN address, BGP ASN, ranges and forwarded domains, and `enabled` ([network](network.md#sites)); named address groups for security group rules ([security groups](security-groups.md#prefix-lists)); DNS between AWS and the sites ([network](network.md#dns-with-the-sites)), and the private hosted zones every VPC attaches to ([global](global.md#dns)) |
 | `state.bucket`, `state.region`, `state.key` (in `global.yml`) | The one S3 bucket holding every stack's state, the region it lives in, and the shape of each stack's key (default: its path, such as `us-east-2/operations/network/terraform.tfstate`) |
 | `zones` | The availability zones every VPC in the region spans, by zone ID: at least two, numbered `az1` to `az6`. A zone ID is the same physical zone in every account, unlike a name such as `us-east-2a`, which AWS shuffles per account. Each tier gets one subnet per zone, named with its zone ID (`vpc-01-private-use2-az1`). Adding a zone only adds subnets; removing one is refused until done on purpose ([network](network.md#adding-and-removing-zones)) |
 | `hub` | The `shared` environment in this region: the Transit Gateway hub and its egress VPC ([network](network.md#ip-plan)) |
@@ -337,18 +337,11 @@ reads, and the Terraform version. A unit that passes records its fingerprint in
 `.terraform.d/checked/`. With `CHANGED=1`, a unit whose fingerprint is unchanged
 is skipped, because it would pass again. A one-module change runs a handful of
 units, not a hundred; a change to `live/common` or `modules/ip-plan` runs nearly
-all of them, because nearly all of them read it. No git is needed, and CI gets
-the same by keeping `.terraform.d/` between runs.
+all of them, because nearly all of them read it. No git is needed. CI never uses
+`CHANGED=1`, because a branch could write that record ([CI/CD](ci-cd.md#runners)).
 
-**In CI**, the same commands, with no logic of their own:
-
-| Stage | Runs | Time, roughly |
-|---|---|---|
-| Every push | `make fmt-check lint check-order` | under a minute |
-| Every pull request | `make check CHANGED=1 JOBS=<cores>`, with `.terraform.d/` cached | 1 to 3 minutes |
-| Pull requests touching `live/` or `config/` | `make plan` for each changed stack, with a read-only role | a minute per stack, side by side |
-| Merge to main, and nightly | `make check JOBS=<cores>` | a few minutes |
-| Apply | `make apply` after the pipeline's approval step, with `APPLY_CONFIRMED=yes` | |
+**In CI**, the same commands, with no logic of their own, on self-hosted runners.
+The workflows are written and switched off ([CI/CD](ci-cd.md)).
 
 Providers are fetched once, by one `init`, before checks run side by side:
 concurrent downloads into one cache corrupt it.
@@ -358,6 +351,8 @@ concurrent downloads into one cache corrupt it.
 ```bash
 make init STACK=us-east-2/operations/network
 make plan STACK=us-east-2/operations/network
+make plan REGION=us-east-2 ENV=operations STACK=network   # the same stack
+make order REGION=us-east-2 ENV=operations               # that environment's order
 ```
 
 `make help` lists every target. The targets run `bin/tf`, which can also be

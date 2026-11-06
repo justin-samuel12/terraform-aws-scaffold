@@ -1,7 +1,0 @@
-description: The dashboards application's servers
-ingress:
-  - description: The application, from its load balancer
-    from_port: 3000
-    to_port: 3000
-    source:
-      - dashboards-lb

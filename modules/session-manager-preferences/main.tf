@@ -1,12 +1,15 @@
 resource "aws_cloudwatch_log_group" "sessions" {
-  name              = "/ssm/sessions"
-  retention_in_days = var.log_retention_days
+  count = var.log_group == null ? 0 : 1
 
-  tags = { Name = "ssm-sessions" }
+  name              = "/ssm/sessions"
+  retention_in_days = var.log_group.retention_in_days
+
+  tags = merge(var.log_group.tags, { Name = "${local.name_prefix}ssm-sessions" })
 }
 
-# The account's Session Manager preferences: AWS reads this one document, by this exact name, for every session in the region.
 resource "aws_ssm_document" "preferences" {
+  count = var.document == null ? 0 : 1
+
   name            = "SSM-SessionManagerRunShell"
   document_type   = "Session"
   document_format = "JSON"
@@ -17,27 +20,27 @@ resource "aws_ssm_document" "preferences" {
     sessionType   = "Standard_Stream"
     inputs = {
       kmsKeyId                    = var.kms_key_arn
-      cloudWatchLogGroupName      = aws_cloudwatch_log_group.sessions.name
+      cloudWatchLogGroupName      = aws_cloudwatch_log_group.sessions[0].name
       cloudWatchEncryptionEnabled = false
       cloudWatchStreamingEnabled  = true
       s3BucketName                = ""
-      idleSessionTimeout          = tostring(var.idle_timeout_minutes)
-      maxSessionDuration          = tostring(var.max_session_minutes)
+      idleSessionTimeout          = var.document.content.inputs.idleSessionTimeout
+      maxSessionDuration          = var.document.content.inputs.maxSessionDuration
       runAsEnabled                = false
       shellProfile                = { linux = "", windows = "" }
     }
   })
 
-  tags = { Name = "session-manager-preferences" }
+  tags = merge(var.document.tags, { Name = "${local.name_prefix}session-manager-preferences" })
+
+  lifecycle {
+    precondition {
+      condition     = var.log_group != null
+      error_message = "Session Manager's preferences stream every session to /ssm/sessions: give log_group too."
+    }
+  }
 }
 
-data "aws_caller_identity" "current" {}
-
-data "aws_region" "current" {}
-
-data "aws_partition" "current" {}
-
-# Default Host Management: every instance can use Session Manager and Patch Manager whatever its own instance profile holds.
 resource "aws_iam_role" "default_host" {
   count = var.create_default_host_role ? 1 : 0
 
@@ -49,7 +52,7 @@ resource "aws_iam_role" "default_host" {
     Statement = [{ Effect = "Allow", Action = "sts:AssumeRole", Principal = { Service = "ssm.amazonaws.com" } }]
   })
 
-  tags = { Name = "ssm-default-host-management" }
+  tags = { Name = "${local.name_prefix}ssm-default-host-management" }
 }
 
 resource "aws_iam_role_policy_attachment" "default_host" {
@@ -59,8 +62,6 @@ resource "aws_iam_role_policy_attachment" "default_host" {
   policy_arn = "arn:${data.aws_partition.current.partition}:iam::aws:policy/AmazonSSMManagedEC2InstanceDefaultPolicy"
 }
 
-# The agent encrypts sessions with the sessions key and streams them to /ssm/sessions, with these credentials when it uses them.
-# The key is alias/shared-sessions in the hub account and alias/<environment>-sessions in an environment's own.
 resource "aws_iam_role_policy" "default_host_sessions" {
   count = var.create_default_host_role ? 1 : 0
 

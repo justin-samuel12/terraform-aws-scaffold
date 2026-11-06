@@ -1,0 +1,23 @@
+tags:
+  Backup: standard
+mount_targets:
+  - subnet_id: data-az1
+    security_groups:
+      - accesscontrol-efs
+  - subnet_id: data-az2
+    security_groups:
+      - accesscontrol-efs
+  - subnet_id: subnet-0data3
+    security_groups:
+      - sg-0efs
+access_points:
+  uploads:
+    posix_user:
+      uid: 1001
+      gid: 1001
+    root_directory:
+      path: /uploads
+      creation_info:
+        owner_uid: 1001
+        owner_gid: 1001
+        permissions: "0750"

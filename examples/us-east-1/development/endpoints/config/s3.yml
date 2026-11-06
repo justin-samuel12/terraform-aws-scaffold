@@ -1,0 +1,12 @@
+service_name: com.amazonaws.us-east-1.s3
+vpc_endpoint_type: Gateway
+route_table_ids:
+  - private-az1
+  - private-az2
+  - private-az4
+  - data-az1
+  - data-az2
+  - data-az4
+  - ops-az1
+  - ops-az2
+  - ops-az4

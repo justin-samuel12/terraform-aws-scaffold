@@ -3,10 +3,9 @@ resource "aws_customer_gateway" "customer_gateway" {
   ip_address = var.customer_gateway.ip_address
   type       = "ipsec.1"
 
-  tags = { Name = "${var.name}-cgw" }
+  tags = { Name = "${local.name_prefix}${local.site} Customer Gateway ${var.customer_gateway.ip_address}" }
 }
 
-# Only IKEv2 and strong algorithms, so a tunnel cannot be negotiated down; HQ's router must offer them -- docs/network.md.
 resource "aws_vpn_connection" "vpn_connection" {
   customer_gateway_id = aws_customer_gateway.customer_gateway.id
   transit_gateway_id  = var.transit_gateway_id
@@ -45,14 +44,14 @@ resource "aws_vpn_connection" "vpn_connection" {
     }
   }
 
-  tags = { Name = var.name }
+  tags = { Name = "${local.name_prefix}${local.site} VPN ${var.customer_gateway.ip_address}" }
 }
 
 resource "aws_cloudwatch_log_group" "tunnel_logs" {
-  name              = "/vpn/tunnel-logs/${var.transit_gateway_id}/${var.name}"
+  name              = "/vpn/tunnel-logs/${var.transit_gateway_id}/${var.name}/${var.customer_gateway.ip_address}"
   retention_in_days = var.log_retention_days
 
-  tags = { Name = "${var.name}-tunnel-logs" }
+  tags = { Name = "${local.name_prefix}${local.site} VPN Tunnel Logs ${var.customer_gateway.ip_address}" }
 }
 
 resource "aws_ec2_transit_gateway_route_table_association" "route_table_association" {

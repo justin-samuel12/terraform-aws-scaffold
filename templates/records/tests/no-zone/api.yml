@@ -1,0 +1,5 @@
+name: api.example.com
+type: CNAME
+ttl: 300
+records:
+  - api.example.org

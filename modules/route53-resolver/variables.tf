@@ -1,5 +1,5 @@
 variable "name" {
-  description = "Name prefix for the endpoints and rules, for example dns-01."
+  description = "Prefix of the endpoints' and rules' names, for example dns-01; their Name tags are the environment and what each is."
   type        = string
 
   validation {
@@ -42,5 +42,16 @@ variable "forward" {
   validation {
     condition     = alltrue(flatten([for domain, ips in var.forward : concat([length(ips) > 0], [for ip in ips : can(cidrhost("${ip}/32", 0))])]))
     error_message = "Each domain needs at least one DNS server IP."
+  }
+}
+
+variable "inbound_domains" {
+  description = "Domains forwarded to this hub's own inbound endpoint, for VPCs that see none of their private zones themselves: the environments' private domain."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = length(var.inbound_domains) == 0 || var.inbound
+    error_message = "inbound_domains forward to the inbound endpoint, so they need inbound = true."
   }
 }

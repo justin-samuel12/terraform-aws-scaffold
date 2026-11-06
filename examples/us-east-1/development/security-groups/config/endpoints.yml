@@ -1,0 +1,9 @@
+description: Interface endpoints, reached over HTTPS from inside the VPC only
+tags:
+  Kind: endpoint
+ingress:
+  - description: HTTPS from inside the VPC
+    ip_protocol: tcp
+    from_port: 443
+    to_port: 443
+    cidr_ipv4: 10.41.0.0/16

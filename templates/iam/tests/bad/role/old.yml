@@ -1,0 +1,13 @@
+description: The old shortcuts
+services:
+  - ec2
+managed_policies:
+  - AmazonSSMManagedInstanceCore
+managed_policy_arns:
+  - CloudWatchAgentServerPolicy
+statement:
+  - actions:
+      - s3:GetObject
+    resources:
+      - "*"
+    sid: Read

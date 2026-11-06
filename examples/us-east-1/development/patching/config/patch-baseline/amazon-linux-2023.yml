@@ -1,0 +1,13 @@
+description: Amazon Linux 2023 security and bug fixes, approved after 7 days
+operating_system: AMAZON_LINUX_2023
+approval_rule:
+  - approve_after_days: 7
+    patch_filter:
+      - key: CLASSIFICATION
+        values:
+          - Security
+          - Bugfix
+      - key: SEVERITY
+        values:
+          - Critical
+          - Important

@@ -25,18 +25,71 @@ provider.
 
 ## Names
 
-Names are generic. What a thing is for (its environment, region, purpose) is
-carried by tags and by where its stack sits in `live/`, never by its name.
+A resource has two names, and they follow different rules.
+
+**Its name in AWS** (a load balancer's, a bucket's, a role's, a queue's, a
+security group's `name`, a log group's, a KMS alias) is lowercase with hyphens,
+because AWS restricts the characters and many of these names cannot change
+without rebuilding the resource. They stay as they are; the files and stacks
+refer to things by them.
+
+**Its `Name` tag** is what the AWS console shows in its Name column, and is
+written for a person reading it: the environment in title case, a spaced
+hyphen, then what the thing is.
+
+```
+<Environment> - <What>
+```
+
+The environment comes from the provider's `Environment` default tag, so every
+module writes its own `Name` tags without being told the environment; hub and
+global stacks are `shared`, so theirs read `Shared - …`. A module run without
+that default tag (its tests, against a mocked AWS) writes only `<What>`.
+
+Pieces of the network are named by what they are, in words. Things that have a
+name of their own (a file's name, or a name input) keep it as written, without
+the environment in front of it a second time.
+
+| Resource | `Name` tag |
+|---|---|
+| VPC | `Staging - VPC` |
+| Subnet | `Staging - Private Subnet AZ1` (tier in title case, `DMZ` and `DNS` in capitals; the zone from the zone ID's last part) |
+| Route table | `Staging - Private Route Table AZ1` |
+| Network ACL | `Staging - Data Network ACL` |
+| Internet gateway | `Staging - Internet Gateway` |
+| NAT gateway, and its address | `Staging - NAT Gateway AZ1`, `Staging - NAT Gateway AZ1 Address` |
+| Flow log, its log group and role | `Staging - Flow Logs` |
+| The VPC's default security group | `Staging - Default Security Group (unused)` |
+| A VPC's attachment to the hub | `Staging - Transit Gateway Attachment` |
+| Peering connection | `Staging - Peering to operations` (the peering file's name) |
+| Transit Gateway | `Shared - Transit Gateway` |
+| Its route tables | `Shared - Transit Gateway Restricted`, `… Standard`, `… Shared` |
+| Hub-to-hub peering | `Shared - Transit Gateway Peering to us-east-2`, and `… Peering from us-west-2` on the other side |
+| VPN | `Shared - Corporate VPN 203.0.113.10`, `Shared - Corporate Customer Gateway 203.0.113.10`, `Shared - Corporate VPN Tunnel Logs 203.0.113.10`: the site leads, the device's address follows, one set per link |
+| Route 53 Resolver | `Shared - DNS Resolver`, `… DNS Resolver Inbound`, `… DNS Resolver Outbound`, `… DNS Forward example.internal` |
+| RAM share of the hub | `Shared - Network Share` |
+| ECS and EKS clusters | `Staging - ECS Cluster`, `Staging - ECS Exec Logs`; `Staging - EKS Cluster`, `Staging - EKS Cluster Role`, `Staging - EKS Node Role` |
+| Security group | `Staging - services-lb` |
+| Load balancer, target group, listener | `Staging - public`, `Staging - services-api`, `Staging - public-443` |
+| Server, its disks | `Staging - ocp01`, `Staging - ocp01-root`, `Staging - ocp01-data` |
+| Anything else with a name | `Staging - <its name>`: `Staging - orders` (a queue), `Staging - data` (a key), `Staging - payments-api` (a service) |
+
+Nothing finds a resource by its `Name` tag, so it can be reworded without
+breaking a lookup. Stacks find each other's resources by the stable tags below,
+or by the resource's name in AWS.
+
+In code, names are generic. What a thing is for (its environment, region,
+purpose) is carried by tags and by where its stack sits in `live/`, never by a
+module's or a resource's name:
 
 | Kind | Rule | Examples |
 |---|---|---|
 | Modules | The AWS service, not its role | `vpc`, `transit-gateway`, `transit-gateway-peering`, `vpn` |
 | Resources in code | The resource type; never `this` or `that` | `aws_vpc.vpc`, `aws_subnet.subnets["private-usw2-az1"]`, `aws_ec2_transit_gateway.transit_gateway` |
 | Transit Gateway route tables | The isolation level, not an environment | `restricted`, `standard`, `shared` |
-| AWS Name tags | Type, then a two-digit number | `vpc-01`, `tgw-01`, `vpn-01` |
-| Per-zone pieces of a VPC | The VPC, the tier, then the full zone ID; a subnet and its route table share the name | `vpc-01-private-use2-az1`, `vpc-01-nat-use2-az1` |
 
-Lowercase throughout; underscores in code, hyphens in AWS names.
+Lowercase throughout in code and AWS names; underscores in code, hyphens in AWS
+names.
 
 ## Files
 
@@ -44,13 +97,17 @@ HashiCorp's standard module structure, in modules, templates and stacks alike:
 
 | File | Holds |
 |---|---|
-| `main.tf` | resources, data sources and module calls |
+| `main.tf` | resources and module calls, or the template's core when it splits out a concern |
+| `data.tf` | data sources |
 | `locals.tf` | local values |
 | `variables.tf` | input variables |
 | `outputs.tf` | outputs |
 | `versions.tf` | Terraform and provider version constraints |
 
-A file holds only its kind: no local or output in `main.tf`. A module with no
+A file holds only its kind: no data source, local or output in `main.tf`, and
+`make lint` refuses a data source anywhere but `data.tf`. A template that builds several
+concerns of its own keeps each in a file named after it, beside `main.tf`:
+`templates/network/` has `transit-gateway.tf`, `dns.tf` and `peering.tf`. A module with no
 resources (`ip-plan`) has no `main.tf`. A stack that calls a template has only
 `main.tf` and `outputs.tf` of its own; its inputs come from `context.tf`.
 
@@ -84,16 +141,25 @@ Applied through the provider's `default_tags`, so every resource carries them:
 | `Repository` | `repository` in `config/global.yml`, so every clone tags alike; else the folder the clone is in |
 | `Team` | `platform`, the environment's `team` in `config/<region>.yml`; left off when unset ([configuration](configuration.md#config)) |
 
-Subnets carry two more, set by the `vpc` module:
+A few more are set by the modules, so stacks can find one another's resources
+without depending on a display name:
 
-| Tag | Example | For |
-|---|---|---|
-| `Tier` (subnets and their route tables) | `data` | finding all of a tier's subnets |
-| `Subnet` (subnets) | `data-az1` | naming exactly one subnet in an environment's VPC, by tier and the zone ID's last part; an instance is placed by it |
+| Tag | On | Example | For |
+|---|---|---|---|
+| `Tier` | subnets, their route tables and network ACLs | `data` | finding all of a tier's subnets |
+| `Subnet` | subnets and their route tables | `data-az1` | naming exactly one subnet in an environment's VPC, by tier and the zone ID's last part; an instance is placed by it |
+| `Segment` | Transit Gateway route tables | `standard` | a network or another hub finding a route table by isolation level |
+| `Key` | security groups; load balancers' target groups | `services-lb`; `staging-services-api` | a stack finding a group by its file's name, or a target group by its load balancer's name and its own |
+| `Server` | servers | `ocp01` | the server's name: its host name, its DNS record, its placement |
 
-Since names say nothing about an environment, tags are how resources are found
-and filtered: in the console, in cost reports, and in one stack looking up
-another (a network finds its region's Transit Gateway by `Component = hub`).
+Security groups also carry `Kind`, which every group's file sets: one of
+`load-balancer`, `server`, `database`, `client` or `endpoint`
+([security groups](security-groups.md)).
+
+Tags are how resources are found and filtered: in the console, in cost
+reports, and in one stack looking up another (a network finds its region's
+Transit Gateway by `Component = hub`, and a stack its environment's VPC by
+`Environment` and `Component = network`).
 
 Tags your organization requires go in each stack's `default_tags`
 (`live/common/providers.tf`), so every resource carries them.

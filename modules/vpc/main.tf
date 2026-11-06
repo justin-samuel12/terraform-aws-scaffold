@@ -3,9 +3,8 @@ resource "aws_vpc" "vpc" {
   enable_dns_support   = true
   enable_dns_hostnames = true
 
-  tags = { Name = var.name }
+  tags = { Name = "${local.name_prefix}VPC" }
 
-  # Replacing a VPC or a subnet takes down everything in it; a plan that would do so fails here, and removal is a reviewed code change.
   lifecycle {
     prevent_destroy = true
 
@@ -16,10 +15,6 @@ resource "aws_vpc" "vpc" {
   }
 }
 
-data "aws_availability_zones" "available" {
-  state = "available"
-}
-
 resource "aws_subnet" "subnets" {
   for_each = local.subnets
 
@@ -27,15 +22,13 @@ resource "aws_subnet" "subnets" {
   cidr_block           = each.value.cidr
   availability_zone_id = each.value.zone
 
-  # Subnet names one subnet the same way in every environment, so an instance can be placed by it -- docs/network.md.
-  tags = { Name = "${var.name}-${each.value.tier}-${each.value.zone}", Tier = each.value.tier, Subnet = "${each.value.tier}-${split("-", each.value.zone)[1]}" }
+  tags = { Name = "${local.name_prefix}${local.tier_titles[each.value.tier]} Subnet ${upper(split("-", each.value.zone)[1])}", Tier = each.value.tier, Subnet = "${each.value.tier}-${split("-", each.value.zone)[1]}" }
 
   lifecycle {
     prevent_destroy = true
   }
 }
 
-# AWS never hands out an address in this block on its own; only addresses asked for by name come from it.
 resource "aws_ec2_subnet_cidr_reservation" "chosen_addresses" {
   for_each = { for key, subnet in local.subnets : key => subnet if subnet.reserved != null }
 
@@ -49,14 +42,14 @@ resource "aws_internet_gateway" "internet_gateway" {
   count = local.internet_gateway ? 1 : 0
 
   vpc_id = aws_vpc.vpc.id
-  tags   = { Name = "${var.name}-igw" }
+  tags   = { Name = "${local.name_prefix}Internet Gateway" }
 }
 
 resource "aws_eip" "eips" {
   for_each = local.nat_gateways
 
   domain = "vpc"
-  tags   = { Name = "${var.name}-nat-${each.key}" }
+  tags   = { Name = "${local.name_prefix}NAT Gateway ${upper(split("-", each.key)[1])} Address" }
 }
 
 resource "aws_nat_gateway" "nat_gateways" {
@@ -64,7 +57,7 @@ resource "aws_nat_gateway" "nat_gateways" {
 
   allocation_id = aws_eip.eips[each.key].id
   subnet_id     = aws_subnet.subnets["${var.nat_gateway_subnets}-${each.key}"].id
-  tags          = { Name = "${var.name}-nat-${each.key}" }
+  tags          = { Name = "${local.name_prefix}NAT Gateway ${upper(split("-", each.key)[1])}" }
 
   depends_on = [aws_internet_gateway.internet_gateway]
 }
@@ -73,7 +66,7 @@ resource "aws_route_table" "route_tables" {
   for_each = local.subnets
 
   vpc_id = aws_vpc.vpc.id
-  tags   = { Name = "${var.name}-${each.value.tier}-${each.value.zone}", Tier = each.value.tier }
+  tags   = { Name = "${local.name_prefix}${local.tier_titles[each.value.tier]} Route Table ${upper(split("-", each.value.zone)[1])}", Tier = each.value.tier, Subnet = "${each.value.tier}-${split("-", each.value.zone)[1]}" }
 }
 
 resource "aws_route_table_association" "route_table_associations" {
@@ -95,6 +88,54 @@ resource "aws_route" "default_routes" {
   depends_on = [aws_ec2_transit_gateway_vpc_attachment.transit_gateway_vpc_attachment, terraform_data.transit_gateway_accepted]
 }
 
+resource "aws_route" "routes" {
+  for_each = local.routes
+
+  route_table_id            = aws_route_table.route_tables[each.value.subnet].id
+  destination_cidr_block    = each.value.destination_cidr_block
+  gateway_id                = each.value.gateway_id == "own" ? aws_internet_gateway.internet_gateway[0].id : null
+  nat_gateway_id            = each.value.nat_gateway_id == "own" ? aws_nat_gateway.nat_gateways[each.value.zone].id : null
+  vpc_peering_connection_id = each.value.vpc_peering_connection_id
+  transit_gateway_id        = each.value.transit_gateway_id
+}
+
+resource "aws_network_acl" "network_acls" {
+  for_each = var.network_acls
+
+  vpc_id     = aws_vpc.vpc.id
+  subnet_ids = [for zone in var.availability_zone_ids : aws_subnet.subnets["${each.key}-${zone}"].id]
+
+  dynamic "ingress" {
+    for_each = each.value.ingress
+    content {
+      rule_no    = ingress.value.rule_no
+      action     = ingress.value.action
+      protocol   = ingress.value.protocol
+      cidr_block = ingress.value.cidr_block
+      from_port  = ingress.value.from_port
+      to_port    = ingress.value.to_port
+      icmp_type  = ingress.value.icmp_type
+      icmp_code  = ingress.value.icmp_code
+    }
+  }
+
+  dynamic "egress" {
+    for_each = each.value.egress
+    content {
+      rule_no    = egress.value.rule_no
+      action     = egress.value.action
+      protocol   = egress.value.protocol
+      cidr_block = egress.value.cidr_block
+      from_port  = egress.value.from_port
+      to_port    = egress.value.to_port
+      icmp_type  = egress.value.icmp_type
+      icmp_code  = egress.value.icmp_code
+    }
+  }
+
+  tags = { Name = "${local.name_prefix}${local.tier_titles[each.key]} Network ACL", Tier = each.key }
+}
+
 resource "aws_route" "transit_routes" {
   for_each = local.transit_routes
 
@@ -105,7 +146,6 @@ resource "aws_route" "transit_routes" {
   depends_on = [aws_ec2_transit_gateway_vpc_attachment.transit_gateway_vpc_attachment, terraform_data.transit_gateway_accepted]
 }
 
-# An attachment to another account's gateway carries no traffic until that account accepts it; routes wait for the acceptance.
 resource "terraform_data" "transit_gateway_accepted" {
   count = var.transit_gateway == null ? 0 : 1
 
@@ -124,7 +164,7 @@ resource "aws_ec2_transit_gateway_vpc_attachment" "transit_gateway_vpc_attachmen
   transit_gateway_default_route_table_association = var.transit_gateway.shared ? null : false
   transit_gateway_default_route_table_propagation = var.transit_gateway.shared ? null : false
 
-  tags = { Name = "${var.name}-attachment" }
+  tags = { Name = "${local.name_prefix}Transit Gateway Attachment" }
 }
 
 resource "aws_ec2_transit_gateway_route_table_association" "route_table_association" {
@@ -141,7 +181,6 @@ resource "aws_ec2_transit_gateway_route_table_propagation" "route_table_propagat
   transit_gateway_route_table_id = each.value
 }
 
-# Every VPC's traffic is recorded, accepted and rejected alike, for incident response and audit -- docs/network.md.
 resource "aws_flow_log" "flow_log" {
   vpc_id               = aws_vpc.vpc.id
   traffic_type         = "ALL"
@@ -149,25 +188,23 @@ resource "aws_flow_log" "flow_log" {
   log_destination      = aws_cloudwatch_log_group.flow_log.arn
   iam_role_arn         = aws_iam_role.flow_log.arn
 
-  tags = { Name = "${var.name}-flow-log" }
+  tags = { Name = "${local.name_prefix}Flow Logs" }
 
-  # Delivery starts at once; without the policy the first logs are lost.
   depends_on = [aws_iam_role_policy.flow_log]
 }
 
-# Named by VPC ID: every environment's VPC is vpc-01, and they may share an account.
 resource "aws_cloudwatch_log_group" "flow_log" {
   name              = "/vpc/flow-logs/${aws_vpc.vpc.id}"
   retention_in_days = var.flow_log_retention_days
 
-  tags = { Name = "${var.name}-flow-log" }
+  tags = { Name = "${local.name_prefix}Flow Logs" }
 }
 
 resource "aws_iam_role" "flow_log" {
   name               = "flow-logs-${aws_vpc.vpc.id}"
   assume_role_policy = local.flow_log_assume_policy
 
-  tags = { Name = "${var.name}-flow-log" }
+  tags = { Name = "${local.name_prefix}Flow Logs" }
 }
 
 resource "aws_iam_role_policy" "flow_log" {
@@ -176,15 +213,10 @@ resource "aws_iam_role_policy" "flow_log" {
   policy = local.flow_log_write_policy
 }
 
-data "aws_caller_identity" "current" {}
-
-data "aws_region" "current" {}
-
-# AWS does not allow deleting a VPC's default security group; with no rules it admits and sends nothing.
 resource "aws_default_security_group" "default" {
   vpc_id  = aws_vpc.vpc.id
   ingress = []
   egress  = []
 
-  tags = { Name = "${var.name}-default-unused" }
+  tags = { Name = "${local.name_prefix}Default Security Group (unused)" }
 }

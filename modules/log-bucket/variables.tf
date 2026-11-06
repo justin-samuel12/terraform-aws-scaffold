@@ -18,13 +18,34 @@ variable "delivers" {
   }
 }
 
-variable "retention_days" {
-  description = "Days a log is kept before it expires; an overwritten or deleted log's old version is kept 30 days more."
-  type        = number
-  default     = 365
+variable "tags" {
+  description = "The bucket's tags; Name is always its name."
+  type        = map(string)
+  default     = {}
+}
+
+variable "rule" {
+  description = "The rule list of the bucket's aws_s3_bucket_lifecycle_configuration: id, status, filter.prefix, expiration.days, noncurrent_version_expiration.noncurrent_days, abort_incomplete_multipart_upload.days_after_initiation. Empty: no lifecycle, logs are kept."
+  type = list(object({
+    id     = string
+    status = string
+    filter = optional(object({
+      prefix = optional(string, "")
+    }), {})
+    expiration = optional(object({
+      days = number
+    }))
+    noncurrent_version_expiration = optional(object({
+      noncurrent_days = number
+    }))
+    abort_incomplete_multipart_upload = optional(object({
+      days_after_initiation = number
+    }))
+  }))
+  default = []
 
   validation {
-    condition     = var.retention_days >= 30
-    error_message = "retention_days must be at least 30."
+    condition     = alltrue([for r in var.rule : contains(["Enabled", "Disabled"], r.status)])
+    error_message = "A rule's status is Enabled or Disabled."
   }
 }

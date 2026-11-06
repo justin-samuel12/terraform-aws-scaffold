@@ -42,14 +42,9 @@ subnets:
     dns:
       size: 28
       start: 14
-hq:
-  ip_address:
-  bgp_asn: 65010
-  cidrs: []
 prefix_lists:
 dns:
   inbound: false
-  forward:
   private_zones:
 codedeploy:
   deployment_group_names:
@@ -60,3 +55,15 @@ codedeploy:
   auto_rollback_configuration:
     events:
       - DEPLOYMENT_FAILURE
+sites:
+  office:
+    enabled: true
+    ip_address: null
+    bgp_asn: 65010
+    cidrs: []
+directory:
+  enabled: false
+  name: ad.example.internal
+  short_name: EXAMPLE
+  edition: Standard
+  description: AWS Managed Microsoft AD, in the primary hub

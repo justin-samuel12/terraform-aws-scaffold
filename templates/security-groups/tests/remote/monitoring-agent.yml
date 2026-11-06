@@ -1,7 +1,9 @@
 description: The monitoring agent, reached by the operations collectors
+tags:
+  Kind: server
 ingress:
   - description: Agent port from the collectors in operations
+    ip_protocol: tcp
     from_port: 10050
     to_port: 10050
-    source:
-      - group:operations/monitoring
+    referenced_security_group_id: operations/monitoring

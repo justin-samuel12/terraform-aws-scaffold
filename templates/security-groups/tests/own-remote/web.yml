@@ -1,7 +1,9 @@
-description: Names its own environment's group the long way
+description: Names a group of its own environment the long way
+tags:
+  Kind: server
 ingress:
   - description: From web-lb
+    ip_protocol: tcp
     from_port: 443
     to_port: 443
-    source:
-      - group:production/web-lb
+    referenced_security_group_id: production/web-lb

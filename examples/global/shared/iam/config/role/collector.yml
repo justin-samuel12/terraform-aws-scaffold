@@ -1,0 +1,14 @@
+description: Monitoring collectors
+assume_role_policy:
+  statement:
+    - effect: Allow
+      actions:
+        - sts:AssumeRole
+      principals:
+        - type: Service
+          identifiers:
+            - ec2.amazonaws.com
+managed_policy_arns:
+  - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+  - session-manager
+  - read-tags

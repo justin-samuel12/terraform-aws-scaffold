@@ -13,33 +13,47 @@ variable "kms_key_arn" {
   type        = string
 }
 
-variable "subnet_ids" {
-  description = "One subnet per zone for the mount targets."
-  type        = list(string)
+variable "tags" {
+  description = "The file system's tags; Backup = standard puts it in the environment's AWS Backup plan. Name is the file system's name."
+  type        = map(string)
+  default     = {}
+}
+
+variable "mount_targets" {
+  description = "Key -> the arguments of aws_efs_mount_target: subnet_id and security_groups, one per zone."
+  type = map(object({
+    subnet_id       = string
+    security_groups = list(string)
+  }))
 
   validation {
-    condition     = length(var.subnet_ids) >= 2
+    condition     = length(var.mount_targets) >= 2
     error_message = "A file system needs mount targets in at least two zones."
   }
 }
 
-variable "security_group_ids" {
-  description = "The mount targets' security groups."
-  type        = list(string)
-}
-
 variable "access_points" {
-  description = "Access point name -> the directory it exposes and the POSIX user and permissions clients get there."
+  description = "Access point name -> the arguments of aws_efs_access_point: posix_user (uid, gid, secondary_gids), root_directory (path, and creation_info with owner_uid, owner_gid and permissions when the directory is to be created), tags."
   type = map(object({
-    path        = string
-    uid         = number
-    gid         = number
-    permissions = optional(string, "0750")
+    posix_user = object({
+      uid            = number
+      gid            = number
+      secondary_gids = optional(list(number))
+    })
+    root_directory = object({
+      path = string
+      creation_info = optional(object({
+        owner_uid   = number
+        owner_gid   = number
+        permissions = string
+      }))
+    })
+    tags = optional(map(string), {})
   }))
   default = {}
 
   validation {
-    condition     = alltrue([for a in var.access_points : startswith(a.path, "/") && can(regex("^0[0-7]{3}$", a.permissions))])
-    error_message = "An access point's path starts with /, and its permissions are octal such as 0750."
+    condition     = alltrue([for a in var.access_points : startswith(a.root_directory.path, "/") && (a.root_directory.creation_info == null || can(regex("^0[0-7]{3}$", try(a.root_directory.creation_info.permissions, ""))))])
+    error_message = "An access point's path starts with /, and creation_info's permissions are octal such as 0750."
   }
 }

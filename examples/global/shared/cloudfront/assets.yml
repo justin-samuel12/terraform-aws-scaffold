@@ -1,6 +1,0 @@
-# A private bucket served through CloudFront; the stack's output gives the bucket policy statement it needs.
-aliases:
-  - assets.example.com
-origin_bucket: example-assets
-certificate: assets.example.com
-waf: true

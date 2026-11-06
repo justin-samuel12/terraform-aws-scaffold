@@ -1,0 +1,10 @@
+engine: custom-sqlserver-se
+engine_version: 16.00.4195.2.v1
+license_model: license-included
+instance_class: db.m6i.xlarge
+allocated_storage: 200
+multi_az: true
+timezone: Eastern Standard Time
+password_wo_version: 1
+vpc_security_group_ids:
+  - salesforce-sync-database

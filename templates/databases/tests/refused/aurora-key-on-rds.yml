@@ -2,4 +2,4 @@ engine: postgres
 engine_version: "16"
 instance_class: db.t4g.medium
 allocated_storage: 50
-instances: 2
+count: 2

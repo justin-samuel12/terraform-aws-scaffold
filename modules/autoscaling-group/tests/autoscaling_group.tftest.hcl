@@ -1,4 +1,3 @@
-# What the module builds and refuses, against a mocked AWS -- docs/compute.md.
 mock_provider "aws" {
   mock_data "aws_ami" {
     defaults = { root_device_name = "/dev/xvda" }

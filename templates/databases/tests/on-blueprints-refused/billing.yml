@@ -1,0 +1,5 @@
+blueprint: sqlserver/v1
+instance_class: db.x2iedn.32xlarge
+multi_az: false
+vpc_security_group_ids:
+  - billing-database

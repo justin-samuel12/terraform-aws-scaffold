@@ -9,7 +9,7 @@ variable "environment" {
 }
 
 variable "config_dir" {
-  description = "The folder holding patching.yml; null = the stack's own folder. Tests point it at their own."
+  description = "The folder holding patch-baseline/<name>.yml and maintenance-window/<name>.yml; null = the stack's config/ folder. Tests point it at their own."
   type        = string
   default     = null
 }

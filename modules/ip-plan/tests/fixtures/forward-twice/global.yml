@@ -1,0 +1,58 @@
+state:
+  bucket: ""
+  region: us-east-2
+subnets:
+  environment:
+    private:
+      size: 19
+      start: 0
+      route: hub
+    data:
+      size: 22
+      start: 192
+      route: internal
+    public:
+      size: 23
+      start: 216
+      route: internet
+    ops:
+      size: 23
+      start: 228
+      route: hub
+    transit:
+      size: 28
+      start: 252
+      route: none
+  hub:
+    public:
+      size: 24
+      start: 0
+    transit:
+      size: 28
+      start: 15
+    dns:
+      size: 28
+      start: 14
+sites:
+  office:
+    ip_address:
+    bgp_asn: 65010
+    cidrs: []
+    forward:
+      ad.example.com:
+        - 10.10.128.6
+        - 10.10.132.6
+  partner:
+    ip_address: 198.51.100.20
+    bgp_asn: 65020
+    forward:
+      ad.example.com:
+        - 172.20.0.10
+prefix_lists:
+  staff-team:
+    - cidr: 10.10.70.0/24
+      description: Corporate wired
+    - cidr: 10.10.80.0/24
+      description: Corporate wireless
+dns:
+  inbound: true

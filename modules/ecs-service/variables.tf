@@ -36,9 +36,8 @@ variable "execute_command" {
 }
 
 variable "cpu" {
-  description = "CPU units for the whole task (1024 is one vCPU)."
+  description = "aws_ecs_task_definition cpu: CPU units for the whole task (1024 is one vCPU)."
   type        = number
-  default     = 256
 
   validation {
     condition     = contains([256, 512, 1024, 2048, 4096, 8192, 16384], var.cpu)
@@ -47,9 +46,8 @@ variable "cpu" {
 }
 
 variable "memory" {
-  description = "Memory in MiB for the whole task; Fargate allows a range for each cpu size."
+  description = "aws_ecs_task_definition memory: MiB for the whole task; Fargate allows a range for each cpu size."
   type        = number
-  default     = 512
 
   validation {
     condition     = var.memory >= 512 && var.memory <= 122880 && var.memory % 512 == 0
@@ -57,56 +55,66 @@ variable "memory" {
   }
 }
 
-variable "architecture" {
-  description = "The CPU the containers are built for: X86_64 or ARM64 (Graviton, cheaper)."
-  type        = string
-  default     = "X86_64"
+variable "runtime_platform" {
+  description = "aws_ecs_task_definition runtime_platform: cpu_architecture (X86_64 or ARM64) and operating_system_family; null: none, so Fargate's own (X86_64, LINUX)."
+  type = object({
+    cpu_architecture        = optional(string)
+    operating_system_family = optional(string)
+  })
+  default = null
 
   validation {
-    condition     = contains(["X86_64", "ARM64"], var.architecture)
-    error_message = "architecture is X86_64 or ARM64."
+    condition     = var.runtime_platform == null || contains(["X86_64", "ARM64"], coalesce(try(var.runtime_platform.cpu_architecture, null), "X86_64"))
+    error_message = "runtime_platform.cpu_architecture is X86_64 or ARM64."
   }
 }
 
-variable "containers" {
-  description = "The task's containers: name, image, the port it listens on (the first with a port takes the load balancer's traffic), environment variables, secrets as name -> ARN, and an optional container health check."
+variable "container_definitions" {
+  description = "The task's containers, in the task definition's own names: name, image, essential, command, portMappings (containerPort; the first container with one takes the load balancer's traffic), environment (name, value), secrets (name, valueFrom: an ARN) and healthCheck. Logging and the init process are the module's."
   type = list(object({
-    name        = string
-    image       = string
-    port        = optional(number)
-    essential   = optional(bool, true)
-    command     = optional(list(string))
-    environment = optional(map(string), {})
-    secrets     = optional(map(string), {})
-    health_check = optional(object({
-      command      = list(string)
-      interval     = optional(number, 30)
-      timeout      = optional(number, 5)
-      retries      = optional(number, 3)
-      start_period = optional(number, 0)
+    name      = string
+    image     = string
+    essential = optional(bool)
+    command   = optional(list(string))
+    portMappings = optional(list(object({
+      containerPort = number
+    })), [])
+    environment = optional(list(object({
+      name  = string
+      value = string
+    })), [])
+    secrets = optional(list(object({
+      name      = string
+      valueFrom = string
+    })), [])
+    healthCheck = optional(object({
+      command     = list(string)
+      interval    = optional(number)
+      timeout     = optional(number)
+      retries     = optional(number)
+      startPeriod = optional(number)
     }))
   }))
 
   validation {
-    condition     = length(var.containers) > 0 && length(distinct([for c in var.containers : c.name])) == length(var.containers) && anytrue([for c in var.containers : c.essential]) && alltrue([for c in var.containers : can(regex("^[a-zA-Z0-9][a-zA-Z0-9_-]{0,254}$", c.name)) && trimspace(c.image) != ""])
+    condition     = length(var.container_definitions) > 0 && length(distinct([for c in var.container_definitions : c.name])) == length(var.container_definitions) && anytrue([for c in var.container_definitions : coalesce(c.essential, true)]) && alltrue([for c in var.container_definitions : can(regex("^[a-zA-Z0-9][a-zA-Z0-9_-]{0,254}$", c.name)) && trimspace(c.image) != ""])
     error_message = "A task has at least one container, each with its own name and an image, and at least one essential."
   }
 
   validation {
-    condition     = alltrue(flatten([for c in var.containers : [for k in keys(c.environment) : !can(regex("(?i)(password|secret|token|private_key|api_key|credential)", k))]]))
-    error_message = "Environment variables never hold secrets: put them in Secrets Manager or Parameter Store and list them under secrets, name -> ARN (SKILLS.md)."
+    condition     = alltrue(flatten([for c in var.container_definitions : [for e in c.environment : !can(regex("(?i)(password|secret|token|private_key|api_key|credential)", e.name))]]))
+    error_message = "Environment variables never hold secrets: put them in Secrets Manager or Parameter Store and list them under secrets, name and valueFrom (SKILLS.md)."
   }
 
   validation {
-    condition     = alltrue(flatten([for c in var.containers : [for arn in values(c.secrets) : can(regex("^arn:aws[a-z-]*:(secretsmanager|ssm):[a-z0-9-]+:[0-9]{12}:(secret:|parameter/)", arn))]]))
-    error_message = "secrets are name -> the full ARN of a Secrets Manager secret or a Parameter Store parameter."
+    condition     = alltrue(flatten([for c in var.container_definitions : [for s in c.secrets : can(regex("^arn:aws[a-z-]*:(secretsmanager|ssm):[a-z0-9-]+:[0-9]{12}:(secret:|parameter/)", s.valueFrom))]]))
+    error_message = "A secret's valueFrom is the full ARN of a Secrets Manager secret or a Parameter Store parameter."
   }
 }
 
 variable "desired_count" {
-  description = "How many tasks run; with autoscaling, how many it starts with."
+  description = "aws_ecs_service desired_count: how many tasks run; with autoscaling, how many it starts with."
   type        = number
-  default     = 2
 
   validation {
     condition     = var.desired_count >= 0 && floor(var.desired_count) == var.desired_count
@@ -114,18 +122,16 @@ variable "desired_count" {
   }
 }
 
-variable "subnet_ids" {
-  description = "The subnets the tasks run in: every zone of their tier."
-  type        = list(string)
-}
-
-variable "security_group_ids" {
-  description = "The security groups on every task's network interface."
-  type        = list(string)
+variable "network_configuration" {
+  description = "aws_ecs_service network_configuration: the subnets the tasks run in and the security groups on each task's network interface, by ID. Tasks never get a public address."
+  type = object({
+    subnets         = list(string)
+    security_groups = list(string)
+  })
 
   validation {
-    condition     = length(var.security_group_ids) > 0
-    error_message = "A service needs at least one security group, so what may reach it is chosen."
+    condition     = length(var.network_configuration.subnets) > 0 && length(var.network_configuration.security_groups) > 0
+    error_message = "A service needs subnets, and at least one security group, so what may reach it is chosen."
   }
 }
 
@@ -135,15 +141,15 @@ variable "vpc_id" {
   default     = null
 }
 
-variable "health" {
-  description = "How the load balancer checks a task: path, healthy codes, interval and timeout in seconds, and checks in a row to be healthy or unhealthy."
+variable "health_check" {
+  description = "aws_lb_target_group health_check: path, matcher, interval, timeout, healthy_threshold, unhealthy_threshold; any left null is the provider's default."
   type = object({
-    path                = optional(string, "/")
-    matcher             = optional(string, "200-399")
-    interval            = optional(number, 30)
-    timeout             = optional(number, 5)
-    healthy_threshold   = optional(number, 3)
-    unhealthy_threshold = optional(number, 3)
+    path                = optional(string)
+    matcher             = optional(string)
+    interval            = optional(number)
+    timeout             = optional(number)
+    healthy_threshold   = optional(number)
+    unhealthy_threshold = optional(number)
   })
   default = {}
 }
@@ -164,7 +170,7 @@ variable "routes" {
   }
 
   validation {
-    condition     = length(var.routes) == 0 || anytrue([for c in var.containers : c.port != null])
+    condition     = length(var.routes) == 0 || anytrue([for c in var.container_definitions : length(c.portMappings) > 0])
     error_message = "Routes need a container with a port to forward to."
   }
 }
@@ -176,61 +182,80 @@ variable "load_balancer_arn_suffix" {
 }
 
 variable "autoscaling" {
-  description = "Target tracking: between min_capacity and max_capacity tasks, keeping a metric (ECSServiceAverageCPUUtilization, ECSServiceAverageMemoryUtilization or ALBRequestCountPerTarget) near target_value. null: always desired_count."
+  description = "Target tracking: aws_appautoscaling_target min_capacity and max_capacity, and aws_appautoscaling_policy target_tracking_scaling_policy_configuration (target_value, predefined_metric_specification.predefined_metric_type). null: always desired_count."
   type = object({
-    min_capacity           = number
-    max_capacity           = number
-    predefined_metric_type = optional(string, "ECSServiceAverageCPUUtilization")
-    target_value           = number
+    min_capacity = number
+    max_capacity = number
+    target_tracking_scaling_policy_configuration = object({
+      target_value = number
+      predefined_metric_specification = object({
+        predefined_metric_type = string
+      })
+    })
   })
   default = null
 
   validation {
-    condition     = var.autoscaling == null || try(var.autoscaling.min_capacity >= 0 && var.autoscaling.min_capacity <= var.autoscaling.max_capacity && contains(["ECSServiceAverageCPUUtilization", "ECSServiceAverageMemoryUtilization", "ALBRequestCountPerTarget"], var.autoscaling.predefined_metric_type), false)
+    condition     = var.autoscaling == null || try(var.autoscaling.min_capacity >= 0 && var.autoscaling.min_capacity <= var.autoscaling.max_capacity && contains(["ECSServiceAverageCPUUtilization", "ECSServiceAverageMemoryUtilization", "ALBRequestCountPerTarget"], var.autoscaling.target_tracking_scaling_policy_configuration.predefined_metric_specification.predefined_metric_type), false)
     error_message = "autoscaling: min_capacity <= max_capacity, keeping ECSServiceAverageCPUUtilization, ECSServiceAverageMemoryUtilization or ALBRequestCountPerTarget near target_value."
   }
 
   validation {
-    condition     = try(var.autoscaling.predefined_metric_type, "") != "ALBRequestCountPerTarget" || (length(var.routes) > 0 && var.load_balancer_arn_suffix != null && var.deployment.strategy == "rolling")
-    error_message = "Scaling on requests per task needs routes and their load balancer, and a rolling deployment: blue/green swaps the target group it would count."
+    condition     = try(var.autoscaling.target_tracking_scaling_policy_configuration.predefined_metric_specification.predefined_metric_type, "") != "ALBRequestCountPerTarget" || (length(var.routes) > 0 && var.load_balancer_arn_suffix != null && var.deployment_controller == "ECS")
+    error_message = "Scaling on requests per task needs routes and their load balancer, and an ECS deployment: CODE_DEPLOY swaps the target group it would count."
   }
 }
 
-variable "deployment" {
-  description = "How a new version goes out. rolling: ECS replaces tasks a few at a time, rolling back by itself if they never become healthy. blue_green: CodeDeploy starts the new version beside the old and moves traffic all at once (CodeDeployDefault.ECSAllAtOnce), as a canary or linearly."
+variable "deployment_controller" {
+  description = "aws_ecs_service deployment_controller type. ECS: ECS replaces tasks a few at a time, rolling back by itself if they never become healthy. CODE_DEPLOY: CodeDeploy starts the new version beside the old and moves traffic as deployment_group says."
+  type        = string
+  default     = "ECS"
+
+  validation {
+    condition     = contains(["ECS", "CODE_DEPLOY"], var.deployment_controller)
+    error_message = "deployment_controller is ECS or CODE_DEPLOY."
+  }
+
+  validation {
+    condition     = var.deployment_controller == "ECS" || (length(var.routes) > 0 && var.codedeploy_role_arn != null)
+    error_message = "A CODE_DEPLOY service moves traffic between two target groups, so it needs routes and the environment's CodeDeploy role."
+  }
+}
+
+variable "deployment_minimum_healthy_percent" {
+  description = "aws_ecs_service deployment_minimum_healthy_percent; null: the provider's default."
+  type        = number
+  default     = null
+}
+
+variable "deployment_maximum_percent" {
+  description = "aws_ecs_service deployment_maximum_percent; null: the provider's default."
+  type        = number
+  default     = null
+}
+
+variable "deployment_group" {
+  description = "For CODE_DEPLOY, the aws_codedeploy_deployment_group's deployment_config_name, blue_green_deployment_config.terminate_blue_instances_on_deployment_success.termination_wait_time_in_minutes (null: the provider's default) and the auto rollback events."
   type = object({
-    strategy                         = optional(string, "rolling")
     deployment_config_name           = optional(string)
-    minimum_healthy_percent          = optional(number, 100)
-    maximum_percent                  = optional(number, 200)
-    termination_wait_time_in_minutes = optional(number, 5)
+    termination_wait_time_in_minutes = optional(number)
     rollback_events                  = optional(list(string), ["DEPLOYMENT_FAILURE", "DEPLOYMENT_STOP_ON_REQUEST"])
   })
   default = {}
 
   validation {
-    condition     = contains(["rolling", "blue_green"], var.deployment.strategy)
-    error_message = "deployment.strategy is rolling or blue_green."
+    condition     = (var.deployment_controller == "CODE_DEPLOY") == (var.deployment_group.deployment_config_name != null)
+    error_message = "deployment_config_name (a CodeDeploy setting: all at once, canary or linear) is given exactly when deployment_controller is CODE_DEPLOY; an ECS deployment is ECS's own."
   }
 
   validation {
-    condition     = var.deployment.strategy == "blue_green" || var.deployment.deployment_config_name == null
-    error_message = "A rolling deployment is ECS's own, so deployment_config_name (a CodeDeploy setting: all at once, canary or linear) needs strategy blue_green."
-  }
-
-  validation {
-    condition     = var.deployment.deployment_config_name == null || (can(regex("^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$", coalesce(var.deployment.deployment_config_name, "-"))) && (!startswith(coalesce(var.deployment.deployment_config_name, "-"), "CodeDeployDefault.") || startswith(coalesce(var.deployment.deployment_config_name, "-"), "CodeDeployDefault.ECS")))
+    condition     = var.deployment_group.deployment_config_name == null || (can(regex("^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$", coalesce(var.deployment_group.deployment_config_name, "-"))) && (!startswith(coalesce(var.deployment_group.deployment_config_name, "-"), "CodeDeployDefault.") || startswith(coalesce(var.deployment_group.deployment_config_name, "-"), "CodeDeployDefault.ECS")))
     error_message = "deployment_config_name is an ECS one, such as CodeDeployDefault.ECSAllAtOnce, CodeDeployDefault.ECSCanary10Percent5Minutes or CodeDeployDefault.ECSLinear10PercentEvery1Minutes, or a custom configuration's name."
   }
 
   validation {
-    condition     = var.deployment.strategy == "rolling" || (length(var.routes) > 0 && var.codedeploy_role_arn != null)
-    error_message = "A blue/green deployment moves traffic between two target groups, so it needs routes, and the environment's CodeDeploy role."
-  }
-
-  validation {
-    condition     = var.deployment.termination_wait_time_in_minutes >= 0 && var.deployment.termination_wait_time_in_minutes <= 2880 && var.deployment.minimum_healthy_percent >= 0 && var.deployment.maximum_percent >= 100 && alltrue([for e in var.deployment.rollback_events : contains(["DEPLOYMENT_FAILURE", "DEPLOYMENT_STOP_ON_ALARM", "DEPLOYMENT_STOP_ON_REQUEST"], e)])
-    error_message = "termination_wait_time_in_minutes is 0 to 2880, minimum_healthy_percent 0 or more, maximum_percent 100 or more; rollback_events are DEPLOYMENT_FAILURE, DEPLOYMENT_STOP_ON_ALARM or DEPLOYMENT_STOP_ON_REQUEST."
+    condition     = (var.deployment_group.termination_wait_time_in_minutes == null || (coalesce(var.deployment_group.termination_wait_time_in_minutes, 0) >= 0 && coalesce(var.deployment_group.termination_wait_time_in_minutes, 0) <= 2880)) && alltrue([for e in var.deployment_group.rollback_events : contains(["DEPLOYMENT_FAILURE", "DEPLOYMENT_STOP_ON_ALARM", "DEPLOYMENT_STOP_ON_REQUEST"], e)])
+    error_message = "termination_wait_time_in_minutes is 0 to 2880; rollback_events are DEPLOYMENT_FAILURE, DEPLOYMENT_STOP_ON_ALARM or DEPLOYMENT_STOP_ON_REQUEST."
   }
 }
 
@@ -256,11 +281,16 @@ variable "capacity_provider_strategy" {
 }
 
 variable "statements" {
-  description = "The application's own permissions, on its task role: what its code may do in AWS."
+  description = "The application's own permissions, on its task role: what its code may do in AWS, each with an optional condition (test, variable, values)."
   type = list(object({
     effect    = optional(string, "Allow")
     actions   = list(string)
     resources = list(string)
+    condition = optional(list(object({
+      test     = string
+      variable = string
+      values   = list(string)
+    })), [])
   }))
   default = []
 
@@ -280,4 +310,10 @@ variable "log_kms_key_arn" {
   description = "A key for the log group, whose policy lets CloudWatch Logs use it; null: CloudWatch's own encryption."
   type        = string
   default     = null
+}
+
+variable "tags" {
+  description = "Tags from the file, on everything this module builds; the ones it sets itself (Name and the like) win."
+  type        = map(string)
+  default     = {}
 }

@@ -1,0 +1,30 @@
+count: 2
+instance_type: t3.medium
+ami: ami-0123456789abcdef0
+tier: ops
+iam_instance_profile: dashboards
+vpc_security_group_ids:
+  - dashboards
+  - monitoring-agent
+target_group:
+  port: 3000
+  slow_start: 30
+  health_check:
+    path: /api/health
+listener_rule:
+  listener_arn: internal/443
+  priority: 1000
+  condition:
+    host_header:
+      values:
+        - dashboards.example.com
+tags:
+  Backup: standard
+  CodeDeploy: "['dashboards']"
+route53_records:
+  - name: dashboards.example.com
+    type: A
+    zone_id: example.com
+    alias:
+      name: internal
+      evaluate_target_health: true

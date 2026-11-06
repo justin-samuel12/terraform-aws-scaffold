@@ -1,6 +1,3 @@
-data "aws_partition" "current" {}
-
-# Only EKS Pod Identity may assume an app's role, and only for this cluster in this account.
 resource "aws_iam_role" "roles" {
   for_each = var.roles
 
@@ -21,14 +18,14 @@ resource "aws_iam_role" "roles" {
     }]
   })
 
-  tags = { Name = each.key }
+  tags = { Name = "${local.name_prefix}${trimprefix(each.key, "${local.environment_tag}-")}" }
 }
 
 resource "aws_iam_role_policy_attachment" "managed" {
-  for_each = merge([for name, r in var.roles : { for p in r.managed_policies : "${name}/${p}" => { role = name, policy = p } }]...)
+  for_each = merge([for name, r in var.roles : { for p in r.policy_arns : "${name} ${p}" => { role = name, policy_arn = p } }]...)
 
   role       = aws_iam_role.roles[each.value.role].name
-  policy_arn = "arn:${data.aws_partition.current.partition}:iam::aws:policy/${each.value.policy}"
+  policy_arn = each.value.policy_arn
 }
 
 resource "aws_iam_role_policy" "own" {
@@ -44,7 +41,6 @@ resource "aws_iam_role_policy" "own" {
   })
 }
 
-# A pod running as the service account in the namespace gets the role's credentials; no other pod does.
 resource "aws_eks_pod_identity_association" "associations" {
   for_each = var.roles
 
@@ -53,7 +49,7 @@ resource "aws_eks_pod_identity_association" "associations" {
   service_account = each.value.service_account
   role_arn        = aws_iam_role.roles[each.key].arn
 
-  tags = { Name = each.key }
+  tags = { Name = "${local.name_prefix}${trimprefix(each.key, "${local.environment_tag}-")}" }
 
   depends_on = [aws_iam_role_policy_attachment.managed, aws_iam_role_policy.own]
 }

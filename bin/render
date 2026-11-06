@@ -1,25 +1,23 @@
 #!/usr/bin/env bash
-# Apps on blueprints, side by side across regions and environments -- docs/blueprints.md. Read-only; nothing in AWS.
-#   bin/render            every app on a blueprint, and which version each environment uses
-#   bin/render <app>      one app: what each environment's file sets; everything else is its blueprint's
-# The plan is still the final word: this shows the files, not what AWS has.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
 cd "${REPO_ROOT}"
 
 APP="${1:-}"
-# Every compute file that names a blueprint, in live/ and examples/: "<where> <app> <blueprint>".
-files="$(for f in live/*/*/compute/*.yml examples/*/*/compute/*.yml; do
-    [[ -f "${f}" ]] || continue
-    b="$(yq -r '.blueprint // ""' "${f}" 2>/dev/null)"; [[ -n "${b}" ]] || continue
-    where="${f%/compute/*}"; echo "${where} $(basename "${f}" .yml) ${b}"
-done)"
+files="$(find live examples -mindepth 4 -name '*.yml' -path '*/*/*/*/*' \
+        -not -path '*/deployments/*' -not -path '*/tests/*' -not -path '*/engine-versions/*' -not -path '*/.terraform/*' 2>/dev/null | sort |
+    while read -r f; do
+        stack="$(cut -d/ -f1-4 <<<"${f}")"
+        case "${stack##*/}" in compute | containers | databases) ;; *) continue ;; esac
+        b="$(yq -r '.blueprint // ""' "${f}" 2>/dev/null)"; [[ -n "${b}" ]] || continue
+        echo "${stack} $(basename "${f}" .yml) ${stack##*/}/${b} ${f}"
+    done)"
 
 if [[ -z "${APP}" ]]; then
     head1 "Apps on blueprints"
-    [[ -n "${files}" ]] || { say "None yet: a compute file with blueprint: <name>/v<n> puts an app on one."; echo; exit 0; }
-    printf '  %-26s %-24s %s\n' APP BLUEPRINT WHERE
-    awk '{print $2, $3, $1}' <<<"${files}" | sort | awk '{w[$1" "$2] = w[$1" "$2] (w[$1" "$2] ? ", " : "") $3} END {for (k in w) {split(k, a, " "); printf "  %-26s %-24s %s\n", a[1], a[2], w[k]}}' | sort
+    [[ -n "${files}" ]] || { say "None yet: a compute, containers or databases file with blueprint: <name>/v<n> puts an app on one."; echo; exit 0; }
+    printf '  %-26s %-34s %s\n' APP BLUEPRINT WHERE
+    awk '{print $2, $3, $1}' <<<"${files}" | sort | awk '{w[$1" "$2] = w[$1" "$2] (w[$1" "$2] ? ", " : "") $3} END {for (k in w) {split(k, a, " "); printf "  %-26s %-34s %s\n", a[1], a[2], w[k]}}' | sort
     echo
     say "Blueprints in use: $(awk '{print $3}' <<<"${files}" | sort -u | xargs)"
     say "make render APP=<app> shows one app across its environments."
@@ -28,15 +26,15 @@ if [[ -z "${APP}" ]]; then
 fi
 
 mine="$(awk -v app="${APP}" '$2 == app' <<<"${files}")"
-[[ -n "${mine}" ]] || { echo "bin/render: no compute file for ${APP} names a blueprint" >&2; exit 1; }
+[[ -n "${mine}" ]] || { echo "bin/render: no compute, containers or databases file for ${APP} names a blueprint" >&2; exit 1; }
 wheres="$(awk '{print $1}' <<<"${mine}")"
 
 head1 "${APP}"
-# One row per key any environment's file sets, one column per environment; blank means "the blueprint's".
-json_of() { yq -o=json '.' "$1/compute/${APP}.yml"; }
+file_of() { awk -v w="$1" -v app="${APP}" '$1 == w && $2 == app {print $4; exit}' <<<"${files}"; }
+json_of() { yq -o=json '.' "$(file_of "$1")"; }
 keys="$(for w in ${wheres}; do json_of "${w}" | jq -r 'paths(scalars) | map(tostring) | join(".")'; done | grep -v '^blueprint$' | sort -u)"
 printf '  %-36s' ""; for w in ${wheres}; do printf ' %-26s' "${w#live/}"; done; echo
-printf '  %-36s' "blueprint"; for w in ${wheres}; do printf ' %-26s' "$(yq -r '.blueprint' "${w}/compute/${APP}.yml")"; done; echo
+printf '  %-36s' "blueprint"; for w in ${wheres}; do printf ' %-26s' "$(yq -r '.blueprint' "$(file_of "${w}")")"; done; echo
 while read -r k; do
     [[ -n "${k}" ]] || continue
     printf '  %-36s' "${k}"
@@ -50,5 +48,5 @@ echo
 if [[ "$(awk '{print $3}' <<<"${mine}" | sort -u | wc -l | tr -d ' ')" -gt 1 ]]; then
     warn "${APP} is on more than one blueprint version: deliberate while a new version rolls out, a leftover otherwise."
 fi
-say "· = the blueprint's own value. Everything not listed comes from the blueprint (blueprints/<name>/<version>.yml)."
+say "· = the blueprint's own value. Everything not listed comes from the blueprint (blueprints/<stack>/<name>/<version>.yml)."
 echo

@@ -1,0 +1,13 @@
+description: Windows security and critical updates, approved after 7 days
+operating_system: WINDOWS
+approval_rule:
+  - approve_after_days: 7
+    patch_filter:
+      - key: CLASSIFICATION
+        values:
+          - SecurityUpdates
+          - CriticalUpdates
+      - key: MSRC_SEVERITY
+        values:
+          - Critical
+          - Important

@@ -1,21 +1,21 @@
-# What the module builds and refuses; AWS is mocked, the code is zipped for real -- docs/global.md.
 mock_provider "aws" {}
 
 variables {
-  name        = "hello"
-  source_dir  = "tests/src/hello"
-  runtime     = "python3.12"
-  handler     = "app.handler"
-  schedule    = "rate(1 day)"
-  environment = { LEVEL = "info" }
+  name                = "hello"
+  source_dir          = "tests/src/hello"
+  runtime             = "python3.12"
+  handler             = "app.handler"
+  schedule_expression = "rate(1 day)"
+  retention_in_days   = 365
+  environment         = { LEVEL = "info" }
 }
 
 run "scheduled_function" {
   command = plan
 
   assert {
-    condition     = aws_lambda_function.function.architectures == tolist(["arm64"]) && aws_cloudwatch_log_group.function.retention_in_days == 365
-    error_message = "Graviton, with its own log group kept a year."
+    condition     = aws_lambda_function.function.architectures == tolist(["arm64"]) && aws_cloudwatch_log_group.function.retention_in_days == 365 && aws_lambda_function.function.memory_size == null && aws_lambda_function.function.timeout == null
+    error_message = "Graviton, with its own log group kept as long as asked; memory and timeout are the provider's unless given."
   }
 
   assert {
@@ -33,8 +33,8 @@ run "queue_consumer" {
   command = plan
 
   variables {
-    schedule = null
-    queue    = { arn = "arn:aws:sqs:us-east-2:111111111111:production-orders", batch_size = 5 }
+    schedule_expression  = null
+    event_source_mapping = { event_source_arn = "arn:aws:sqs:us-east-2:111111111111:production-orders", batch_size = 5, function_response_types = ["ReportBatchItemFailures"] }
   }
 
   assert {
@@ -43,7 +43,7 @@ run "queue_consumer" {
   }
 
   assert {
-    condition     = local.statements[1].Resource == var.queue.arn && contains(local.statements[1].Action, "sqs:DeleteMessage") && local.statements[2].Condition.StringLike["kms:ViaService"] == "sqs.*.amazonaws.com"
+    condition     = local.statements[1].Resource == var.event_source_mapping.event_source_arn && contains(local.statements[1].Action, "sqs:DeleteMessage") && local.statements[2].Condition.StringLike["kms:ViaService"] == "sqs.*.amazonaws.com"
     error_message = "The function may read and delete only its own queue's messages, and decrypt them only through SQS."
   }
 }
@@ -52,7 +52,7 @@ run "topic_subscriber" {
   command = plan
 
   variables {
-    schedule = null
+    schedule_expression = null
     topics = {
       orders = { arn = "arn:aws:sns:us-east-2:111111111111:production-orders", filter_policy = "{\"status\":[\"failed\"]}" }
     }
@@ -67,6 +67,29 @@ run "topic_subscriber" {
     condition     = aws_lambda_permission.topics["orders"].principal == "sns.amazonaws.com" && aws_lambda_permission.topics["orders"].source_arn == "arn:aws:sns:us-east-2:111111111111:production-orders" && aws_lambda_permission.topics["orders"].statement_id == "sns-orders"
     error_message = "Only that topic may invoke it."
   }
+}
+
+run "statement_keeps_effect_and_condition" {
+  command = plan
+
+  variables {
+    statements = [{ effect = "Deny", actions = ["s3:DeleteObject"], resources = ["arn:aws:s3:::reports/*"], condition = [{ test = "Bool", variable = "aws:SecureTransport", values = ["false"] }] }]
+  }
+
+  assert {
+    condition     = jsonencode(local.statements[1]) == jsonencode({ Action = ["s3:DeleteObject"], Condition = { Bool = { "aws:SecureTransport" = ["false"] } }, Effect = "Deny", Resource = ["arn:aws:s3:::reports/*"] })
+    error_message = "A statement keeps its effect and condition."
+  }
+}
+
+run "rejects_a_retention_logs_do_not_have" {
+  command = plan
+
+  variables {
+    retention_in_days = 42
+  }
+
+  expect_failures = [var.retention_in_days]
 }
 
 run "rejects_a_secret_in_the_environment" {

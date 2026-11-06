@@ -9,7 +9,7 @@ variable "environment" {
 }
 
 variable "region" {
-  description = "The region backups are taken in; copies go to the other region in config/."
+  description = "The region the plans run in: every rule backs up into a vault here."
   type        = string
 
   validation {
@@ -19,7 +19,7 @@ variable "region" {
 }
 
 variable "config_dir" {
-  description = "The folder holding backups.yml; null = the stack's own folder. Tests point it at their own."
+  description = "The folder holding backup-vault/<name>.yml and backup-plan/<name>.yml; null = the stack's config/ folder. Tests point it at their own."
   type        = string
   default     = null
 }

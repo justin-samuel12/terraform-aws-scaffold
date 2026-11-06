@@ -1,0 +1,23 @@
+blueprint: ecs-service/v1
+container_definitions:
+  - name: payments-api
+    image: 111111111111.dkr.ecr.us-east-2.amazonaws.com/payments-api:3.1.0
+    portMappings:
+      - containerPort: 8080
+    secrets:
+      - name: DATABASE_URL
+        valueFrom: arn:aws:secretsmanager:us-east-2:111111111111:secret:operations/payments-api/database-AbCdEf
+listener_rule:
+  listener_arn: services/443
+  priority: 1400
+  condition:
+    path_pattern:
+      values:
+        - /payments-api/*
+cpu: 1024
+memory: 2048
+appautoscaling_target:
+  max_capacity: 10
+network_configuration:
+  security_groups:
+    - payments-files

@@ -1,4 +1,3 @@
-# Oregon. Every account must exist before anything here runs. Quote account IDs: YAML drops a leading zero.
 zones:
   - usw2-az1
   - usw2-az2

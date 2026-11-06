@@ -1,7 +1,9 @@
 runtime: python3.12
 handler: app.handler
+cloudwatch_log_group:
+  retention_in_days: 365
 sns_topic_subscription:
-  - topic_arn: topic:orders
+  - topic_arn: orders
     filter_policy:
       status:
         - failed

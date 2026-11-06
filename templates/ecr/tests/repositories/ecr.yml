@@ -1,4 +1,0 @@
-repositories:
-  - gitops
-  - homekit
-keep_images: 20

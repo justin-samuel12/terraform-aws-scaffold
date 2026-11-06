@@ -1,0 +1,17 @@
+fifo_queue: true
+content_based_deduplication: true
+policy:
+  statement:
+    - actions:
+        - sqs:SendMessage
+      principals:
+        - type: Service
+          identifiers:
+            - sns.amazonaws.com
+      resources:
+        - payments
+      condition:
+        - test: ArnEquals
+          variable: aws:SourceArn
+          values:
+            - payments

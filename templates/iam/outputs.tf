@@ -1,10 +1,15 @@
 output "arns" {
   description = "Role name -> ARN."
   value       = module.iam_role.arns
+
+  precondition {
+    condition     = length(local.problems) == 0
+    error_message = "The IAM files are not usable: ${join("; ", local.problems)}."
+  }
 }
 
 output "instance_profiles" {
-  description = "Role name -> instance profile, for roles EC2 assumes; compute finds them by name."
+  description = "Instance profile name -> name, one per file in instance-profile/; compute finds them by name."
   value       = module.iam_role.instance_profiles
 }
 

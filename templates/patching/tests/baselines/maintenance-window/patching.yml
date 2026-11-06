@@ -1,0 +1,4 @@
+description: Weekly patching, Sunday 07:00 UTC
+schedule: cron(0 7 ? * SUN *)
+duration: 3
+cutoff: 1

@@ -1,5 +1,0 @@
-# Replace host with the database's endpoint, from the databases stack's output.
-description: Port forwarding to the dashboards database
-host: dashboards.abcdefghijkl.us-east-1.rds.amazonaws.com
-port: 5432
-local_port: 15432

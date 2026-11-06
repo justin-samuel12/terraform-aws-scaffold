@@ -9,7 +9,7 @@ output "arn" {
 }
 
 output "endpoint" {
-  description = "The Kubernetes API's address, private unless public_access_cidrs are set."
+  description = "The Kubernetes API's address, private unless endpoint_public_access is true."
   value       = aws_eks_cluster.cluster.endpoint
 }
 

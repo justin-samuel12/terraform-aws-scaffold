@@ -1,4 +1,3 @@
-# File system files turned into file systems, against a mocked AWS -- docs/data.md.
 mock_provider "aws" {}
 
 override_data {
@@ -7,8 +6,13 @@ override_data {
 }
 
 override_data {
-  target = data.aws_subnets.tiers["data"]
-  values = { ids = ["subnet-data-1", "subnet-data-2", "subnet-data-3"] }
+  target = data.aws_subnet.subnets["data-az1"]
+  values = { id = "subnet-data-1" }
+}
+
+override_data {
+  target = data.aws_subnet.subnets["data-az2"]
+  values = { id = "subnet-data-2" }
 }
 
 override_data {
@@ -43,8 +47,18 @@ run "sftp" {
   }
 
   assert {
-    condition     = toset(keys(output.file_systems)) == toset(["sftp"]) && toset(keys(output.file_systems.sftp.access_point_ids)) == toset(["uploads"])
+    condition     = toset(keys(output.file_systems)) == toset(["sftp"]) && toset(keys(output.file_systems.sftp.access_point_ids)) == toset(["uploads"]) && length(local.problems) == 0
     error_message = "One file system per file, with its access points."
+  }
+
+  assert {
+    condition     = jsonencode(local.resolved.sftp.mount_targets) == jsonencode({ data-az1 = { subnet_id = "subnet-data-1", security_groups = ["sg-efs"] }, data-az2 = { subnet_id = "subnet-data-2", security_groups = ["sg-efs"] }, subnet-0data3 = { subnet_id = "subnet-0data3", security_groups = ["sg-0efs"] } })
+    error_message = "Subnets and groups are named and found; ids pass through."
+  }
+
+  assert {
+    condition     = local.resolved.sftp.tags.Backup == "standard" && local.resolved.sftp.access_points.uploads.root_directory.creation_info.permissions == "0750"
+    error_message = "Backup and creation_info are what the file writes."
   }
 }
 
@@ -55,4 +69,19 @@ run "nothing_listed" {
     condition     = output.file_systems == {}
     error_message = "Without files, no file systems."
   }
+}
+
+run "refuses_keys_that_are_not_terraform_arguments" {
+  command = plan
+
+  variables {
+    config_dir = "tests/not-native"
+  }
+
+  assert {
+    condition     = contains(local.problems, "sftp.yml: keys are tags, mount_targets, access_points: aws_efs_file_system's tags, its aws_efs_mount_target and aws_efs_access_point resources")
+    error_message = "tier: and security_groups: are not keys."
+  }
+
+  expect_failures = [output.file_systems]
 }

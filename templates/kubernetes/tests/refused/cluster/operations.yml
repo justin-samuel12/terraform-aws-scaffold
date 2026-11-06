@@ -1,0 +1,22 @@
+version: 1.34
+node_pools:
+  - gpu
+vpc_config:
+  subnet_ids:
+    - private-az1
+    - private-az9
+  endpoint_public_access: true
+  public_access_cidrs:
+    - 0.0.0.0/0
+access_entry:
+  - principal_arn: platform-admin
+    access_policy_association:
+      - policy_arn: AmazonEKSClusterAdminPolicy
+        access_scope:
+          type: namespace
+  - principal_arn: platform-admin
+    access_policy_association:
+      - policy_arn: arn:aws:eks::aws:cluster-access-policy/AmazonEKSViewPolicy
+        access_scope:
+          type: cluster
+  - principal_arn: not a role

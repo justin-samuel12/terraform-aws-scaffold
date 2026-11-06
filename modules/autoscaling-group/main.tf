@@ -1,13 +1,3 @@
-data "aws_default_tags" "current" {}
-
-# The image's root device, so the root disk is sized and encrypted whatever the image calls it.
-data "aws_ami" "image" {
-  filter {
-    name   = "image-id"
-    values = [var.image_id]
-  }
-}
-
 resource "aws_launch_template" "group" {
   name                   = local.name
   image_id               = var.image_id
@@ -71,7 +61,7 @@ resource "aws_launch_template" "group" {
     tags          = local.tags
   }
 
-  tags = { Name = local.name, Group = var.name }
+  tags = { Name = "${local.name_prefix}${var.name}", Group = var.name }
 }
 
 resource "aws_autoscaling_group" "group" {
@@ -91,7 +81,6 @@ resource "aws_autoscaling_group" "group" {
     version = aws_launch_template.group.latest_version
   }
 
-  # A new image or settings roll out a few instances at a time, keeping 90% in service.
   instance_refresh {
     strategy = "Rolling"
     preferences {
@@ -101,7 +90,7 @@ resource "aws_autoscaling_group" "group" {
 
   tag {
     key                 = "Name"
-    value               = local.name
+    value               = "${local.name_prefix}${var.name}"
     propagate_at_launch = false
   }
 
@@ -111,7 +100,6 @@ resource "aws_autoscaling_group" "group" {
     propagate_at_launch = false
   }
 
-  # Scaling moves desired_capacity; a plan never moves it back.
   lifecycle {
     ignore_changes = [desired_capacity]
 

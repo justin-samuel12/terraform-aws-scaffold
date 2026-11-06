@@ -1,9 +1,10 @@
 locals {
+  environment_tag = try(data.aws_default_tags.current.tags["Environment"], "")
+  name_prefix     = local.environment_tag == "" ? "" : "${title(local.environment_tag)} - "
+
   account_id = data.aws_caller_identity.current.account_id
   root       = "arn:${data.aws_partition.current.partition}:iam::${local.account_id}:root"
 
-  # Administered through IAM in this account; used only through the named services, by this account and any caller_accounts;
-  # service_principals are AWS services acting for this account themselves, such as SNS delivering to an encrypted queue.
   policies = {
     for purpose, services in var.purposes : purpose => jsonencode({
       Version = "2012-10-17"

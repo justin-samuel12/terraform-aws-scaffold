@@ -11,7 +11,7 @@ first time it appears, in EC2 terms where there is one.
 
 ```mermaid
 flowchart LR
-  people["👩‍💻 people with kubectl<br/>admins and viewers"] -->|"HTTPS 443, inside the network"| cp["☸️ control plane<br/>run by AWS"]
+  people["👩‍💻 people with kubectl<br/>access entries"] -->|"HTTPS 443, inside the network"| cp["☸️ control plane<br/>run by AWS"]
   callers["🖥️ callers in the network"] -->|"HTTPS"| alb["⚖️ internal ALB<br/>made from an Ingress"]
   subgraph nodes["EC2 nodes that Auto Mode launches, patches and replaces"]
     api["orders-api pods"]
@@ -99,7 +99,7 @@ one goes in the `records` stack, pointing at the ALB's name.
 | Security group | Where it is | What it does |
 |---|---|---|
 | **Cluster security group** | Made by EKS. On the control plane's network interfaces and on every Auto Mode node | Lets the control plane and nodes talk to each other. Its ID is the stack's `cluster_security_group_id` output. Anything pods call, such as Vault or a database, must allow traffic from it |
-| **API access groups** | `security_groups` in `cluster.yml`, made in the `security-groups` stack | Extra groups on the control plane's network interfaces: who may reach the private API on 443 to use `kubectl` |
+| **API access groups** | `vpc_config.security_group_ids` in the cluster file, made in the `security-groups` stack | Extra groups on the control plane's network interfaces: who may reach the private API on 443 to use `kubectl` |
 | **Load balancer groups** | Made by Auto Mode for each ALB | Let callers reach the ALB, and the ALB reach the pods. Auto Mode adds the rules for you |
 
 Pods on a node share that node's security groups. Auto Mode does not offer a
@@ -115,11 +115,11 @@ has its own role in `compute` ([compute](compute.md)). This matters for
 Vault: Vault's AWS auth knows who is logging in by the role, so two
 applications sharing a role would get each other's secrets.
 
-1. The app's file in this stack, `<app>.yml`, makes the role
+1. The app's file in this stack, `config/app/<app>.yml`, makes the role
    `<environment>-<app>-<region>`, with the permissions the file lists.
-2. The same file names the namespace and ServiceAccount its pods run as (by
-   default, both are the app's name). Terraform links the two with an **EKS Pod
-   Identity association**.
+2. The same file names the namespace and ServiceAccount its pods run as, both
+   required. Terraform links the two with an **EKS Pod Identity
+   association**.
 3. A pod running as that ServiceAccount, in that namespace, gets the role's
    short-lived credentials automatically. The AWS SDKs pick them up with no
    code change. No other pod can get them, and the role trusts only EKS Pod
@@ -137,38 +137,64 @@ pull images. Pods never use it.
 
 ```text
 live/us-east-1/development/kubernetes/
-├── cluster.yml          the cluster
-├── orders-api.yml       one file per app: its AWS identity
-└── reports-worker.yml
+├── config/
+│   ├── cluster/
+│   │   └── development.yml  the cluster, named for its environment
+│   └── app/
+│       ├── orders-api.yml   one file per app: its AWS identity
+│       └── reports-worker.yml
+└── manifests/               Kubernetes manifests, applied with kubectl
 ```
 
-Each app file sits beside `cluster.yml`, one per app, the way every other stack
-has one file per thing it builds; `cluster.yml` is the one reserved name.
+One file per thing the stack builds, in `config/` below the stack rather than
+beside its `.tf` files, one folder per kind. The cluster is named for its
+environment, so its file is `config/cluster/<environment>.yml`; every other file is an app, named by its file.
 Complete examples, with the manifests that go with them, are in
 `examples/us-east-1/development/kubernetes/`.
 
+The cluster file holds `aws_eks_cluster`'s arguments, under the provider's
+names, and the cluster's access entries:
+
 ```yaml
-# live/us-east-1/development/kubernetes/cluster.yml
 version: "1.35"
-admins:
-  - platform-admin
-viewers:
-  - developer
-security_groups:
-  - kubernetes-api
+deletion_protection: true
+vpc_config:
+  subnet_ids:
+    - private-az1
+    - private-az2
+    - private-az4
+  security_group_ids:
+    - kubernetes-api
+  endpoint_public_access: false
+access_entry:
+  - principal_arn: platform-admin
+    access_policy_association:
+      - policy_arn: arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy
+        access_scope:
+          type: cluster
+  - principal_arn: developer
+    access_policy_association:
+      - policy_arn: arn:aws:eks::aws:cluster-access-policy/AmazonEKSViewPolicy
+        access_scope:
+          type: cluster
 ```
 
-| `cluster.yml` key | Meaning |
+| Cluster key | Meaning |
 |---|---|
 | `version` | The Kubernetes version, in quotes. Required, with no default, so an upgrade is always a deliberate change. `aws eks describe-cluster-versions` lists the ones EKS offers |
-| `admins` | IAM roles given full control of the cluster. A name is a role in this account; an ARN is used as written |
-| `viewers` | IAM roles that may look at everything but secrets, and change nothing |
-| `security_groups` | Groups from the `security-groups` stack added to the control plane, for who may reach the API |
-| `public_access_cidrs` | Addresses that may reach the API from the internet. Leave it out: the API is then reachable only from inside the network. Never `0.0.0.0/0` |
-| `deletion_protection` | `false` only to take the environment down (default `true`) |
+| `deletion_protection` | Required, `true` or `false`. `false` only to take the environment down |
+| `vpc_config.subnet_ids` | The subnets for the control plane's interfaces, the nodes and the pods, by name (`private-az1`), at least two zones. A subnet ID is used as written |
+| `vpc_config.security_group_ids` | Groups from the `security-groups` stack added to the control plane, for who may reach the API, by name. A group ID is used as written |
+| `vpc_config.endpoint_public_access` | Required. `false` keeps the API reachable only from inside the network. `true` also opens it to the internet, from `public_access_cidrs` only |
+| `vpc_config.public_access_cidrs` | With `endpoint_public_access: true` only, and then required: the addresses that may reach the API. Never `0.0.0.0/0` |
+| `access_entry` | Who may use the cluster: a list of `aws_eks_access_entry`, each with its `aws_eks_access_policy_association`s |
+| `access_entry[].principal_arn` | An IAM role. A name is a role in this account; an ARN is used as written. One entry per role |
+| `access_entry[].access_policy_association[].policy_arn` | An EKS access policy, written in full: `AmazonEKSClusterAdminPolicy` for full control, `AmazonEKSAdminPolicy`, `AmazonEKSEditPolicy`, or `AmazonEKSViewPolicy`, which sees everything but secrets and changes nothing |
+| `access_entry[].access_policy_association[].access_scope` | `type: cluster`, or `type: namespace` with the `namespaces` it covers |
+
+The private endpoint is always on and is not a key.
 
 ```yaml
-# live/us-east-1/development/kubernetes/reports-worker.yml
 namespace: reports
 service_account: reports-worker
 statement:
@@ -178,30 +204,30 @@ statement:
       - arn:aws:s3:::development-exports-*/*
 ```
 
-| `<app>.yml` key | Meaning |
+| App key | Meaning |
 |---|---|
-| `namespace`, `service_account` | Where its pods run and as whom (default: the file's name for both). Must match its manifests |
-| `statement` | Permissions, as in IAM: `actions`, `resources`, optional `effect` and `condition` (`test`, `variable`, `values`) |
-| `managed_policies` | AWS managed policies by name, such as `AmazonS3ReadOnlyAccess` |
+| `namespace`, `service_account` | Required: where its pods run and as whom, as `aws_eks_pod_identity_association` takes them. Must match its manifests |
+| `statement` | Permissions, as in IAM: `actions`, `resources`, optional `effect` (default `Allow`) and `condition` (`test`, `variable`, `values`) |
+| `managed_policy_arns` | Policies attached to its role, by ARN, such as `arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess` |
 
-The plan refuses a misspelt key, a missing or malformed `version`, a role in
-both `admins` and `viewers`, an open API, app files without a `cluster.yml`,
-two apps running as the same namespace and service account, a statement
-allowing everything on everything, and `AdministratorAccess`,
-`PowerUserAccess` or `IAMFullAccess` for an app.
+The plan refuses a misspelt key, a cluster file not named for its
+environment, a missing or malformed `version`, a missing
+`deletion_protection` or `endpoint_public_access`, a subnet the VPC does not
+have, a role with two access entries, a policy that is not an EKS access
+policy's ARN, an open API, app files without a cluster, an app without its
+namespace or service account, two apps running as the same namespace and
+service account, a statement allowing everything on everything, and
+`AdministratorAccess`, `PowerUserAccess` or `IAMFullAccess` for an app.
 
 ## What every cluster gets
 
 - **Auto Mode** for compute, load balancing and block storage, with its two
   built-in node pools: `general-purpose` for applications and `system` for
   cluster add-ons.
-- **The private subnets** of the environment's VPC, in every zone, for the
-  control plane's interfaces, the nodes and the pods. Each pod takes an address
-  from them.
-- **A private API.** People reach it over the VPN or from inside the network,
-  through a group in `security_groups`.
-- **Access by IAM role only.** Nobody has access until listed, not even
-  whoever ran Terraform.
+- **The private endpoint**, always on. People reach the API over the VPN or
+  from inside the network, through a group in `vpc_config.security_group_ids`.
+- **Access by IAM role only.** Nobody has access until given an
+  `access_entry`, not even whoever ran Terraform.
 - **Kubernetes secrets encrypted** with the environment's data key
   (`alias/<environment>-data`).
 - **Control plane logs** (API calls, audit, sign-ins) in CloudWatch,
@@ -235,8 +261,8 @@ kubectl logs -n orders-api deploy/orders-api                       # its output
 kubectl describe ingress -n orders-api orders-api                  # the ALB it made
 ```
 
-This works with your credentials for a role in `admins` or `viewers`, from
-somewhere a group in `security_groups` lets in.
+This works with your credentials for a role with an `access_entry`, from
+somewhere a group in `vpc_config.security_group_ids` lets in.
 
 ## Deploying a new version
 
@@ -254,8 +280,6 @@ goes back.
   own if error rates rise. It also does blue/green with a preview address.
 - **Weighted routing by hand**: two Deployments and Services (blue and green),
   and an Ingress whose rule forwards to both with weights you change.
-
-The example's `manifests/orders-api.yaml` ends with both as comments.
 
 ## Upgrades and patching
 
@@ -275,9 +299,9 @@ The example's `manifests/orders-api.yaml` ends with both as comments.
 | AMI and `user_data` boot script | Container image and its start command |
 | `instance_type`, `count`, Auto Scaling group | CPU and memory requests, `replicas`, and a HorizontalPodAutoscaler to scale on load |
 | Servers in an Auto Scaling group | Pods on nodes Auto Mode runs |
-| The app's own instance role (blueprint `role`) | The app's own role, through pod identity (`<app>.yml`) |
+| The app's own instance role (blueprint `role`) | The app's own role, through pod identity (`config/app/<app>.yml`) |
 | Vault AWS auth by instance role | Vault AWS auth (`iam` type) by the pod's role |
-| `target_group` and `listener_rules` on a shared ALB | An Ingress in the shared `internal` group; the target group is made for you |
+| `target_group` and `listener_rule` on a shared ALB | An Ingress in the shared `internal` group; the target group is made for you |
 | Target group health check | Readiness probe, and the Ingress's health check annotations |
 | Security groups on the servers | The cluster security group on the nodes, network policies between pods |
 | CodeDeploy rolling deployment | A Deployment's rolling update |
@@ -289,8 +313,8 @@ The example's `manifests/orders-api.yaml` ends with both as comments.
 
 ## Things to know
 
-- **Pods use VPC addresses.** Every pod takes an address from the private
-  tier, so a busy cluster uses many more addresses than the same apps on EC2.
+- **Pods use VPC addresses.** Every pod takes an address from the subnets in
+  `vpc_config.subnet_ids`, so a busy cluster uses many more addresses than the same apps on EC2.
   The private tier's /19 per zone has room for thousands.
 - **Images** come from ECR. The nodes' role may pull; a repository in the
   shared account must allow this environment's account, as for servers.

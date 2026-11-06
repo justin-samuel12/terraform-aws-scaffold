@@ -1,0 +1,45 @@
+cpu: 512
+memory: 1024
+desired_count: 2
+enable_execute_command: true
+network_configuration:
+  subnets:
+    - private-az1
+    - private-az2
+    - private-az3
+  security_groups:
+    - orders-api
+container_definitions:
+  - name: orders-api
+    image: 111111111111.dkr.ecr.us-east-1.amazonaws.com/orders-api:1.4.2
+    portMappings:
+      - containerPort: 8080
+    environment:
+      - name: LOG_LEVEL
+        value: info
+    secrets:
+      - name: DATABASE_URL
+        valueFrom: arn:aws:secretsmanager:us-east-1:111111111111:secret:development/orders-api/database-AbCdEf
+target_group:
+  health_check:
+    path: /health
+listener_rule:
+  listener_arn: internal/443
+  priority: 1300
+  condition:
+    host_header:
+      values:
+        - orders.example.com
+appautoscaling_target:
+  min_capacity: 2
+  max_capacity: 6
+appautoscaling_policy:
+  target_tracking_scaling_policy_configuration:
+    target_value: 60
+    predefined_metric_specification:
+      predefined_metric_type: ECSServiceAverageCPUUtilization
+statement:
+  - actions:
+      - sns:Publish
+    resources:
+      - arn:aws:sns:us-east-1:111111111111:development-exports

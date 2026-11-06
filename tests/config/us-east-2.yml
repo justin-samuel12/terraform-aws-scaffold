@@ -1,4 +1,3 @@
-# The test world: tests run against this copy, never against config/, so your own config cannot break them.
 zones:
   - use2-az1
   - use2-az2

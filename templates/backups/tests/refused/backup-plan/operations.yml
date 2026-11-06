@@ -1,0 +1,14 @@
+rule:
+  - rule_name: hourly
+    target_vault_name: operations
+    schedule: cron(0 * * * ? *)
+    lifecycle:
+      delete_after: 3
+  - rule_name: daily
+    target_vault_name: operations
+    copy_action:
+      - destination_vault_arn: elsewhere
+        lifecycle:
+          delete_after: 35
+    lifecycle:
+      delete_after: 35

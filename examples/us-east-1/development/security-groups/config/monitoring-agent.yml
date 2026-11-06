@@ -1,0 +1,9 @@
+description: The monitoring agent on every server, reached by the collectors
+tags:
+  Kind: server
+ingress:
+  - description: Zabbix agent, from the collectors
+    ip_protocol: tcp
+    from_port: 10050
+    to_port: 10050
+    referenced_security_group_id: collector

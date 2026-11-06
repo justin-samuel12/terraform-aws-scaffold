@@ -19,7 +19,7 @@ variable "region" {
 }
 
 variable "config_dir" {
-  description = "The folder of message files, one <name>.yml each; null = the stack's own folder. Tests point it at their own."
+  description = "The folder holding queue/<name>.yml and topic/<name>.yml; null = the stack's config/ folder. Tests point it at their own."
   type        = string
   default     = null
 }

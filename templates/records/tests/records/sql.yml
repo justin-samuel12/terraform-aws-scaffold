@@ -1,0 +1,6 @@
+zone_id: corp.internal
+name: sql.corp.internal
+type: CNAME
+ttl: 60
+records:
+  - sqlserver-01.operations.corp.internal

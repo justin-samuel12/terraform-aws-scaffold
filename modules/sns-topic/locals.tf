@@ -1,8 +1,8 @@
 locals {
-  suffix     = var.fifo ? ".fifo" : ""
-  account_id = data.aws_caller_identity.current.account_id
+  environment_tag = try(data.aws_default_tags.current.tags["Environment"], "")
+  name_prefix     = local.environment_tag == "" ? "" : "${title(local.environment_tag)} - "
+  short_name      = trimprefix(var.name, "${local.environment_tag}-")
 
-  # Anything not over TLS is refused; within this account IAM alone decides, so the policy only adds services and other accounts.
   statements = concat(
     [{
       Sid       = "DenyInsecureTransport"
@@ -12,20 +12,10 @@ locals {
       Resource  = aws_sns_topic.topic.arn
       Condition = { Bool = { "aws:SecureTransport" = "false" } }
     }],
-    length(var.publisher_services) == 0 ? [] : [{
-      Sid       = "ServicesPublishForThisAccount"
-      Effect    = "Allow"
-      Principal = { Service = [for s in sort(tolist(var.publisher_services)) : "${s}.amazonaws.com"] }
-      Action    = "sns:Publish"
-      Resource  = aws_sns_topic.topic.arn
-      Condition = { StringEquals = { "aws:SourceAccount" = local.account_id } }
-    }],
-    length(var.publisher_accounts) == 0 ? [] : [{
-      Sid       = "OtherAccountsPublish"
-      Effect    = "Allow"
-      Principal = { AWS = [for a in sort(tolist(var.publisher_accounts)) : "arn:${data.aws_partition.current.partition}:iam::${a}:root"] }
-      Action    = "sns:Publish"
-      Resource  = aws_sns_topic.topic.arn
-    }],
+    [for s in var.policy_statements : merge(
+      { Effect = s.effect, Action = s.actions, Resource = s.resources },
+      length(s.principals) == 0 ? {} : { Principal = { for t in distinct([for p in s.principals : p.type]) : t => flatten([for p in s.principals : p.identifiers if p.type == t]) } },
+      length(s.condition) == 0 ? {} : { Condition = { for test in distinct([for c in s.condition : c.test]) : test => { for c in s.condition : c.variable => c.values if c.test == test } } },
+    )],
   )
 }

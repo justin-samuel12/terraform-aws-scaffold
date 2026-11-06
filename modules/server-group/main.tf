@@ -15,13 +15,17 @@ resource "aws_lb_target_group" "group" {
     matcher  = var.target.matcher
   }
 
-  stickiness {
-    enabled         = var.target.stickiness != null
-    type            = "lb_cookie"
-    cookie_duration = coalesce(var.target.stickiness, 86400)
+  dynamic "stickiness" {
+    for_each = var.target.stickiness == null ? [] : [var.target.stickiness]
+    content {
+      enabled         = stickiness.value.enabled
+      type            = stickiness.value.type
+      cookie_duration = stickiness.value.cookie_duration
+      cookie_name     = stickiness.value.cookie_name
+    }
   }
 
-  tags = { Name = var.name, Group = var.name }
+  tags = { Name = "${local.name_prefix}${var.name}", Group = var.name }
 
   lifecycle {
     create_before_destroy = true
@@ -45,7 +49,7 @@ module "servers" {
   kms_key_arn        = var.servers.kms_key_arn
   root_size          = var.servers.root_size
   volumes            = var.servers.volumes
-  backup             = var.servers.backup
+  backup             = false
   user_data          = var.servers.user_data
   tags               = var.servers.tags
   target_groups = merge(
@@ -54,7 +58,6 @@ module "servers" {
   )
 }
 
-# Instead of fixed servers: a launch template and an Auto Scaling group, behind the same target groups.
 module "autoscaling" {
   source = "../autoscaling-group"
   count  = var.autoscaling == null ? 0 : 1
@@ -107,21 +110,35 @@ resource "aws_lb_listener_rule" "routes" {
     target_group_arn = aws_lb_target_group.group[0].arn
   }
 
-  tags = { Name = "${var.name}-${each.key}", Group = var.name }
+  tags = { Name = "${local.name_prefix}${var.name}-${each.key}", Group = var.name }
 }
 
 module "names" {
   source = "../route53-record"
 
   providers = {
-    aws = aws.hub
+    aws = aws.dns
   }
 
   records = {
     for n in var.names : n.name => {
       zone_id = n.zone_id
       name    = n.name
-      alias   = { name = n.lb_dns_name, zone_id = n.lb_zone_id }
+      type    = n.type
+      alias   = { name = n.lb_dns_name, zone_id = n.lb_zone_id, evaluate_target_health = n.evaluate_target_health }
+    }
+  }
+}
+
+module "own_names" {
+  source = "../route53-record"
+
+  records = {
+    for n in var.own_names : n.name => {
+      zone_id = n.zone_id
+      name    = n.name
+      type    = n.type
+      alias   = { name = n.lb_dns_name, zone_id = n.lb_zone_id, evaluate_target_health = n.evaluate_target_health }
     }
   }
 }

@@ -9,7 +9,7 @@ variable "region" {
 }
 
 variable "config_dir" {
-  description = "The folder holding logging.yml; null = the stack's own folder. Tests point it at their own."
+  description = "The folder of log bucket files, lb-logs.yml and aws-waf-logs.yml; null = the stack's config/ folder. Tests point it at their own."
   type        = string
   default     = null
 }

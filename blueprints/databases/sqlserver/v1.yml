@@ -1,0 +1,31 @@
+description: SQL Server Standard 2022 on RDS, Multi-AZ, with TDE and native backups through the environment's sqlserver-backups role
+allows:
+  - instance_class
+  - allocated_storage
+  - max_allocated_storage
+requires:
+  - vpc_security_group_ids
+instance_classes:
+  default: db.m6i.large
+  allowed:
+    - db.m6i.large
+    - db.m6i.xlarge
+    - db.m6i.2xlarge
+    - db.r6i.large
+    - db.r6i.xlarge
+    - db.r6i.2xlarge
+database:
+  engine: sqlserver-se
+  engine_version: "16.00"
+  license_model: license-included
+  allocated_storage: 100
+  max_allocated_storage: 1000
+  multi_az: true
+  timezone: Eastern Standard Time
+  character_set_name: SQL_Latin1_General_CP1_CI_AS
+  option:
+    - option_name: SQLSERVER_BACKUP_RESTORE
+      option_settings:
+        - name: IAM_ROLE_ARN
+          value: "{environment}-sqlserver-backups"
+    - option_name: TDE

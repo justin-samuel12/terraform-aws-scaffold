@@ -1,11 +1,22 @@
-image: nginx:1.27
-port: 80
-security_groups:
-  - web
-listener_rules:
-  - load_balancer: internal
+cpu: 256
+memory: 512
+desired_count: 1
+network_configuration:
+  subnets:
+    - private-az1
+  security_groups:
+    - web
+container_definitions:
+  - name: canary
+    image: nginx:1.27
+    portMappings:
+      - containerPort: 80
+listener_rule:
+  listener_arn: internal/443
+  priority: 1400
+  condition:
     host_header:
-      - canary.example.com
-    priority: 1400
-deployment:
+      values:
+        - canary.example.com
+deployment_group:
   deployment_config_name: CodeDeployDefault.ECSCanary10Percent5Minutes

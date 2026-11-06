@@ -1,0 +1,6 @@
+lifecycle_configuration:
+  rule:
+    - id: retention
+      status: Enabled
+      transition:
+        days: 30

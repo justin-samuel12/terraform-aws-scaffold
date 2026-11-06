@@ -3,69 +3,93 @@ resource "aws_wafv2_web_acl" "web_acl" {
   scope = var.scope
 
   default_action {
-    allow {}
-  }
+    dynamic "allow" {
+      for_each = var.default_action.allow == null ? [] : [1]
+      content {}
+    }
 
-  dynamic "rule" {
-    for_each = var.managed_rules
-    content {
-      name     = rule.value
-      priority = rule.key + 1
-
-      override_action {
-        none {}
-      }
-
-      statement {
-        managed_rule_group_statement {
-          vendor_name = "AWS"
-          name        = rule.value
-        }
-      }
-
-      visibility_config {
-        cloudwatch_metrics_enabled = true
-        metric_name                = "${var.name}-${rule.value}"
-        sampled_requests_enabled   = true
-      }
+    dynamic "block" {
+      for_each = var.default_action.block == null ? [] : [1]
+      content {}
     }
   }
 
   dynamic "rule" {
-    for_each = var.rate_limit == null ? [] : [var.rate_limit]
+    for_each = var.rule
     content {
-      name     = "rate-limit"
-      priority = 0
+      name     = rule.value.name
+      priority = rule.value.priority
 
-      action {
-        block {}
+      dynamic "action" {
+        for_each = rule.value.action == null ? [] : [rule.value.action]
+        content {
+          dynamic "allow" {
+            for_each = action.value.allow == null ? [] : [1]
+            content {}
+          }
+
+          dynamic "block" {
+            for_each = action.value.block == null ? [] : [1]
+            content {}
+          }
+
+          dynamic "count" {
+            for_each = action.value.count == null ? [] : [1]
+            content {}
+          }
+        }
+      }
+
+      dynamic "override_action" {
+        for_each = rule.value.override_action == null ? [] : [rule.value.override_action]
+        content {
+          dynamic "none" {
+            for_each = override_action.value.none == null ? [] : [1]
+            content {}
+          }
+
+          dynamic "count" {
+            for_each = override_action.value.count == null ? [] : [1]
+            content {}
+          }
+        }
       }
 
       statement {
-        rate_based_statement {
-          limit              = rule.value
-          aggregate_key_type = "IP"
+        dynamic "managed_rule_group_statement" {
+          for_each = rule.value.statement.managed_rule_group_statement == null ? [] : [rule.value.statement.managed_rule_group_statement]
+          content {
+            name        = managed_rule_group_statement.value.name
+            vendor_name = managed_rule_group_statement.value.vendor_name
+          }
+        }
+
+        dynamic "rate_based_statement" {
+          for_each = rule.value.statement.rate_based_statement == null ? [] : [rule.value.statement.rate_based_statement]
+          content {
+            limit              = rate_based_statement.value.limit
+            aggregate_key_type = rate_based_statement.value.aggregate_key_type
+          }
         }
       }
 
       visibility_config {
-        cloudwatch_metrics_enabled = true
-        metric_name                = "${var.name}-rate-limit"
-        sampled_requests_enabled   = true
+        cloudwatch_metrics_enabled = rule.value.visibility_config.cloudwatch_metrics_enabled
+        metric_name                = rule.value.visibility_config.metric_name
+        sampled_requests_enabled   = rule.value.visibility_config.sampled_requests_enabled
       }
     }
   }
 
   visibility_config {
-    cloudwatch_metrics_enabled = true
-    metric_name                = var.name
-    sampled_requests_enabled   = true
+    cloudwatch_metrics_enabled = var.visibility_config.cloudwatch_metrics_enabled
+    metric_name                = var.visibility_config.metric_name
+    sampled_requests_enabled   = var.visibility_config.sampled_requests_enabled
   }
 
-  tags = { Name = var.name }
+  tags = { Name = "${local.name_prefix}${local.short_name}" }
 }
 
-# Every request is logged, without the Authorization and Cookie headers.
 resource "aws_wafv2_web_acl_logging_configuration" "web_acl" {
   resource_arn            = aws_wafv2_web_acl.web_acl.arn
   log_destination_configs = [var.log_bucket_arn]
@@ -84,7 +108,7 @@ resource "aws_wafv2_web_acl_logging_configuration" "web_acl" {
 }
 
 resource "aws_wafv2_web_acl_association" "resources" {
-  for_each = var.scope == "REGIONAL" ? toset(var.resource_arns) : toset([])
+  for_each = toset(var.resource_arns)
 
   resource_arn = each.key
   web_acl_arn  = aws_wafv2_web_acl.web_acl.arn

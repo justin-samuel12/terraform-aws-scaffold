@@ -1,0 +1,44 @@
+# name: Apply
+#
+# on:
+#   workflow_dispatch:
+#     inputs:
+#       stack:
+#         description: "The stack: <region>/<environment>/<component>"
+#         required: true
+#         type: string
+#       expected:
+#         description: "The plan's summary line, exactly: Plan: 3 to add, 0 to change, 0 to destroy."
+#         required: true
+#         type: string
+#
+# permissions: {}
+#
+# concurrency:
+#   group: terraform-apply
+#   cancel-in-progress: false
+#
+# defaults:
+#   run:
+#     shell: bash
+#
+# jobs:
+#   apply:
+#     name: Apply one stack
+#     if: vars.APPLY_ENABLED == 'true' && github.ref == 'refs/heads/master' && contains(fromJSON(vars.APPLY_ACTORS || '[]'), github.triggering_actor)
+#     runs-on:
+#       - self-hosted
+#       - linux
+#       - terraform-apply
+#     timeout-minutes: 120
+#     permissions:
+#       contents: read
+#     env:
+#       STACK: ${{ inputs.stack }}
+#       EXPECTED: ${{ inputs.expected }}
+#     steps:
+#       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+#         with:
+#           persist-credentials: false
+#       - run: bin/ci doctor
+#       - run: bin/ci apply "$STACK" "$EXPECTED"

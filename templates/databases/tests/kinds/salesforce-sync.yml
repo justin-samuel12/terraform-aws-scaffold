@@ -4,5 +4,6 @@ license_model: bring-your-own-media
 instance_class: db.m6i.xlarge
 allocated_storage: 200
 multi_az: true
-security_groups:
+password_wo_version: 1
+vpc_security_group_ids:
   - salesforce-sync-database

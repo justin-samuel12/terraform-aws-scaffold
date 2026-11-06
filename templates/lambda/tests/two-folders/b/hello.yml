@@ -1,0 +1,20 @@
+runtime: python3.12
+handler: app.handler
+cloudwatch_event_rule:
+  schedule_expression: rate(1 day)
+cloudwatch_log_group:
+  retention_in_days: 365
+environment:
+  variables:
+    LEVEL: info
+statement:
+  - effect: Allow
+    actions:
+      - s3:GetObject
+    resources:
+      - arn:aws:s3:::example-reports/*
+    condition:
+      - test: StringEquals
+        variable: s3:ExistingObjectTag/Public
+        values:
+          - "false"

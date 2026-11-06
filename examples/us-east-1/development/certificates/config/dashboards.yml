@@ -1,0 +1,7 @@
+domain_name: dashboards.example.com
+subject_alternative_names:
+  - grafana.example.com
+validation_method: DNS
+key_algorithm: RSA_2048
+route53_record:
+  zone_id: example.com

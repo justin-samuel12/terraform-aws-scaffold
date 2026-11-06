@@ -1,11 +1,8 @@
 #!/usr/bin/env bash
-# Guided setup: prerequisites, then config/ and the stacks (bin/configure), then this machine's profiles, then where you are
-# (bin/status). Stops before anything is created in AWS: the next step it shows is make bootstrap. -- docs/configuration.md.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIG="${INFRA_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/infra/hashicorp-terraform.config}"
-# The file used to be named after the repository folder; carry it across once, and say so.
 OLD_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/infra/$(basename "${REPO_ROOT}").yml"
 if [[ -z "${INFRA_CONFIG:-}" && ! -f "${CONFIG}" && -f "${OLD_CONFIG}" ]]; then
     mkdir -p "$(dirname "${CONFIG}")" && cp -p "${OLD_CONFIG}" "${CONFIG}" && chmod 600 "${CONFIG}"
@@ -17,14 +14,12 @@ ok()   { printf '  \033[32m✓\033[0m %s\n' "$*"; }
 warn() { printf '  \033[33m!\033[0m %s\n' "$*"; }
 fail() { printf '  \033[31m✗\033[0m %s\n' "$*"; MISSING=1; }
 
-# ask <prompt> <default> -> the answer, or the default on an empty line.
 ask() {
     local answer
     read -r -p "  $1${2:+ [$2]}: " answer || true
     echo "${answer:-$2}"
 }
 
-# ask_yes <prompt> <default y|n> -> success for yes.
 ask_yes() {
     local answer
     answer="$(ask "$1 (y/n)" "$2")"
@@ -101,7 +96,6 @@ if [[ "${INTERACTIVE}" == 1 ]]; then
 fi
 
 echo "== Accounts and state buckets in config/"
-# Each environment's account, from every region file; the IP plan already refuses one that differs between regions.
 accounts="$(for f in "${REPO_ROOT}"/config/*-*-[0-9].yml; do
     yq -r '[{"environment": "shared", "account_id": (.hub.account_id // "")}] + [.vpcs // {} | to_entries | .[] | {"environment": .key, "account_id": (.value.account_id // "")}] | .[] | .environment + " " + .account_id' "${f}"
 done | sort -u)"
@@ -130,7 +124,6 @@ current='{}'
 if [[ -f "${CONFIG}" ]]; then
     current="$(yq -o=json '. // {}' "${CONFIG}")" || { echo "  ${CONFIG} is not valid YAML; fix or remove it first." >&2; exit 1; }
 fi
-
 
 chosen='{}'
 for env in ${environments}; do

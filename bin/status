@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# Where you are, from a fresh clone to a first plan, and the next command -- docs/configuration.md.
-# Works everything out from what exists; nothing is remembered, nothing is written. AWS calls are read-only;
-# --offline skips them.
 set -uo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
 cd "${REPO_ROOT}"
@@ -13,7 +10,6 @@ blocked=0
 
 head1 "Setup: $(basename "${REPO_ROOT}")"
 
-# 1. Tools
 missing=""
 for t in terraform aws jq yq gitleaks; do command -v "${t}" >/dev/null || missing+="${t} "; done
 if [[ -n "${missing}" ]]; then
@@ -24,7 +20,6 @@ else
     ok "Tools          terraform $(terraform version -json 2>/dev/null | jq -r .terraform_version), aws $(aws --version 2>&1 | grep -oE 'aws-cli/[0-9.]+' | cut -d/ -f2), yq, jq, gitleaks$(command -v tflint >/dev/null && echo ', tflint')"
 fi
 
-# 2. Config: the IP plan's own rules
 primary="$(primary_region)"
 regions="$(region_files | xargs)"
 if [[ -z "${regions}" ]]; then
@@ -40,13 +35,11 @@ else
     fi
 fi
 
-# 2b. What setup left for a person: every TODO(you) in config/
 n_todos="$(grep -c "TODO(you):" "${CONFIG_DIR}"/*.yml 2>/dev/null | awk -F: '{n += $NF} END {print n + 0}')"
 if [[ "${n_todos}" -gt 0 ]]; then
     bad "Your edits     ${n_todos} thing(s) in config/ marked TODO(you)"; next "make config, then edit config/*.yml where it says TODO(you)"; blocked=1
 fi
 
-# 3. Accounts: every environment has one, its own or the global one
 no_account=""
 for env in $(environments); do [[ "$(account_for "${env}")" =~ ^[0-9]{12}$ ]] || no_account+="${env} "; done
 if [[ -n "${no_account}" ]]; then
@@ -55,7 +48,6 @@ else
     ok "Accounts       every environment has one$([[ -n "$(global_account)" ]] && echo ", $(global_account) by default")"
 fi
 
-# 3b. Accounts of their own need a few stacks of their own (logging, baseline, iam, Session Manager)
 missing_stacks="$(missing_account_stacks)"
 if [[ -n "${missing_stacks}" ]]; then
     bad "Account stacks $(wc -l <<<"${missing_stacks}" | tr -d ' ') missing for environments in their own accounts: $(head -n 3 <<<"${missing_stacks}" | xargs)$( [[ $(wc -l <<<"${missing_stacks}") -gt 3 ]] && echo ' …')"
@@ -68,7 +60,6 @@ else
     ok "Account stacks ${mode}: every account has its own stacks"
 fi
 
-# 4. Profiles: this machine can reach each account
 if [[ "${OFFLINE}" == 1 ]]; then
     todo "Profiles       not checked (--offline)"
 elif [[ ! -f "${MACHINE_CONFIG}" ]]; then
@@ -90,7 +81,6 @@ else
     fi
 fi
 
-# 5. State bucket
 bucket="$(yq -r '.state.bucket // ""' "${CONFIG_DIR}/global.yml")"; bucket_region="$(yq -r '.state.region // ""' "${CONFIG_DIR}/global.yml")"
 if [[ -z "${bucket}" ]]; then
     if [[ "${blocked}" == 1 ]]; then todo "State bucket   waiting on the steps above"; else bad "State bucket   none yet"; next "make bootstrap"; fi
@@ -113,7 +103,6 @@ else
     fi
 fi
 
-# 6. Backends
 if [[ -z "${bucket}" ]]; then
     todo "Backends       waiting on the bucket"
 elif bin/backends --check >/dev/null 2>&1; then
@@ -122,7 +111,6 @@ else
     bad "Backends       out of date"; next "make backends"; blocked=1
 fi
 
-# 7. The first stack
 hub="${primary:+${primary}/shared/hub}"
 if [[ -n "${hub}" && "${blocked}" == 0 ]]; then
     if [[ -d "live/${hub}/.terraform" ]] && grep -q '"s3"' "live/${hub}/.terraform/terraform.tfstate" 2>/dev/null; then

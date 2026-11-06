@@ -1,0 +1,24 @@
+description: Grafana servers
+tags:
+  Kind: server
+ingress:
+  - description: HTTPS from the Grafana load balancer
+    ip_protocol: tcp
+    from_port: 443
+    to_port: 443
+    referenced_security_group_id: grafana-lb
+  - description: Metrics between Grafana servers
+    ip_protocol: tcp
+    from_port: 9090
+    to_port: 9090
+    referenced_security_group_id: grafana
+  - description: Exporters between Grafana servers
+    ip_protocol: tcp
+    from_port: 9100
+    to_port: 9110
+    referenced_security_group_id: grafana
+  - description: SSH from the ops subnet in az1
+    ip_protocol: tcp
+    from_port: 22
+    to_port: 22
+    cidr_ipv4: 10.42.228.0/23

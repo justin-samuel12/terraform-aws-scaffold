@@ -11,9 +11,7 @@ variable "config_dir" {
 }
 
 locals {
-  path_parts = split("/", abspath(path.root))
-  # Every stack is exactly three folders under live/, so its live/ is the fourth folder from the end (a clone under a folder of
-  # its own called live is still read correctly).
+  path_parts      = split("/", abspath(path.root))
   live_index      = length(local.path_parts) - 4
   location        = local.path_parts[local.live_index + 1]
   environment     = local.path_parts[local.live_index + 2]
@@ -21,27 +19,24 @@ locals {
   repository_dir  = local.path_parts[local.live_index - 1]
   repository_root = join("/", slice(local.path_parts, 0, local.live_index))
 
-  config_dir     = abspath(coalesce(var.config_dir, "${local.repository_root}/config"))
-  primary_region = one([for name in fileset(local.config_dir, "*.yml") : trimsuffix(name, ".yml") if try(yamldecode(file("${local.config_dir}/${name}")).hub.primary, false) == true])
-  region         = local.location == "global" ? local.primary_region : local.location
-  region_file    = "${local.config_dir}/${local.region}.yml"
-  region_config  = try(yamldecode(file(local.region_file)), {})
-  # A global stack runs in the primary region, but its environment may run only elsewhere: its settings come from the first
-  # region file that has it (an environment in two regions has one account and team, which the IP plan checks).
+  config_dir               = abspath(coalesce(var.config_dir, "${local.repository_root}/config"))
+  primary_region           = one([for name in fileset(local.config_dir, "*.yml") : trimsuffix(name, ".yml") if try(yamldecode(file("${local.config_dir}/${name}")).hub.primary, false) == true])
+  region                   = local.location == "global" ? local.primary_region : local.location
+  region_file              = "${local.config_dir}/${local.region}.yml"
+  region_config            = try(yamldecode(file(local.region_file)), {})
   regions_with_environment = sort([for name in fileset(local.config_dir, "*.yml") : trimsuffix(name, ".yml") if name != "global.yml" && can(yamldecode(file("${local.config_dir}/${name}")).vpcs[local.environment])])
   settings_file            = local.location == "global" && local.environment != "shared" && !contains(local.regions_with_environment, local.region) && length(local.regions_with_environment) > 0 ? "${local.config_dir}/${local.regions_with_environment[0]}.yml" : local.region_file
-  settings                 = try(local.environment == "shared" ? local.region_config.hub : yamldecode(file(local.settings_file)).vpcs[local.environment], {})
-  global_config            = try(yamldecode(file("${local.config_dir}/global.yml")), {})
-  # The Repository tag: config/global.yml's repository, so every clone tags alike; else the folder the clone is in.
+  settings = {
+    for key in ["account_id", "team"] : key => try(tostring(local.environment == "shared" ? local.region_config.hub[key] : yamldecode(file(local.settings_file)).vpcs[local.environment][key]), null)
+  }
+  global_config  = try(yamldecode(file("${local.config_dir}/global.yml")), {})
   repository     = try(tostring(local.global_config.repository), local.repository_dir)
-  own_account    = try(tostring(local.settings.account_id), "")
+  own_account    = local.settings.account_id == null ? "" : local.settings.account_id
   account_id     = local.own_account != "" ? local.own_account : try(tostring(local.global_config.account_id), "")
   account_source = local.own_account != "" ? local.settings_file : "${local.config_dir}/global.yml"
   team           = try(tostring(local.settings.team), null)
   pinned         = can(regex("^[0-9]{12}$", local.account_id))
 
-  # The region's hub: the account that owns the Transit Gateway, the zones and the shared network. The same as this stack's in
-  # single-account mode; another account when environments have their own -- docs/architecture.md.
   hub_own_account = try(tostring(local.region_config.hub.account_id), "")
   hub_account     = local.hub_own_account != "" ? local.hub_own_account : try(tostring(local.global_config.account_id), "")
   hub_pinned      = can(regex("^[0-9]{12}$", local.hub_account))

@@ -1,4 +1,3 @@
-# zones.yml and config's private zones turned into hosted zones, against a mocked AWS -- docs/global.md.
 mock_provider "aws" {}
 
 variables {
@@ -8,18 +7,14 @@ variables {
 run "public_zones" {
   command = plan
 
-  variables {
-    config_dir = "tests/zones"
-  }
-
   assert {
     condition     = local.public == toset(["example.com"]) && toset(keys(output.public)) == toset(["example.com"])
-    error_message = "One public zone per name in zones.yml."
+    error_message = "One public zone per domain in dns.public_domain."
   }
 
   assert {
-    condition     = output.private == {}
-    error_message = "No private zones until config/global.yml lists them."
+    condition     = toset(keys(output.private)) == toset(["corp.internal"])
+    error_message = "The private domain is a zone in the hub, made here like the zones in dns.private_zones."
   }
 }
 
@@ -54,4 +49,37 @@ run "a_hub_in_another_account" {
   }
 
   expect_failures = [output.private]
+}
+
+run "each_environment_writes_only_its_own_names" {
+  command = plan
+
+  variables {
+    config_path = "../../templates/dns/tests/accounts"
+  }
+
+  override_data {
+    target = data.aws_partition.current
+    values = { partition = "aws" }
+  }
+
+  assert {
+    condition     = toset(keys(aws_iam_role.dns_writer)) == toset(["staging", "production"])
+    error_message = "A role for each environment in another account than the domain's; operations shares the hub's account, so it needs none."
+  }
+
+  assert {
+    condition     = jsonencode(local.writers.staging.names) == jsonencode(["example.com", "*.example.com", "example.org", "*.example.org"]) && local.writers.production.names == local.writers.staging.names
+    error_message = "Every environment writes its names in every public domain."
+  }
+
+  assert {
+    condition     = toset(keys(output.public)) == toset(["example.com", "example.org"])
+    error_message = "Every public domain is a zone in the hub."
+  }
+
+  assert {
+    condition     = jsondecode(aws_iam_role.dns_writer["staging"].assume_role_policy).Statement[0].Principal.AWS == "arn:aws:iam::222222222222:root"
+    error_message = "Only staging's account can take staging's role."
+  }
 }

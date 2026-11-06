@@ -1,10 +1,4 @@
 #!/usr/bin/env bash
-# Plans stacks' own .yml files against a mocked AWS: no credentials, no state, no accounts -- docs/configuration.md.
-#   bin/check-files                     every stack in live/, with config/
-#   bin/check-files <stack> ...         those stacks, e.g. us-east-2/operations/apps
-#   bin/check-files --examples [...]    the files in examples/, with examples/config/
-# Works in a scratch mirror (.check-files/), never in live/; blank account IDs and teams are filled with placeholders. Each stack is
-# validated with no mocks first, then planned with them.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -14,7 +8,6 @@ command -v yq >/dev/null || { echo "check-files: yq is required (brew install yq
 SOURCE="live"; CONFIG_SOURCE="config"
 if [[ "${1:-}" == --examples ]]; then SOURCE="examples"; CONFIG_SOURCE="examples/config"; shift; fi
 
-# A scratch copy of its own, so several runs can go side by side (bin/check-units).
 mkdir -p "${REPO_ROOT}/.check-files"
 WORK="$(mktemp -d "${REPO_ROOT}/.check-files/run.XXXXXX")"
 trap 'rm -rf "${WORK:?}"' EXIT
@@ -22,16 +15,17 @@ mkdir -p "${WORK}/config" "${WORK}/live"
 ln -s "${REPO_ROOT}/templates" "${WORK}/templates"
 ln -s "${REPO_ROOT}/modules" "${WORK}/modules"
 ln -s "${REPO_ROOT}/blueprints" "${WORK}/blueprints"
+ln -s "${REPO_ROOT}/scripts" "${WORK}/scripts"
 cp -R bin "${WORK}/bin"
 cp -R live/common "${WORK}/live/common"
 cp "${CONFIG_SOURCE}"/*.yml "${WORK}/config/"
+if [[ -d "${CONFIG_SOURCE}/amis" ]]; then cp -R "${CONFIG_SOURCE}/amis" "${WORK}/config/"; fi
 for f in "${WORK}"/config/*-*-[0-9].yml; do
     yq -i '(.hub, .vpcs[]) |= (.account_id = (.account_id // "" | select(. != "") // "111111111111") | .team = (.team // "platform"))' "${f}"
 done
 primary=""
 for f in "${WORK}"/config/*-*-[0-9].yml; do [[ "$(yq -r '.hub.primary // false' "${f}")" == true ]] && primary="$(basename "${f}" .yml)"; done
 
-# The stacks to check: every folder three deep under the source that holds a stack (live) or files (examples).
 stacks=()
 if [[ $# -gt 0 ]]; then
     for s in "$@"; do stacks+=("${s#"${SOURCE}"/}"); done
@@ -39,7 +33,6 @@ else
     while IFS= read -r d; do
         rel="${d#"${SOURCE}"/}"
         [[ "${rel}" == config* || "${rel}" == common* ]] && continue
-        # In live/, a folder is a stack once it has a main.tf; until then it is a placeholder, not checked.
         [[ "${SOURCE}" == live && ! -f "${d}/main.tf" ]] && continue
         [[ "$(awk -F/ '{print NF}' <<<"${rel}")" == 3 ]] && stacks+=("${rel}")
     done < <(find "${SOURCE}" -mindepth 3 -maxdepth 3 -type d | sort)
@@ -51,7 +44,6 @@ failed=0
 for rel in "${stacks[@]}"; do
     component="${rel##*/}"
     dir="${WORK}/live/${rel}"
-    # A stack in live/ is checked as it is; an example, as make stack would create it, so a fresh clone is what is tested.
     if [[ "${SOURCE}" == live ]]; then
         [[ -f "live/${rel}/main.tf" ]] || { echo "FAIL  ${rel}: not a stack (no main.tf): make stack STACK=${rel}"; failed=1; continue; }
         mkdir -p "${dir}"
@@ -60,21 +52,17 @@ for rel in "${stacks[@]}"; do
         echo "FAIL  ${rel}: make stack"; sed 's/^/      /' <<<"${stack_out}"; failed=1; continue
     fi
     rm -f "${dir}/backend.tf"
-    # A lock file, so init links providers from the cache instead of downloading and rewriting them (bin/check-units).
     if [[ "${SOURCE}" == live && -f "live/${rel}/.terraform.lock.hcl" ]]; then cp "live/${rel}/.terraform.lock.hcl" "${dir}/"
     else cp tests/lock/.terraform.lock.hcl "${dir}/"; fi
     mkdir -p "${dir}/.check"
-    # The template reads the mirror's config, not the repository's.
     if grep -q '^variable "config_path"' "templates/${component}/variables.tf" 2>/dev/null && ! grep -q config_path "${dir}/main.tf"; then
         perl -0pi -e 's/\n}\s*\z/\n  config_path = local.config_dir\n}\n/' "${dir}/main.tf"
     fi
-    # Everything the stack's files may name (scripts, src/, policies/, deployments/, engine-versions/, ...), not Terraform's own.
     rsync -a --exclude '*.tf' --exclude '.terraform' --exclude '.terraform.lock.hcl' --exclude 'tests' --exclude '.gitkeep' "${SOURCE}/${rel}/" "${dir}/"
     region="${rel%%/*}"; [[ "${region}" == global ]] && region="${primary}"
     zones="$(yq -o=json -I=0 '.zones // []' "${WORK}/config/${region}.yml" 2>/dev/null | sed 's/,/, /g')"
     sed -e "s/zone_ids = \[[^]]*\]/zone_ids = ${zones:-[]}/" -e "s/region = \"us-east-1\", name = \"us-east-1\"/region = \"${region}\", name = \"${region}\"/" \
         tests/mock/files.tftest.hcl > "${dir}/.check/files.tftest.hcl"
-    # init downloads providers; a dropped connection is retried, and its error shown if it persists.
     init_out=""
     for attempt in 1 2 3; do
         if init_out="$(cd "${dir}" && terraform init -backend=false -input=false -no-color 2>&1)"; then init_out=""; break; fi
@@ -86,7 +74,6 @@ for rel in "${stacks[@]}"; do
         failed=1
         continue
     fi
-    # Validated first with no mocks, so a provider the stack does not configure fails here, not in AWS.
     if ! out="$(cd "${dir}" && terraform validate -no-color 2>&1)"; then
         echo "FAIL  ${rel}: terraform validate"
         grep -E "Error" -A6 <<<"${out}" | sed 's/^/      /' | head -20 || true

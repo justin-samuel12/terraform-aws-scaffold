@@ -32,10 +32,10 @@ resource "aws_instance" "servers" {
     volume_size = var.root_size
     encrypted   = true
     kms_key_id  = var.kms_key_arn
-    tags        = merge(local.tags, { Name = "${each.key}-root" })
+    tags        = merge(local.tags, { Name = "${local.name_prefix}${each.key}-root" })
   }
 
-  tags = merge(local.tags, { Name = each.key, Subnet = each.value.subnet })
+  tags = merge(var.tags, each.value.tags, local.own, { Name = "${local.name_prefix}${each.key}", Server = each.key, Subnet = each.value.subnet })
 
   provisioner "local-exec" {
     when       = destroy
@@ -59,7 +59,7 @@ resource "aws_ebs_volume" "volumes" {
   encrypted         = true
   kms_key_id        = var.kms_key_arn
 
-  tags = merge(local.tags, { Name = "${each.value.member}-${each.value.name}" })
+  tags = merge(local.tags, each.value.tags, { Name = "${local.name_prefix}${each.value.member}-${each.value.name}" })
 
   lifecycle {
     prevent_destroy = true

@@ -1,7 +1,7 @@
 mock_provider "aws" {}
 
 variables {
-  name                        = "vpn-01"
+  name                        = "office"
   transit_gateway_id          = "tgw-0123456789abcdef0"
   customer_gateway            = { ip_address = "203.0.113.10", bgp_asn = 65010 }
   association_route_table_id  = "tgw-rtb-shared"
@@ -37,8 +37,8 @@ run "vpn" {
   }
 
   assert {
-    condition     = aws_customer_gateway.customer_gateway.tags.Name == "vpn-01-cgw"
-    error_message = "The customer gateway is named <vpn>-cgw."
+    condition     = aws_customer_gateway.customer_gateway.tags.Name == "Office Customer Gateway 203.0.113.10"
+    error_message = "Without an Environment default tag, the customer gateway's Name tag is its site, what it is and its address."
   }
 }
 

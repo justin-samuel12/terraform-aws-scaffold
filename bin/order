@@ -1,12 +1,4 @@
 #!/usr/bin/env bash
-# The order to apply stacks in, worked out from templates/needs.yml -- docs/architecture.md#apply-order.
-#   bin/order                                   every stack, in waves
-#   bin/order <region>/<environment>            one environment's stacks and everything they need
-#   bin/order <region>/<environment>/<component> what one stack needs first, and what to plan again after it
-#   bin/order --check                           make check: every lookup is declared, and no stacks need each other in a loop
-#   bin/order --unapplied <stack>               for bin/tf: what it needs that is missing, not applied, or cannot be checked
-#   bin/order --dependents <stack>              for bin/tf: the stacks that look it up, directly or not, one per line
-# Read-only. Whether a stack is applied comes from its state in the bucket (--offline skips that).
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
 cd "${REPO_ROOT}"
@@ -32,14 +24,13 @@ REGIONS="$(region_files | xargs)"
 NEEDS="templates/needs.yml"
 NEED_KEYS="needs when_present when_primary named_in_files"
 
-# A lookup, by data source, and the components that build what it finds.
 builders_of() {
     case "$1" in
         kms_key) echo keys ;;
         sqs_queue | sns_topic) echo messaging ;;
         security_group) echo security-groups ;;
         vpc | subnet | subnets) echo "network hub" ;;
-        route_tables) echo network ;;
+        route_tables | vpc_peering_connection) echo network ;;
         ec2_transit_gateway | ec2_transit_gateway_route_table | ram_resource_share | route53_resolver_rule | ec2_managed_prefix_list) echo hub ;;
         route53_zone) echo dns ;;
         acm_certificate) echo certificates ;;
@@ -53,19 +44,23 @@ builders_of() {
 stacks="$(find live -mindepth 4 -maxdepth 4 -name main.tf -not -path 'live/common/*' | sed 's#^live/##; s#/main.tf$##' | sort)"
 exists() { grep -qx "$1" <<<"${stacks}"; }
 
-# The graph, in one pass: every stack -> the stacks it needs (required, then optional ones that exist) and the required ones
-# that do not exist yet. {region} is a global stack's primary region; an environment's own stack that does not exist falls back
-# to the shared one (logging, iam), but only when the environment shares the hub's account.
-# Environments in an account of their own: their missing stacks never fall back to the shared ones, which are another account's.
 own_accounts="$(for env in $(environments); do [[ "${env}" != shared && "$(account_for "${env}")" != "$(account_for shared)" ]] && echo "${env}" || true; done | jq -R . | jq -sc .)"
-graph="$(yq -o=json '.' "${NEEDS}" | jq -c --arg stacks "${stacks}" --arg regions "${REGIONS}" --arg primary "${PRIMARY}" --argjson own "${own_accounts}" '
+peerings="$(for f in live/*/*/network/config/peering/*.yml; do
+    [[ -f "${f}" ]] || continue
+    stack="${f#live/}"; stack="${stack%/config/peering/*}"
+    peer="$(yq -r '.peer_vpc_id // ""' "${f}")"; peer_region="$(yq -r '.peer_region // ""' "${f}")"
+    [[ "${peer}" == vpc-* || -z "${peer}" ]] && continue
+    printf '{"%s":["%s/%s/network"]}\n' "${stack}" "${peer_region:-${stack%%/*}}" "${peer}"
+done | jq -sc 'reduce .[] as $e ({}; . as $acc | reduce ($e | keys[]) as $k ($acc; .[$k] += $e[$k]))')"
+vpc_regions="$(for r in ${REGIONS}; do yq -o=json -I0 ".vpcs // {} | keys | map({(.): [\"${r}\"]}) | .[]" "${CONFIG_DIR}/${r}.yml"; done | jq -sc 'reduce .[] as $e ({}; . as $acc | reduce ($e | keys[]) as $k ($acc; .[$k] += $e[$k]))')"
+graph="$(yq -o=json '.' "${NEEDS}" | jq -c --arg stacks "${stacks}" --arg regions "${REGIONS}" --arg primary "${PRIMARY}" --argjson own "${own_accounts}" --argjson vpc_regions "${vpc_regions:-{\}}" '
   . as $needs
   | ($stacks | split("\n") | map(select(. != ""))) as $all
   | ($regions | split(" ") | map(select(. != ""))) as $regions
   | def expand($e; $region; $env):
       ($e | gsub("\\{environment\\}"; $env) | gsub("\\{region\\}"; $region)) as $x
       | if ($x | contains("{other_regions}")) then $regions[] | select(. != $region) as $r | $x | gsub("\\{other_regions\\}"; $r)
-        elif ($x | contains("{each_region}")) then $regions[] as $r | $x | gsub("\\{each_region\\}"; $r)
+        elif ($x | contains("{each_region}")) then ($x | split("/")[1]) as $e | $regions[] as $r | select($e == "shared" or (($vpc_regions[$e] // []) | index($r)) != null) | $x | gsub("\\{each_region\\}"; $r)
         else $x end;
     def resolve($p):
       ($p | split("/")) as $parts
@@ -82,9 +77,8 @@ graph="$(yq -o=json '.' "${NEEDS}" | jq -c --arg stacks "${stacks}" --arg region
         needs: ([$required[], $optional[]] | map(select(startswith("?") | not and . != $s)) | unique),
         missing: ($required | map(select(startswith("?")) | ltrimstr("?")) | unique)
       }}
-  ] | add // {}')"
+  ] | add // {}' | jq -c --argjson extra "${peerings:-{\}}" 'keys as $all | with_entries(($extra[.key] // []) as $e | .value.needs = ((.value.needs + [$e[] | select(IN($all[]))]) | unique) | .value.missing = ((.value.missing + [$e[] | select(IN($all[]) | not)]) | unique))')"
 
-# Waves: each holds the stacks whose needs are all in earlier waves; what is left over needs itself, through a loop.
 WAVES='
 def closure_in($g; $start; $within):
   {set: $start}
@@ -125,18 +119,13 @@ if [[ "${CHECK}" == 1 ]]; then
     exit 0
 fi
 
-# Applied: the stack's state exists in the bucket (a read-only HEAD of its key).
 bucket="$(yq -r '.state.bucket // ""' "${CONFIG_DIR}/global.yml")"; bucket_region="$(yq -r '.state.region // ""' "${CONFIG_DIR}/global.yml")"
-# A stack's state is looked for with its own environment's profile (the shared one for shared stacks), since with an account per
-# environment each may read only its own keys. Only "not found" means not applied; anything else is "cannot check", with why.
 state_of() { # state_of <stack> -> applied | not-applied | unknown <why> | (nothing, when there is nothing to check)
     [[ "${OFFLINE}" == 1 || -z "${bucket}" ]] && return 0
     local key env p err
     key="$(sed -n 's/^ *key *= *"\(.*\)"/\1/p' "live/$1/backend.tf" 2>/dev/null)"
     [[ -n "${key}" ]] || return 0
     env="$(cut -d/ -f2 <<<"$1")"; p="$(profile_for "${env}")"; [[ -n "${p}" ]] || p="$(profile_for shared)"
-    # Listed under its own key, which an environment's account may do (head-object answers 403 for a missing key without a
-    # bucket-wide list permission, so it cannot tell "not applied" from "not allowed").
     local out
     if out="$(aws s3api list-objects-v2 --bucket "${bucket}" --prefix "${key}" --max-keys 2 --query "length(Contents[?Key=='${key}'] || \`[]\`)" --output text --region "${bucket_region}" ${p:+--profile "${p}"} 2>&1)"; then
         [[ "${out}" =~ ^[1-9] ]] && echo applied || echo not-applied
@@ -191,8 +180,6 @@ fi
 exists "${TARGET}" || { echo "bin/order: no stack at live/${TARGET}" >&2; exit 1; }
 
 if [[ "${QUERY}" == unapplied ]]; then
-    # Direct needs only: a need that is applied had its own needs applied first.
-    # One line each: "missing <stack>", "not-applied <stack>" or "unknown <stack> <why>".
     jq -r --arg t "${TARGET}" '.[$t].missing[] | "missing \(.)"' <<<"${graph}"
     [[ "${OFFLINE}" == 1 || -z "${bucket}" ]] && exit 0
     for s in $(jq -r --arg t "${TARGET}" '.[$t].needs[]' <<<"${graph}"); do

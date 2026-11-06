@@ -1,35 +1,10 @@
-# Who owns a shared application, if it already exists: read-only calls, at plan time. Anything but "does not exist" stops the
-# plan with the reason, so a failed check is never taken for a missing application.
-data "external" "ownership" {
-  count = var.containerized ? 1 : 0
-
-  program = ["bash", "-c", <<-EOT
-    set -uo pipefail
-    # The AWS CLI's credentials must be this stack's account: bin/tf sees to it; with plain terraform, export AWS_PROFILE.
-    account=$(aws sts get-caller-identity --query Account --output text 2>&1) || { echo "the AWS CLI has no working credentials, to check who owns ${var.name}: $account" >&2; exit 1; }
-    [ "$account" = "${var.account_id}" ] || { echo "the AWS CLI's credentials are for account $account, not ${var.account_id}: export AWS_PROFILE for this stack's account" >&2; exit 1; }
-    if ! err=$(aws deploy get-application --application-name "${var.name}" --region "${var.region}" 2>&1 >/dev/null); then
-      case "$err" in
-        *ApplicationDoesNotExistException*) printf '{"exists":"false","owner":""}'; exit 0 ;;
-        *) echo "could not check whether CodeDeploy application ${var.name} exists: $err" >&2; exit 1 ;;
-      esac
-    fi
-    owner=$(aws deploy list-tags-for-resource --region "${var.region}" \
-      --resource-arn "arn:aws:codedeploy:${var.region}:${var.account_id}:application:${var.name}" \
-      --query "Tags[?Key=='EnvironmentOwner'].Value | [0]" --output text 2>&1) || { echo "could not read ${var.name}'s owner: $owner" >&2; exit 1; }
-    [ "$owner" = "None" ] && owner=""
-    printf '{"exists":"true","owner":"%s"}' "$owner"
-  EOT
-  ]
-}
-
 resource "aws_codedeploy_app" "application" {
   count = local.manage ? 1 : 0
 
   name             = var.name
   compute_platform = "Server"
 
-  tags = merge({ Name = var.name }, var.containerized ? { EnvironmentOwner = var.environment } : {})
+  tags = merge({ Name = "${local.name_prefix}${var.name}" }, var.containerized ? { EnvironmentOwner = var.environment } : {})
 }
 
 resource "aws_codedeploy_deployment_group" "groups" {
@@ -40,7 +15,6 @@ resource "aws_codedeploy_deployment_group" "groups" {
   service_role_arn       = var.service_role_arn
   deployment_config_name = var.deployment_config_name
 
-  # Fixed servers: those declaring the application, in this environment, and carrying the selector tag if there is one.
   ec2_tag_set {
     ec2_tag_filter {
       key  = "CodeDeploy:${var.name}"
@@ -91,13 +65,11 @@ resource "aws_codedeploy_deployment_group" "groups" {
     }
   }
 
-  tags = { Name = "${var.name}-${each.key}", Application = var.name, GroupType = each.key }
+  tags = { Name = "${local.name_prefix}${var.name}-${each.key}", Application = var.name, GroupType = each.key }
 
   depends_on = [aws_codedeploy_app.application]
 }
 
-# CodeDeploy's connection to GitHub is made by a first deployment from it. That deployment goes to a group of its own, which
-# requires a tag no server carries, so it can never touch a server; it is started, then stopped. Only with a bootstrap set.
 resource "aws_codedeploy_deployment_group" "connection" {
   count = var.bootstrap == null ? 0 : 1
 
@@ -119,7 +91,7 @@ resource "aws_codedeploy_deployment_group" "connection" {
     }
   }
 
-  tags = { Name = "${var.name}-connection-check", Application = var.name, GroupType = "connection-check" }
+  tags = { Name = "${local.name_prefix}${var.name}-connection-check", Application = var.name, GroupType = "connection-check" }
 
   provisioner "local-exec" {
     command = <<-EOT

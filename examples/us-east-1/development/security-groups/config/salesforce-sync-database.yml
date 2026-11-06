@@ -1,0 +1,38 @@
+description: The salesforce-sync database (RDS Custom for SQL Server, with DBAmp)
+tags:
+  Kind: database
+ingress:
+  - description: SQL Server from the backend services
+    ip_protocol: tcp
+    from_port: 1433
+    to_port: 1433
+    referenced_security_group_id: backend-services
+  - description: SQL Server from the operator tooling, for administration
+    ip_protocol: tcp
+    from_port: 1433
+    to_port: 1433
+    referenced_security_group_id: operators
+  - description: Remote desktop from the office and the VPN; Session Manager needs no rule
+    ip_protocol: tcp
+    from_port: 3389
+    to_port: 3389
+    cidr_ipv4: 192.168.0.0/16
+  - description: Multi-AZ replication between the primary and its standby
+    ip_protocol: tcp
+    from_port: 1120
+    to_port: 1120
+    referenced_security_group_id: salesforce-sync-database
+egress:
+  - description: Internal traffic, through the hub
+    ip_protocol: "-1"
+    cidr_ipv4: 10.0.0.0/8
+  - description: HTTPS out, through the hub egress
+    ip_protocol: tcp
+    from_port: 443
+    to_port: 443
+    cidr_ipv4: 0.0.0.0/0
+  - description: HTTP out, through the hub egress, for package mirrors and Windows Update
+    ip_protocol: tcp
+    from_port: 80
+    to_port: 80
+    cidr_ipv4: 0.0.0.0/0

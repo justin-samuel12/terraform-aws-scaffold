@@ -1,0 +1,2 @@
+zone: example.com
+load_balancer: external

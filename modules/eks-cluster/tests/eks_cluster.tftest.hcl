@@ -1,4 +1,3 @@
-# What the module builds and refuses, against a mocked AWS -- docs/kubernetes.md.
 mock_provider "aws" {}
 
 override_data {
@@ -12,12 +11,22 @@ override_data {
 }
 
 variables {
-  name               = "development"
-  kubernetes_version = "1.34"
-  subnet_ids         = ["subnet-1", "subnet-2", "subnet-3"]
-  kms_key_arn        = "arn:aws:kms:us-east-1:111111111111:key/mrk-data"
-  admins             = ["arn:aws:iam::111111111111:role/platform-admin"]
-  viewers            = ["arn:aws:iam::111111111111:role/developer"]
+  name                   = "development"
+  kubernetes_version     = "1.34"
+  subnet_ids             = ["subnet-1", "subnet-2", "subnet-3"]
+  kms_key_arn            = "arn:aws:kms:us-east-1:111111111111:key/mrk-data"
+  deletion_protection    = true
+  endpoint_public_access = false
+  access_entries = [
+    {
+      principal_arn              = "arn:aws:iam::111111111111:role/platform-admin"
+      access_policy_associations = [{ policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy", access_scope = { type = "cluster" } }]
+    },
+    {
+      principal_arn              = "arn:aws:iam::111111111111:role/developer"
+      access_policy_associations = [{ policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSEditPolicy", access_scope = { type = "namespace", namespaces = ["orders-api"] } }]
+    },
+  ]
 }
 
 run "auto_mode" {
@@ -54,13 +63,13 @@ run "auto_mode" {
   }
 
   assert {
-    condition     = aws_eks_access_policy_association.people["arn:aws:iam::111111111111:role/platform-admin"].policy_arn == "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy" && aws_eks_access_policy_association.people["arn:aws:iam::111111111111:role/developer"].policy_arn == "arn:aws:eks::aws:cluster-access-policy/AmazonEKSViewPolicy"
-    error_message = "Admins get cluster admin, viewers read-only."
+    condition     = length(aws_eks_access_entry.people) == 2 && aws_eks_access_policy_association.people["arn:aws:iam::111111111111:role/platform-admin arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"].access_scope[0].type == "cluster" && toset(aws_eks_access_policy_association.people["arn:aws:iam::111111111111:role/developer arn:aws:eks::aws:cluster-access-policy/AmazonEKSEditPolicy"].access_scope[0].namespaces) == toset(["orders-api"])
+    error_message = "Each entry gets the policies it lists, at the scope it lists."
   }
 
   assert {
     condition     = aws_eks_cluster.cluster.vpc_config[0].endpoint_private_access && !aws_eks_cluster.cluster.vpc_config[0].endpoint_public_access
-    error_message = "The API is private by default."
+    error_message = "With endpoint_public_access false, the API is private."
   }
 
   assert {
@@ -83,7 +92,8 @@ run "public_endpoint" {
   command = plan
 
   variables {
-    public_access_cidrs = ["203.0.113.10/32"]
+    endpoint_public_access = true
+    public_access_cidrs    = ["203.0.113.10/32"]
   }
 
   assert {
@@ -96,7 +106,8 @@ run "rejects_open_endpoint" {
   command = plan
 
   variables {
-    public_access_cidrs = ["0.0.0.0/0"]
+    endpoint_public_access = true
+    public_access_cidrs    = ["0.0.0.0/0"]
   }
 
   expect_failures = [var.public_access_cidrs]
@@ -112,22 +123,38 @@ run "rejects_bad_version" {
   expect_failures = [var.kubernetes_version]
 }
 
-run "rejects_admin_and_viewer" {
+run "rejects_public_without_cidrs" {
   command = plan
 
   variables {
-    viewers = ["arn:aws:iam::111111111111:role/platform-admin"]
+    endpoint_public_access = true
   }
 
-  expect_failures = [var.viewers]
+  expect_failures = [var.public_access_cidrs]
+}
+
+run "rejects_a_namespace_scope_without_namespaces" {
+  command = plan
+
+  variables {
+    access_entries = [{
+      principal_arn              = "arn:aws:iam::111111111111:role/developer"
+      access_policy_associations = [{ policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSViewPolicy", access_scope = { type = "namespace" } }]
+    }]
+  }
+
+  expect_failures = [var.access_entries]
 }
 
 run "rejects_user_arn" {
   command = plan
 
   variables {
-    admins = ["arn:aws:iam::111111111111:user/someone"]
+    access_entries = [{
+      principal_arn              = "arn:aws:iam::111111111111:user/someone"
+      access_policy_associations = [{ policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSViewPolicy", access_scope = { type = "cluster" } }]
+    }]
   }
 
-  expect_failures = [var.admins]
+  expect_failures = [var.access_entries]
 }

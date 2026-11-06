@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Generate docs/diagram.md from the IP plan and the live/ tree; --check fails if it is stale -- docs/diagram.md.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -8,13 +7,12 @@ cd "${REPO_ROOT}"
 
 command -v jq >/dev/null || { echo "bin/diagram: jq is required." >&2; exit 1; }
 
-# The IP plan is pure Terraform with no provider: evaluate it, no AWS involved.
 export TF_PLUGIN_CACHE_DIR="${TF_PLUGIN_CACHE_DIR:-${REPO_ROOT}/.terraform.d/plugin-cache}"
 mkdir -p "${TF_PLUGIN_CACHE_DIR}"
 terraform -chdir=modules/ip-plan init -backend=false -input=false >/dev/null
 networks="$(echo 'jsonencode(local.networks)' | terraform -chdir=modules/ip-plan console | jq -r 'fromjson')"
+sites="$(echo 'jsonencode(keys(local.sites))' | terraform -chdir=modules/ip-plan console | jq -r 'fromjson | .[]')"
 
-# Built = the stack has .tf files of its own, not only the links to live/common.
 status() { [[ -n "$(find "live/$1" -maxdepth 1 -name '*.tf' -type f 2>/dev/null)" ]] && echo built || echo planned; }
 id() { echo "$1" | tr '/-' '__'; }
 region_name() { case "$1" in us-east-1) echo "N. Virginia";; us-east-2) echo "Ohio";; us-west-1) echo "N. California";; us-west-2) echo "Oregon";; *) echo "$1";; esac; }
@@ -29,7 +27,7 @@ render() {
     echo
     echo '```mermaid'
     echo 'flowchart TB'
-    echo '  hq["HQ<br/>on-premises"]'
+    for site in ${sites}; do echo "  site_$(id "${site}")[\"${site}<br/>site\"]"; done
     for region in ${regions}; do
         echo "  subgraph $(id "${region}")[\"$(region_name "${region}") · ${region}\"]"
         echo "    direction TB"
@@ -43,7 +41,7 @@ render() {
         echo "  end"
     done
     for region in ${regions}; do
-        echo "  hq ---|VPN| hub_$(id "${region}")"
+        for site in ${sites}; do echo "  site_$(id "${site}") ---|VPN| hub_$(id "${region}")"; done
         for key in $(jq -r --arg r "${region}" 'to_entries[] | select(.value.purpose == "spoke" and (.key | endswith("/" + $r))) | .key' <<<"${networks}"); do
             echo "  hub_$(id "${region}") --- $(id "${key}")"
         done
@@ -65,7 +63,6 @@ render() {
         echo "| (none yet) | | |"
     else
         for stack in ${stacks}; do
-            # A stack calls a template, which calls the modules; list both.
             template="$( (grep -hoE 'source\s*=\s*"[^"]*templates/[a-z-]+' "${stack}"/*.tf 2>/dev/null || true) | sed -E 's#.*templates/##' | head -n1)"
             files=("${stack}"/*.tf)
             [[ -n "${template}" ]] && files+=(templates/"${template}"/*.tf)
@@ -77,7 +74,6 @@ render() {
     echo "## Subnets"
     echo
     echo "Every VPC's subnets, from \`config/\`, in address order. A stack refers to a subnet by its \`Subnet\` tag."
-    # One table per VPC: region, then the hub, then environments; rows sorted by address.
     jq -r '
         to_entries
         | sort_by(.key | split("/") | [.[1], (if .[0] == "shared" then 0 else 1 end), .[0]])

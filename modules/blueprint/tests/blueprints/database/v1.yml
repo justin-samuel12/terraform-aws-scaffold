@@ -1,0 +1,10 @@
+description: Broken on purpose, four ways
+sizes:
+  default: small
+instance_types:
+  default: m7i.24xlarge
+  allowed:
+    - t3.small
+environments:
+  staging:
+    count: 1

@@ -1,21 +1,15 @@
-# What the module builds and refuses, against a mocked AWS -- docs/kubernetes.md.
 mock_provider "aws" {}
-
-override_data {
-  target = data.aws_partition.current
-  values = { partition = "aws" }
-}
 
 variables {
   cluster_name = "development"
   cluster_arn  = "arn:aws:eks:us-east-1:111111111111:cluster/development"
   roles = {
     development-orders-api-us-east-1 = {
-      description      = "orders-api's pods in development, us-east-1"
-      namespace        = "orders-api"
-      service_account  = "orders-api"
-      managed_policies = ["AmazonSQSReadOnlyAccess"]
-      statements       = [{ actions = ["sqs:SendMessage"], resources = ["arn:aws:sqs:us-east-1:111111111111:development-orders"] }]
+      description     = "orders-api's pods in development, us-east-1"
+      namespace       = "orders-api"
+      service_account = "orders-api"
+      policy_arns     = ["arn:aws:iam::aws:policy/AmazonSQSReadOnlyAccess"]
+      statements      = [{ actions = ["sqs:SendMessage"], resources = ["arn:aws:sqs:us-east-1:111111111111:development-orders"] }]
     }
   }
 }
@@ -39,8 +33,8 @@ run "app_role" {
   }
 
   assert {
-    condition     = aws_iam_role_policy_attachment.managed["development-orders-api-us-east-1/AmazonSQSReadOnlyAccess"].policy_arn == "arn:aws:iam::aws:policy/AmazonSQSReadOnlyAccess" && length(aws_iam_role_policy.own) == 1
-    error_message = "Managed policies by name, statements as the role's own policy."
+    condition     = aws_iam_role_policy_attachment.managed["development-orders-api-us-east-1 arn:aws:iam::aws:policy/AmazonSQSReadOnlyAccess"].policy_arn == "arn:aws:iam::aws:policy/AmazonSQSReadOnlyAccess" && length(aws_iam_role_policy.own) == 1
+    error_message = "Policies by ARN, statements as the role's own policy."
   }
 }
 
@@ -74,7 +68,7 @@ run "rejects_administrator" {
 
   variables {
     roles = {
-      development-a-us-east-1 = { description = "a", namespace = "a", service_account = "a", managed_policies = ["AdministratorAccess"] }
+      development-a-us-east-1 = { description = "a", namespace = "a", service_account = "a", policy_arns = ["arn:aws:iam::aws:policy/AdministratorAccess"] }
     }
   }
 

@@ -37,31 +37,21 @@ variable "instance_class" {
   type        = string
 }
 
-variable "storage" {
+variable "allocated_storage" {
   description = "Starting storage in GB."
   type        = number
 }
 
-variable "max_storage" {
-  description = "Storage grows by itself up to this many GB; null for RDS Custom, which does not grow by itself."
+variable "max_allocated_storage" {
+  description = "Storage grows by itself up to this many GB; null, as AWS has it, for none. RDS Custom does not grow by itself."
   type        = number
   default     = null
-
-  validation {
-    condition     = startswith(var.engine, "custom-") == (var.max_storage == null)
-    error_message = "max_storage is required, except for RDS Custom, which does not grow its storage by itself and takes none."
-  }
 }
 
 variable "multi_az" {
-  description = "A standby in another zone that takes over by itself."
+  description = "A standby in another zone that takes over by itself; null, as AWS has it, for none."
   type        = bool
-  default     = true
-
-  validation {
-    condition     = !var.multi_az || (var.engine != "sqlserver-ex" && (var.engine != "sqlserver-web" || (split(".", var.engine_version)[0] == "16" && try(tonumber(split(".", var.engine_version)[2]) >= 4215, true))))
-    error_message = "SQL Server Express cannot be Multi-AZ, and Web edition only from SQL Server 2022 (16.00.4215.2 on)."
-  }
+  default     = null
 }
 
 variable "subnet_ids" {
@@ -69,8 +59,8 @@ variable "subnet_ids" {
   type        = list(string)
 }
 
-variable "security_group_ids" {
-  description = "The database's security groups."
+variable "vpc_security_group_ids" {
+  description = "The database's security groups, by ID."
   type        = list(string)
 }
 
@@ -124,43 +114,23 @@ variable "character_set_name" {
   }
 }
 
-variable "options" {
-  description = "RDS for SQL Server only: option name (SSIS, SSRS, PBIRS, SSAS, TDE) -> its port, if it listens on one, and its option settings by AWS name."
-  type = map(object({
-    port     = optional(number)
-    settings = optional(map(string), {})
+variable "option" {
+  description = "RDS for SQL Server only: the option list of the database's aws_db_option_group, each option_name with its port, version, vpc_security_group_memberships (IDs) and option_settings (name, value)."
+  type = list(object({
+    option_name                    = string
+    port                           = optional(number)
+    version                        = optional(string)
+    vpc_security_group_memberships = optional(list(string))
+    option_settings = optional(list(object({
+      name  = string
+      value = string
+    })), [])
   }))
-  default = {}
+  default = []
 
   validation {
-    condition     = length(var.options) == 0 || startswith(var.engine, "sqlserver-")
+    condition     = length(var.option) == 0 || startswith(var.engine, "sqlserver-")
     error_message = "Options are for RDS for SQL Server only."
-  }
-
-  validation {
-    condition     = alltrue([for name in keys(var.options) : contains(["SSIS", "SSRS", "PBIRS", "SSAS", "TDE"], name)])
-    error_message = "options are SSIS, SSRS, PBIRS, SSAS and TDE; native backup and restore is backup_restore_bucket."
-  }
-
-  validation {
-    condition     = length(var.options) == 0 || contains(["sqlserver-se", "sqlserver-ee"], var.engine)
-    error_message = "SSIS, SSRS, PBIRS, SSAS and TDE need SQL Server Standard or Enterprise edition."
-  }
-
-  validation {
-    condition     = length(setintersection(keys(var.options), ["SSIS", "SSRS", "PBIRS", "SSAS"])) == 0 || var.domain != null || var.domain_fqdn != null
-    error_message = "SSIS, SSRS, PBIRS and SSAS sign people in through Windows: join the database to Active Directory first."
-  }
-}
-
-variable "backup_restore_bucket" {
-  description = "SQL Server only: the bucket native backups go to and restores come from (SQLSERVER_BACKUP_RESTORE); null = none."
-  type        = string
-  default     = null
-
-  validation {
-    condition     = var.backup_restore_bucket == null || startswith(var.engine, "sqlserver-")
-    error_message = "Native backup and restore to S3 is for RDS for SQL Server only; RDS Custom backs up to S3 from the server itself."
   }
 }
 
@@ -168,38 +138,18 @@ variable "domain" {
   description = "SQL Server only: an AWS Managed Microsoft AD directory ID to join (d-...), with domain_iam_role_name."
   type        = string
   default     = null
-
-  validation {
-    condition     = var.domain == null || startswith(var.engine, "sqlserver-")
-    error_message = "domain is for RDS for SQL Server; RDS Custom joins either kind of directory through domain_fqdn and its companions."
-  }
 }
 
 variable "domain_iam_role_name" {
   description = "The role RDS joins the AWS Managed Microsoft AD directory with."
   type        = string
   default     = null
-
-  validation {
-    condition     = (var.domain == null) == (var.domain_iam_role_name == null)
-    error_message = "domain and domain_iam_role_name go together."
-  }
 }
 
 variable "domain_fqdn" {
   description = "SQL Server only: a self-managed Active Directory's domain to join, such as corp.example.com (and RDS Custom's way into any directory)."
   type        = string
   default     = null
-
-  validation {
-    condition     = var.domain_fqdn == null || can(regex("sqlserver-", var.engine))
-    error_message = "Active Directory is for SQL Server only."
-  }
-
-  validation {
-    condition     = var.domain == null || var.domain_fqdn == null
-    error_message = "Join AWS Managed Microsoft AD (domain) or a self-managed domain (domain_fqdn), not both."
-  }
 }
 
 variable "domain_ou" {
@@ -218,11 +168,6 @@ variable "domain_dns_ips" {
   description = "Two domain controllers' addresses, used as DNS."
   type        = list(string)
   default     = null
-
-  validation {
-    condition     = (var.domain_fqdn == null && var.domain_ou == null && var.domain_auth_secret_arn == null && var.domain_dns_ips == null) || (var.domain_fqdn != null && var.domain_ou != null && var.domain_auth_secret_arn != null && length(coalesce(var.domain_dns_ips, [])) == 2)
-    error_message = "A self-managed domain needs domain_fqdn, domain_ou, domain_auth_secret_arn and two domain_dns_ips."
-  }
 }
 
 variable "custom_iam_instance_profile" {
@@ -237,28 +182,24 @@ variable "custom_iam_instance_profile" {
 }
 
 variable "license_model" {
-  description = "RDS Custom only: license-included, or bring-your-own-media for a custom engine version built from our own SQL Server media."
+  description = "license-included or bring-your-own-media (RDS Custom, from a version of our own); null, as AWS has it."
   type        = string
-  default     = "license-included"
+  default     = null
+}
+
+variable "password_wo_version" {
+  description = "RDS Custom only: the version of the write-only dbadmin password. Raise it by one to set a new password on the database and in its secret together."
+  type        = number
+  default     = null
 
   validation {
-    condition     = var.license_model == "license-included" || (var.license_model == "bring-your-own-media" && contains(["custom-sqlserver-ee", "custom-sqlserver-se", "custom-sqlserver-dev"], var.engine))
-    error_message = "license_model is license-included, or bring-your-own-media for RDS Custom Enterprise, Standard or Developer edition."
-  }
-
-  validation {
-    condition     = var.engine != "custom-sqlserver-dev" || var.license_model == "bring-your-own-media"
-    error_message = "Developer edition comes only from our own media: license_model bring-your-own-media, with a custom engine version."
+    condition     = startswith(var.engine, "custom-") ? try(var.password_wo_version >= 1 && floor(var.password_wo_version) == var.password_wo_version, false) : var.password_wo_version == null
+    error_message = "RDS Custom needs password_wo_version, a whole number from 1; nothing else takes one."
   }
 }
 
-variable "password_generation" {
-  description = "RDS Custom: raise it by one to set a new dbadmin password on the database and in its secret together (rotation, or recovery if the two ever disagree)."
-  type        = number
-  default     = 1
-
-  validation {
-    condition     = var.password_generation >= 1 && floor(var.password_generation) == var.password_generation
-    error_message = "password_generation is a whole number from 1, raised by one to set a new password."
-  }
+variable "tags" {
+  description = "Tags from the file, on everything this module builds; the ones it sets itself (Name and the like) win."
+  type        = map(string)
+  default     = {}
 }

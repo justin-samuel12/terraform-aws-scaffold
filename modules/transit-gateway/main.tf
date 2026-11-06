@@ -1,4 +1,3 @@
-# Default association and propagation are off: every attachment says where it belongs -- docs/network.md.
 resource "aws_ec2_transit_gateway" "transit_gateway" {
   description                     = var.name
   amazon_side_asn                 = var.amazon_side_asn
@@ -10,9 +9,8 @@ resource "aws_ec2_transit_gateway" "transit_gateway" {
 
   security_group_referencing_support = var.security_group_referencing ? "enable" : "disable"
 
-  tags = { Name = var.name }
+  tags = { Name = "${local.name_prefix}Transit Gateway" }
 
-  # Every environment routes through the hub; a plan that would replace it fails here.
   lifecycle {
     prevent_destroy = true
   }
@@ -22,7 +20,7 @@ resource "aws_ec2_transit_gateway_route_table" "route_tables" {
   for_each = var.route_tables
 
   transit_gateway_id = aws_ec2_transit_gateway.transit_gateway.id
-  tags               = { Name = "${var.name}-${each.key}" }
+  tags               = { Name = "${local.name_prefix}Transit Gateway ${title(each.key)}", Segment = each.key }
 }
 
 resource "aws_ec2_transit_gateway_route" "routes" {

@@ -73,7 +73,6 @@ run "two_zones" {
 run "refuses_one_zone" {
   command = plan
 
-  # One zone is no redundancy at all.
   variables {
     config_path = "tests/fixtures/zones"
   }
@@ -84,7 +83,6 @@ run "refuses_one_zone" {
 run "refuses_overlap" {
   command = plan
 
-  # Two VPC ranges overlap.
   variables {
     config_path = "tests/fixtures/overlap"
   }
@@ -95,7 +93,6 @@ run "refuses_overlap" {
 run "refuses_typo" {
   command = plan
 
-  # A misspelt key (segmnet) is refused, not ignored.
   variables {
     config_path = "tests/fixtures/typo"
   }
@@ -106,7 +103,6 @@ run "refuses_typo" {
 run "refuses_segment" {
   command = plan
 
-  # A segment that is not restricted, standard or shared is refused.
   variables {
     config_path = "tests/fixtures/segment"
   }
@@ -117,7 +113,6 @@ run "refuses_segment" {
 run "refuses_cidr" {
   command = plan
 
-  # A cidr that is not a network address is refused.
   variables {
     config_path = "tests/fixtures/cidr"
   }
@@ -128,7 +123,6 @@ run "refuses_cidr" {
 run "refuses_asn" {
   command = plan
 
-  # Two hubs with the same Amazon-side ASN are refused.
   variables {
     config_path = "tests/fixtures/asn"
   }
@@ -139,7 +133,6 @@ run "refuses_asn" {
 run "refuses_referencing_that_is_not_a_bool" {
   command = plan
 
-  # security_group_referencing is true or false.
   variables {
     config_path = "tests/fixtures/referencing"
   }
@@ -150,7 +143,6 @@ run "refuses_referencing_that_is_not_a_bool" {
 run "refuses_misnamed" {
   command = plan
 
-  # A file not named <environment>-<region>.yml is refused.
   variables {
     config_path = "tests/fixtures/misnamed"
   }
@@ -161,7 +153,6 @@ run "refuses_misnamed" {
 run "refuses_outside" {
   command = plan
 
-  # A range outside internal_cidr is refused: the hubs would not route it.
   variables {
     config_path = "tests/fixtures/outside"
   }
@@ -172,7 +163,6 @@ run "refuses_outside" {
 run "refuses_primary_none" {
   command = plan
 
-  # No hub says primary: true.
   variables {
     config_path = "tests/fixtures/primary_none"
   }
@@ -183,7 +173,6 @@ run "refuses_primary_none" {
 run "refuses_primary_two" {
   command = plan
 
-  # Both hubs say primary: true.
   variables {
     config_path = "tests/fixtures/primary_two"
   }
@@ -194,7 +183,6 @@ run "refuses_primary_two" {
 run "refuses_reserved" {
   command = plan
 
-  # shared is the hub's environment and cannot be listed under networks.
   variables {
     config_path = "tests/fixtures/reserved"
   }
@@ -205,7 +193,6 @@ run "refuses_reserved" {
 run "refuses_account" {
   command = plan
 
-  # Production with a different account in Ohio and Oregon is refused.
   variables {
     config_path = "tests/fixtures/account"
   }
@@ -216,7 +203,6 @@ run "refuses_account" {
 run "refuses_misaligned" {
   command = plan
 
-  # A /21 must start on a multiple of 8; start 97 is refused.
   variables {
     config_path = "tests/fixtures/misaligned"
   }
@@ -227,7 +213,6 @@ run "refuses_misaligned" {
 run "refuses_tiers_overlap" {
   command = plan
 
-  # ops starting inside data is refused.
   variables {
     config_path = "tests/fixtures/tiers_overlap"
   }
@@ -235,11 +220,9 @@ run "refuses_tiers_overlap" {
   expect_failures = [output.networks]
 }
 
-
 run "refuses_too_small" {
   command = plan
 
-  # A private /18 has no room for six zones in a /16.
   variables {
     config_path = "tests/fixtures/too_small"
   }
@@ -250,7 +233,6 @@ run "refuses_too_small" {
 run "refuses_zone_seven" {
   command = plan
 
-  # Zones are numbered az1 to az6; az7 has no reserved block.
   variables {
     config_path = "tests/fixtures/zone_seven"
   }
@@ -272,8 +254,166 @@ run "prefix_lists_and_dns" {
 
   assert {
     condition     = output.dns.inbound && output.dns.forward["ad.example.com"] == ["10.10.128.6", "10.10.132.6"]
-    error_message = "DNS forwarding sends a domain to HQ's DNS servers."
+    error_message = "DNS forwarding sends a domain to the DNS servers of the site that answers it."
   }
+}
+
+run "sites" {
+  command = plan
+
+  variables {
+    config_path = "tests/fixtures/sites"
+  }
+
+  assert {
+    condition     = jsonencode(keys(output.sites)) == jsonencode(["office"]) && jsonencode(output.sites.office.ip_addresses) == jsonencode(["203.0.113.10", "203.0.113.11"]) && output.sites.office.bgp_asn == 65010
+    error_message = "Each enabled site is in sites, with a VPN device per link; a site with enabled: false is left out."
+  }
+
+  assert {
+    condition     = jsonencode(output.site_cidrs) == jsonencode(["10.10.0.0/16", "192.168.0.0/16"]) && jsonencode(keys(output.dns.forward)) == jsonencode(["ad.example.com"])
+    error_message = "A disabled site's ranges and forwarded domains go with it."
+  }
+}
+
+run "no_address_no_device" {
+  command = plan
+
+  variables {
+    config_path = "tests/fixtures/lists_and_dns"
+  }
+
+  assert {
+    condition     = length(output.sites.office.ip_addresses) == 0
+    error_message = "A site without an ip_address has no VPN device yet."
+  }
+}
+
+run "refuses_an_address_in_two_sites" {
+  command = plan
+
+  variables {
+    config_path = "tests/fixtures/ip-twice"
+  }
+
+  expect_failures = [output.networks]
+}
+
+run "refuses_a_site_range_inside_a_vpc" {
+  command = plan
+
+  variables {
+    config_path = "tests/fixtures/site-overlap"
+  }
+
+  expect_failures = [output.networks]
+}
+
+run "resolver_placement" {
+  command = plan
+
+  variables {
+    config_path = "tests/fixtures/resolvers"
+  }
+
+  assert {
+    condition     = output.networks["shared/us-east-2"].resolver.inbound && output.networks["shared/us-east-2"].resolver.outbound && !output.networks["staging/us-west-2"].resolver.inbound && output.networks["staging/us-west-2"].resolver.outbound && jsonencode(output.networks["staging/us-west-2"].resolver.domains) == jsonencode(["corp.example.com"])
+    error_message = "One inbound endpoint, in the primary region; an outbound one in every region, while a site forwards anything."
+  }
+}
+
+run "resolver_outbound_off_in_a_region" {
+  command = plan
+
+  variables {
+    config_path = "tests/fixtures/resolver-off"
+  }
+
+  assert {
+    condition     = !output.networks["staging/us-west-2"].resolver.inbound && !output.networks["staging/us-west-2"].resolver.outbound && length(output.networks["staging/us-west-2"].resolver.domains) == 0 && output.networks["operations/us-east-2"].resolver.outbound
+    error_message = "hub.resolver.outbound: false leaves a region without forwarding, and only that region."
+  }
+}
+
+run "refuses_resolve_all_without_a_resolver_there" {
+  command = plan
+
+  variables {
+    config_path = "tests/fixtures/resolve-all-west"
+  }
+
+  expect_failures = [output.networks]
+}
+
+run "directory" {
+  command = plan
+
+  variables {
+    config_path = "tests/fixtures/directory"
+  }
+
+  assert {
+    condition     = output.directory.name == "ad.corp.internal" && output.directory.edition == "Standard"
+    error_message = "The directory is read from config/global.yml."
+  }
+
+  assert {
+    condition     = output.networks["operations/us-east-2"].resolver.outbound && contains(output.networks["operations/us-east-2"].resolver.domains, "ad.corp.internal") && !contains(output.networks["staging/us-west-2"].resolver.domains, "ad.corp.internal")
+    error_message = "The directory's domain is forwarded in the primary region, where it is built, and not in the others."
+  }
+}
+
+run "directory_switched_off" {
+  command = plan
+
+  variables {
+    config_path = "tests/fixtures/directory-off"
+  }
+
+  assert {
+    condition     = output.directory == null
+    error_message = "With enabled: false nothing is built and nothing is checked, so the block can wait, blank."
+  }
+}
+
+run "refuses_a_bad_directory" {
+  command = plan
+
+  variables {
+    config_path = "tests/fixtures/directory-bad"
+  }
+
+  expect_failures = [output.networks]
+}
+
+run "refuses_hq" {
+  command = plan
+
+  variables {
+    config_path = "tests/fixtures/hq-old"
+  }
+
+  expect_failures = [output.networks]
+}
+
+run "refuses_dns_forward" {
+  command = plan
+
+  variables {
+    config_path = "tests/fixtures/forward-old"
+  }
+
+  expect_failures = [output.dns]
+}
+
+run "refuses_a_domain_forwarded_twice" {
+  command = plan
+
+  variables {
+    config_path = "tests/fixtures/forward-twice"
+  }
+
+  expect_failures = [output.dns]
 }
 
 run "nothing_listed_yet" {
@@ -283,4 +423,81 @@ run "nothing_listed_yet" {
     condition     = output.prefix_lists == {} && output.dns.forward == {} && !output.dns.inbound
     error_message = "With nothing in config, there are no lists and no DNS forwarding."
   }
+}
+
+run "each_environments_zones" {
+  command = plan
+
+  assert {
+    condition     = output.zones.operations == { private = "operations.corp.internal" }
+    error_message = "An environment's own zone is its private one, <environment>.<private_domain>; no public zone is ever its default."
+  }
+
+  assert {
+    condition     = output.dns.public_domains == ["example.com"]
+    error_message = "public_domain is a list of the public domains."
+  }
+
+  assert {
+    condition     = output.dns.private_zones == toset(["corp.internal"])
+    error_message = "The private domain itself is a zone in the hub that every VPC attaches to, for names every environment shares."
+  }
+
+  assert {
+    condition     = !contains(keys(output.zones), "shared")
+    error_message = "The hubs are not an environment with zones of their own."
+  }
+}
+
+run "refuses_a_list_of_private_domains" {
+  command = plan
+
+  variables {
+    config_path = "tests/fixtures/domain-list"
+  }
+
+  expect_failures = [output.dns]
+}
+
+run "refuses_one_public_domain_written_as_a_string" {
+  command = plan
+
+  variables {
+    config_path = "tests/fixtures/public-string"
+  }
+
+  expect_failures = [output.dns]
+}
+
+run "refuses_dot_local" {
+  command = plan
+
+  variables {
+    config_path = "tests/fixtures/dot-local"
+  }
+
+  expect_failures = [output.dns]
+}
+
+run "a_peered_network" {
+  command = plan
+
+  variables {
+    config_path = "tests/fixtures/peered"
+  }
+
+  assert {
+    condition     = output.networks["adhoc/us-east-2"].connectivity == "peering" && output.networks["adhoc/us-east-2"].segment == null && length(output.networks["adhoc/us-east-2"].propagates_to) == 0 && output.networks["operations/us-east-2"].connectivity == "transit_gateway"
+    error_message = "A network with connectivity: peering has no segment and propagates nowhere; one without it is on the hub."
+  }
+}
+
+run "refuses_a_segment_on_a_peered_network" {
+  command = plan
+
+  variables {
+    config_path = "tests/fixtures/peered-with-segment"
+  }
+
+  expect_failures = [output.networks]
 }

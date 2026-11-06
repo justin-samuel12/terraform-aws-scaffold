@@ -3,27 +3,32 @@ variable "kms_key_arn" {
   type        = string
 }
 
-variable "idle_timeout_minutes" {
-  description = "A session with no activity this long is closed."
-  type        = number
-  default     = 20
+variable "document" {
+  description = "The SSM-SessionManagerRunShell document's own settings: content.inputs.idleSessionTimeout and maxSessionDuration (minutes, as AWS writes them), and tags. The key, the log group and streaming are fixed. null builds no document, and Session Manager runs on AWS's defaults."
+  type = object({
+    content = object({
+      inputs = object({
+        idleSessionTimeout = string
+        maxSessionDuration = string
+      })
+    })
+    tags = optional(map(string), {})
+  })
+  default = null
 
   validation {
-    condition     = var.idle_timeout_minutes >= 1 && var.idle_timeout_minutes <= 60
-    error_message = "idle_timeout_minutes is 1 to 60."
+    condition     = var.document == null || try(tonumber(var.document.content.inputs.idleSessionTimeout) >= 1 && tonumber(var.document.content.inputs.idleSessionTimeout) <= 60 && tonumber(var.document.content.inputs.maxSessionDuration) >= 1 && tonumber(var.document.content.inputs.maxSessionDuration) <= 1440, false)
+    error_message = "idleSessionTimeout is 1 to 60 minutes, maxSessionDuration 1 to 1440."
   }
 }
 
-variable "max_session_minutes" {
-  description = "No session lasts longer than this."
-  type        = number
-  default     = 480
-}
-
-variable "log_retention_days" {
-  description = "How long session logs are kept."
-  type        = number
-  default     = 365
+variable "log_group" {
+  description = "The /ssm/sessions log group's aws_cloudwatch_log_group arguments: retention_in_days and tags. null builds none."
+  type = object({
+    retention_in_days = optional(number)
+    tags              = optional(map(string), {})
+  })
+  default = null
 }
 
 variable "create_default_host_role" {

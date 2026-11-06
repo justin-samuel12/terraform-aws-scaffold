@@ -1,17 +1,18 @@
 locals {
+  environment_tag = try(data.aws_default_tags.current.tags["Environment"], "")
+  name_prefix     = local.environment_tag == "" ? "" : "${title(local.environment_tag)} - "
+
   service_name        = "${var.environment}-${var.name}"
   task_role_name      = "${var.environment}-${var.name}-${var.region}"
   execution_role_name = "${var.environment}-${var.name}-${var.region}-execution"
   partition           = data.aws_partition.current.partition
   account_id          = data.aws_caller_identity.current.account_id
 
-  blue_green = var.deployment.strategy == "blue_green"
+  blue_green = var.deployment_controller == "CODE_DEPLOY"
   routed     = length(var.routes) > 0
   scaled     = var.autoscaling != null
-  # The container the load balancer sends traffic to: the first with a port.
-  front = try([for c in var.containers : c if c.port != null][0], null)
+  front      = try([for c in var.container_definitions : { name = c.name, port = c.portMappings[0].containerPort } if length(c.portMappings) > 0][0], null)
 
-  # Target group names fit AWS's 32 characters; blue/green has two, which CodeDeploy swaps, rolling one.
   target_keys = local.routed ? (local.blue_green ? ["blue", "green"] : ["primary"]) : []
   target_group_names = {
     for k in local.target_keys : k => "${substr(local.service_name, 0, min(23, length(local.service_name)))}-${substr(sha1("${local.service_name}/${k}/${try(local.front.port, 0)}"), 0, 8)}"
@@ -19,15 +20,10 @@ locals {
   live_target = try(local.target_keys[0], null)
 
   container_definitions = [
-    for c in var.containers : merge(
+    for c in var.container_definitions : merge(
+      { for k, v in c : k => v if v != null && k != "healthCheck" },
+      c.healthCheck == null ? {} : { healthCheck = { for k, v in c.healthCheck : k => v if v != null } },
       {
-        name         = c.name
-        image        = c.image
-        essential    = c.essential
-        portMappings = c.port == null ? [] : [{ containerPort = c.port, protocol = "tcp" }]
-        environment  = [for k in sort(keys(c.environment)) : { name = k, value = c.environment[k] }]
-        secrets      = [for k in sort(keys(c.secrets)) : { name = k, valueFrom = c.secrets[k] }]
-        # An init process reaps zombie processes, and ECS Exec needs it to start its agent cleanly.
         linuxParameters = { initProcessEnabled = true }
         logConfiguration = {
           logDriver = "awslogs"
@@ -38,25 +34,13 @@ locals {
           }
         }
       },
-      c.command == null ? {} : { command = c.command },
-      c.health_check == null ? {} : {
-        healthCheck = {
-          command     = c.health_check.command
-          interval    = c.health_check.interval
-          timeout     = c.health_check.timeout
-          retries     = c.health_check.retries
-          startPeriod = c.health_check.start_period
-        }
-      },
     )
   ]
 
-  # Images from ECR are pulled with the execution role, from their own repositories only.
-  ecr_images          = [for c in var.containers : regex("^([0-9]{12})\\.dkr\\.ecr\\.([a-z0-9-]+)\\.amazonaws\\.com/([^:@]+)", c.image) if can(regex("^[0-9]{12}\\.dkr\\.ecr\\.", c.image))]
+  ecr_images          = [for c in var.container_definitions : regex("^([0-9]{12})\\.dkr\\.ecr\\.([a-z0-9-]+)\\.amazonaws\\.com/([^:@]+)", c.image) if can(regex("^[0-9]{12}\\.dkr\\.ecr\\.", c.image))]
   ecr_repository_arns = distinct([for m in local.ecr_images : "arn:${local.partition}:ecr:${m[1]}:${m[0]}:repository/${m[2]}"])
 
-  # A secret's ARN may end in :<json-key>:<stage>:<version>; the permission is on the secret itself.
-  secret_arns     = distinct(flatten([for c in var.containers : values(c.secrets)]))
+  secret_arns     = distinct(flatten([for c in var.container_definitions : [for s in c.secrets : s.valueFrom]]))
   secrets_manager = distinct([for a in local.secret_arns : join(":", slice(split(":", a), 0, 7)) if split(":", a)[2] == "secretsmanager"])
   parameters      = [for a in local.secret_arns : a if split(":", a)[2] == "ssm"]
 
@@ -77,7 +61,10 @@ locals {
   )
 
   task_statements = concat(
-    [for s in var.statements : { Effect = s.effect, Action = s.actions, Resource = s.resources }],
+    [for s in var.statements : merge(
+      { Effect = s.effect, Action = s.actions, Resource = s.resources },
+      length(s.condition) == 0 ? {} : { Condition = { for test in distinct([for c in s.condition : c.test]) : test => { for c in s.condition : c.variable => c.values if c.test == test } } },
+    )],
     flatten([for e in(var.execute_command == null ? [] : [var.execute_command]) : [
       { Effect = "Allow", Action = ["ssmmessages:CreateControlChannel", "ssmmessages:CreateDataChannel", "ssmmessages:OpenControlChannel", "ssmmessages:OpenDataChannel"], Resource = ["*"] },
       { Effect = "Allow", Action = ["logs:DescribeLogGroups"], Resource = ["*"] },
@@ -86,7 +73,6 @@ locals {
     ]]),
   )
 
-  # Only ECS, for tasks in this account, may take either role.
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -97,8 +83,4 @@ locals {
     }]
   })
 
-  network = {
-    subnets         = var.subnet_ids
-    security_groups = var.security_group_ids
-  }
 }

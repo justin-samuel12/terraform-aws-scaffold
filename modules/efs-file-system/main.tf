@@ -1,14 +1,9 @@
-data "aws_caller_identity" "current" {}
-
-data "aws_partition" "current" {}
-
 resource "aws_efs_file_system" "file_system" {
   creation_token  = var.name
   encrypted       = true
   kms_key_id      = var.kms_key_arn
   throughput_mode = "elastic"
 
-  # Files unused for 30 days move to cheaper storage, and come back the first time they are read.
   lifecycle_policy {
     transition_to_ia = "AFTER_30_DAYS"
   }
@@ -17,14 +12,13 @@ resource "aws_efs_file_system" "file_system" {
     transition_to_primary_storage_class = "AFTER_1_ACCESS"
   }
 
-  tags = { Name = var.name, Backup = "standard" }
+  tags = merge(var.tags, { Name = "${local.name_prefix}${local.short_name}" })
 
   lifecycle {
     prevent_destroy = true
   }
 }
 
-# The environment's backup plan takes these backups; EFS's own automatic ones would only duplicate them.
 resource "aws_efs_backup_policy" "file_system" {
   file_system_id = aws_efs_file_system.file_system.id
 
@@ -34,14 +28,13 @@ resource "aws_efs_backup_policy" "file_system" {
 }
 
 resource "aws_efs_mount_target" "zones" {
-  for_each = toset(var.subnet_ids)
+  for_each = var.mount_targets
 
   file_system_id  = aws_efs_file_system.file_system.id
-  subnet_id       = each.key
-  security_groups = var.security_group_ids
+  subnet_id       = each.value.subnet_id
+  security_groups = each.value.security_groups
 }
 
-# Only encrypted connections, and only through this file system's own mount targets, from this account.
 resource "aws_efs_file_system_policy" "file_system" {
   file_system_id = aws_efs_file_system.file_system.id
   policy = jsonencode({
@@ -73,18 +66,23 @@ resource "aws_efs_access_point" "access_points" {
   file_system_id = aws_efs_file_system.file_system.id
 
   posix_user {
-    uid = each.value.uid
-    gid = each.value.gid
+    uid            = each.value.posix_user.uid
+    gid            = each.value.posix_user.gid
+    secondary_gids = each.value.posix_user.secondary_gids
   }
 
   root_directory {
-    path = each.value.path
-    creation_info {
-      owner_uid   = each.value.uid
-      owner_gid   = each.value.gid
-      permissions = each.value.permissions
+    path = each.value.root_directory.path
+
+    dynamic "creation_info" {
+      for_each = each.value.root_directory.creation_info == null ? [] : [each.value.root_directory.creation_info]
+      content {
+        owner_uid   = creation_info.value.owner_uid
+        owner_gid   = creation_info.value.owner_gid
+        permissions = creation_info.value.permissions
+      }
     }
   }
 
-  tags = { Name = "${var.name}-${each.key}" }
+  tags = merge(each.value.tags, { Name = "${local.name_prefix}${local.short_name}-${each.key}" })
 }

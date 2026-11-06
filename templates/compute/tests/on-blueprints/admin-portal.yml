@@ -1,0 +1,9 @@
+blueprint: staff-app/v1
+listener_rule:
+  listener_arn: staff/443
+  priority: 1100
+  condition:
+    host_header:
+      values:
+        - admin-portal.example.com
+count: 1

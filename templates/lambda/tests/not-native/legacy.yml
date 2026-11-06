@@ -1,0 +1,15 @@
+runtime: python3.12
+handler: app.handler
+schedule_expression: rate(1 day)
+cloudwatch_log_group:
+  retention_in_days: 365
+statement:
+  - effect: Allow
+    actions:
+      - s3:GetObject
+    resources:
+      - "*"
+    principal: everyone
+event_source_mapping:
+  event_source_arn: arn:aws:sqs:us-east-2:222222222222:legacy-events
+  batch: 5

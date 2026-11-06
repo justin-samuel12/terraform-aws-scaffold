@@ -1,4 +1,3 @@
-# One cluster per environment and region, against a mocked AWS -- docs/containers.md.
 mock_provider "aws" {}
 
 variables {

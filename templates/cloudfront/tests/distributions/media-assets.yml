@@ -1,5 +1,0 @@
-aliases:
-  - assets.example.com
-origin_bucket: example-media-assets
-certificate: assets.example.com
-waf: true

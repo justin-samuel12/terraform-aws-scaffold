@@ -1,10 +1,9 @@
-data "aws_caller_identity" "current" {}
-
 module "log_bucket" {
   source   = "../../modules/log-bucket"
-  for_each = local.buckets
+  for_each = local.ready ? local.buckets : {}
 
-  name           = each.value
-  delivers       = each.key
-  retention_days = local.settings.retention_days
+  name     = each.value.bucket
+  delivers = each.value.delivers
+  tags     = each.value.tags
+  rule     = each.value.rule
 }

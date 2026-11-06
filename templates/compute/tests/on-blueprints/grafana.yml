@@ -1,0 +1,12 @@
+blueprint: container-app/v1
+listener_rule:
+  listener_arn: staff/443
+  priority: 1200
+  condition:
+    host_header:
+      values:
+        - grafana.example.com
+target_group:
+  health_check:
+    path: /api/health
+server_name: grafana

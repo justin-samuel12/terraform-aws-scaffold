@@ -1,0 +1,2 @@
+host: redis.staging.example.com
+port: 10701

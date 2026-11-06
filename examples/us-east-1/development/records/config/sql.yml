@@ -1,0 +1,6 @@
+zone_id: internal.example.com
+name: sql.internal.example.com
+type: CNAME
+ttl: 300
+records:
+  - sqlserver-01.internal.example.com

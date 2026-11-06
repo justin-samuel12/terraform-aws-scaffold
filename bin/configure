@@ -1,12 +1,8 @@
 #!/usr/bin/env bash
-# Asks the questions that fill in config/, checks the answers with the IP plan's own rules, and creates each environment's
-# stacks -- docs/configuration.md. Shows every change and asks before writing. Never creates anything in AWS: its only AWS
-# calls are read-only lookups, and it works without any.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
 cd "${REPO_ROOT}"
 
-# ask_valid <prompt> <default> <regex> <what it must be> -> asks until the answer matches; gives up after five tries.
 ask_valid() {
     local answer tries=0
     while [[ "${tries}" -lt 5 ]]; do
@@ -36,12 +32,10 @@ ACCOUNT_COMPONENTS_REGIONAL="logging session-manager"
 ACCOUNT_COMPONENTS_GLOBAL="baseline iam"
 EXAMPLES="examples/us-east-1/development"
 
-# Ranges already in use (config/ and the VPCs in your accounts), so suggestions avoid them.
 used_octets=" "
 take_cidr() { used_octets+="$(cut -d. -f2 <<<"$1") "; }
 next_cidr() { local o="$1"; while [[ "${used_octets}" == *" ${o} "* ]]; do o=$((o + 1)); done; echo "10.${o}.0.0/16"; }
 
-# zones_for <region> <default> -> its zone IDs, looked up read-only when logged in
 zones_for() {
     local found=""
     [[ -n "${first_profile:-}" ]] && found="$(aws ec2 describe-availability-zones --region "$1" --profile "${first_profile}" --filters Name=zone-type,Values=availability-zone \
@@ -50,7 +44,6 @@ zones_for() {
     ask_valid "Zone IDs, comma-separated (2 to 6)" "${found:-$2}" '^[a-z0-9]+-az[1-6](,[a-z0-9]+-az[1-6]){1,5}$' "zone IDs look like use2-az1 (aws ec2 describe-availability-zones)"
 }
 
-# ---- Every commercial region, with the name the console shows; logged in, AWS says which are enabled for the account.
 ALL_REGIONS="us-east-1|N. Virginia
 us-east-2|Ohio
 us-west-1|N. California
@@ -86,7 +79,6 @@ af-south-1|Cape Town"
 region_list() { cut -d'|' -f1 <<<"${ALL_REGIONS}"; }
 region_name() { awk -F'|' -v r="$1" '$1 == r {print $2; exit}' <<<"${ALL_REGIONS}"; }
 
-# pick <list> <answer> -> the answer's words as items: a number picks from the list, anything else is taken as written
 pick() {
     local list=($1) w out=""
     for w in $(tr ',' ' ' <<<"$2"); do
@@ -95,7 +87,6 @@ pick() {
     echo "${out% }"
 }
 
-# ---- 1. Accounts on this machine: every profile, the account it reaches, and whether it is logged in.
 head1 "1. AWS accounts on this machine"
 PROFILE_ACCOUNTS="${PROFILE_ACCOUNTS:-}"   # "<profile> <account>" for profiles that are logged in
 profile_rows=""
@@ -122,7 +113,6 @@ for p in $(awk 'NF {print $1}' <<<"${PROFILE_ACCOUNTS}"); do
     [[ -n "${ORG_ACCOUNTS}" ]] && break
 done
 
-# Every account found, once each, with what it is called: the Organization's name, else the profiles that reach it.
 known_accounts="$( { awk 'NF {print $1}' <<<"${ORG_ACCOUNTS}"; awk -F'|' 'NF && $2 ~ /^[0-9]{12}$/ {print $2}' <<<"${profile_rows}"; for r in $(region_files); do yq -r '[.hub.account_id] + [.vpcs // {} | .[] | .account_id] | .[] | select(. != "" and . != null)' "${CONFIG_DIR}/${r}.yml"; done; global_account; } | { grep -E '^[0-9]{12}$' || true; } | awk '!seen[$0]++' | xargs)"
 account_label() {
     local n; n="$(awk -v a="$1" '$1 == a { $1 = ""; sub(/^ /, ""); print; exit }' <<<"${ORG_ACCOUNTS}")"
@@ -135,7 +125,6 @@ if [[ -n "${known_accounts}" ]]; then
     i=1; for a in ${known_accounts}; do say "  ${i}) ${a}  $(account_label "${a}")"; i=$((i + 1)); done
 fi
 
-# ---- 2. Which accounts this repository uses.
 head1 "2. Accounts this repository uses"
 say "One account: everything, hubs and every environment, lives in it. Several: the hubs in a shared account, environments in"
 say "their own (each environment's account is chosen at step 5). Numbers from the list, or 12-digit IDs; blank if none exist yet."
@@ -160,7 +149,6 @@ else
     if ask_yes "Are they in one AWS Organization with RAM sharing turned on (shares then need no accepting)?" "$([[ -n "${ORG_ACCOUNTS}" ]] && echo y || echo n)"; then org_sharing="true"; fi
 fi
 
-# ---- 3. Regions.
 head1 "3. Regions"
 enabled=""
 [[ -n "${first_profile}" ]] && enabled="$(aws ec2 describe-regions --all-regions --profile "${first_profile}" --query 'Regions[?OptInStatus!=`not-opted-in`].RegionName' --output text 2>/dev/null | tr '\t' ' ' || true)"
@@ -185,7 +173,6 @@ primary="$(awk '{print $1}' <<<"${regions}")"
 [[ -n "${enabled}" ]] && for r in ${regions}; do [[ " ${enabled} " == *" ${r} "* ]] || warn "${r} is not enabled for ${first_profile}'s account: enable it in the account first"; done
 ok "primary ${primary} ($(region_name "${primary}"))$( [[ "$(wc -w <<<"${regions}")" -gt 1 ]] && echo "; also ${regions#"${primary}" }")"
 
-# ---- 4. Environments.
 head1 "4. Environments"
 old_envs="$(for r in $(region_files); do yq -r '.vpcs // {} | keys | .[]' "${CONFIG_DIR}/${r}.yml"; done | awk '!seen[$0]++' | xargs || true)"
 while true; do
@@ -195,7 +182,6 @@ while true; do
     warn "not allowed: ${bad}(lowercase, start with a letter, not shared, global or common)"
 done
 
-# ---- 5. Each environment: the regions it runs in (one or more), and in multi-account mode its account.
 head1 "5. Where each environment runs"
 say "Regions: $(i=1; for r in ${regions}; do printf '%d) %s  ' "${i}" "${r}"; i=$((i + 1)); done)"
 [[ "${mode}" == each ]] && say "Accounts: $(i=1; for a in ${chosen}; do printf '%d) %s %s  ' "${i}" "${a}" "$(account_label "${a}")"; i=$((i + 1)); done)"
@@ -221,11 +207,9 @@ for r in ${regions}; do
     say "  ${r} ($(region_name "${r}")): ${on:-no environments, the hub only}"
 done
 
-# ---- Defaults for everything else, so the last question is the IP scope. What needs a person is marked TODO(you) in config/.
 TODO_TEAM="TODO(you): the team that owns it, for the Team tag"
 for r in ${regions}; do
     d=""; [[ -f "${CONFIG_DIR}/${r}.yml" ]] && d="$(cur "${r}" '.zones | join(",")')"
-    # Zones an earlier run guessed stay guessed, so the reminder survives a rerun, unless they can be looked up now.
     if [[ -n "${d}" ]] && grep -qE '^zones:.*TODO\(you\):' "${CONFIG_DIR}/${r}.yml"; then
         d=""
     fi
@@ -249,9 +233,7 @@ done
 state_bucket="$(yq -r '.state.bucket // ""' "${CONFIG_DIR}/global.yml")"
 d="$(yq -r '.state.region // ""' "${CONFIG_DIR}/global.yml")"; state_region="${d:-${primary}}"
 d="$(yq -r '.state.replica_region // ""' "${CONFIG_DIR}/global.yml")"; replica_region="${d:-$(awk '{print $2}' <<<"${regions}")}"
-hq_ip="$(yq -r '.hq.ip_address // ""' "${CONFIG_DIR}/global.yml")"; hq_asn="$(yq -r '.hq.bgp_asn // "65010"' "${CONFIG_DIR}/global.yml")"; hq_cidrs="$(yq -r '.hq.cidrs // [] | join(" ")' "${CONFIG_DIR}/global.yml")"
 
-# ---- 6. The IP scope: every hub (/20) and every environment in every region (/16) is planned inside it.
 head1 "6. IP scope"
 say "Every network is planned inside one range, so none overlaps another or anything you will connect to. Hubs get a /20"
 say "each, from the first free /16; every environment gets a /16 in every region it runs in. Ranges already in config/ are kept."
@@ -265,14 +247,12 @@ needed=1; for r in ${regions}; do for e in $(get "${r}_envs"); do [[ -n "$(cur "
 d="10.40.0.0/13"; [[ "${needed}" -gt 6 ]] && d="10.32.0.0/12"; [[ "${needed}" -gt 14 ]] && d="10.32.0.0/11"
 while true; do
     scope="$(ask_valid "IP scope, inside 10.0.0.0/8 (/8 to /16)" "${d}" '^10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/([89]|1[0-6])$' "a range such as 10.40.0.0/13")"
-    # A range starts on a multiple of its size: 10.40.0.0/12 is really 10.32.0.0/12.
     aligned="$(int_to_ip $(( $(ip_to_int "${scope%/*}") & ~((1 << (32 - ${scope#*/})) - 1) )))/${scope#*/}"
     if [[ "${aligned}" != "${scope}" ]]; then warn "${scope} is not where that range starts; it would be ${aligned}. Give ${aligned}, or a smaller range."; continue; fi
     free=""; for c in $(slash16s "${scope}"); do [[ "${used_octets}" == *" $(cut -d. -f2 <<<"${c}") "* ]] || free+="${c} "; done
     [[ "$(wc -w <<<"${free}" | tr -d ' ')" -ge "${needed}" ]] && break
     warn "${scope} has $(wc -w <<<"${free}" | tr -d ' ') free /16s; this plan needs ${needed}. Choose a wider scope."
 done
-# Takes the next free /16 into TAKEN, in this shell: run in $( ), the change to free would be lost and every network would get the same range.
 take() { TAKEN="${free%% *}"; free="${free#"${TAKEN}"}"; free="${free# }"; take_cidr "${TAKEN}"; }
 hub_block=""
 i=0
@@ -303,24 +283,17 @@ if ! ask_yes "Use this plan?" y; then
     done
 fi
 
-# ---- Build the new config in a scratch copy, marking what a person still has to give, and check it before anything is written.
 WORK="$(mktemp -d)"; trap 'rm -rf "${WORK:?}"' EXIT
 mkdir -p "${WORK}/config"; cp "${CONFIG_DIR}/global.yml" "${WORK}/config/global.yml"; G="${WORK}/config/global.yml"
 GA="${global_acct}" OS="${org_sharing}" SB="${state_bucket}" SR="${state_region}" yq -i '.account_id = strenv(GA) | .organization_sharing = (strenv(OS) == "true") | .state.bucket = strenv(SB) | .state.region = strenv(SR)' "${G}"
 if [[ -n "${replica_region}" ]]; then RR="${replica_region}" yq -i '.state.replica_region = strenv(RR)' "${G}"; else yq -i 'del(.state.replica_region)' "${G}"; fi
-if [[ -n "${hq_ip}" ]]; then HI="${hq_ip}" yq -i '.hq.ip_address = strenv(HI)' "${G}"; else yq -i '.hq.ip_address = null' "${G}"; fi
-cidr_list="[]"; for c in ${hq_cidrs}; do cidr_list="$(jq -c --arg c "${c}" '. + [$c]' <<<"${cidr_list}")"; done
-HA="${hq_asn}" HC="${cidr_list}" yq -i '.hq.bgp_asn = (strenv(HA) | to_number) | .hq.cidrs = (strenv(HC) | from_json)' "${G}"
+yq -i '.sites = (.sites // {})' "${G}"
 [[ "${mode}" == one && -z "${global_acct}" ]] && yq -i '.account_id line_comment="TODO(you): the account ID, once the account exists"' "${G}"
 [[ -z "${state_bucket}" ]] && yq -i '.state.bucket line_comment="blank: make bootstrap creates terraform-state-<account>-<region>, or set an existing bucket"' "${G}"
-[[ -z "${hq_ip}" ]] && yq -i '.hq.ip_address line_comment="optional: the office VPN device public IP, with bgp_asn and cidrs; blank builds no VPN"' "${G}"
-STAMP="Written by make setup on $(date +%Y-%m-%d). Lines marked TODO(you) need a person before the first plan: make config lists them."
 
 todo_if_blank() { [[ -n "$1" ]] && echo "$1" || echo "  # $2"; }
 for r in ${regions}; do
     {
-        echo "# ${r} ($(region_name "${r}")). ${STAMP}"
-        echo "# Quote account IDs: YAML drops a leading zero."
         echo "zones:$( [[ -n "$(get "${r}_zones_guessed")" ]] && echo "  # TODO(you): standard zone IDs, not looked up; check them with aws ec2 describe-availability-zones --region ${r}")"
         tr ',' '\n' <<<"$(get "${r}_zones")" | sed 's/^/  - /'
         echo "hub:"
@@ -337,8 +310,8 @@ for r in ${regions}; do
                 echo "    account_id: \"$(get "${e}_account")\"$( [[ "${mode}" == each && -z "$(get "${e}_account")" ]] && echo "  # TODO(you): ${e}'s account ID, once it exists")"
                 echo "    team: $(get "${e}_team")$( [[ -z "$(get "${e}_team")" ]] && echo "  # ${TODO_TEAM}")"
                 echo "    cidr: $(get "${e}_${r}_cidr")"
-                echo "    segment: $(get "${e}_segment")  # restricted: production only; standard: everything else; shared: tooling every environment reaches"
-                echo "    public: $(get "${e}_public")  # true for internet-facing load balancers"
+                echo "    segment: $(get "${e}_segment")"
+                echo "    public: $(get "${e}_public")"
             done
         fi
     } > "${WORK}/config/${r}.yml"
@@ -353,7 +326,6 @@ if [[ -n "${problems}" ]]; then
 fi
 ok "the IP plan accepts them: ranges, segments, ASNs and accounts are consistent"
 
-# ---- Folder changes: every region's shared stacks, every environment's stacks in each of its regions, each account's own.
 creates=""; removals=""
 asked_examples=" "
 plan_env() { # plan_env <region> <env>
@@ -389,7 +361,6 @@ for r in $(region_files); do
     done
 done
 
-# ---- Show everything, then ask.
 head1 "What will change"
 if diff -ruN "${CONFIG_DIR}" "${WORK}/config" >/dev/null; then say "config/: no changes"; else diff -ruN "${CONFIG_DIR}" "${WORK}/config" | sed 's/^/  /' || true; fi
 [[ -n "${removals}" ]] && while read -r d; do [[ -n "${d}" ]] && say "delete  ${d}"; done <<<"${removals}"
@@ -397,7 +368,6 @@ if diff -ruN "${CONFIG_DIR}" "${WORK}/config" >/dev/null; then say "config/: no 
 echo
 ask_yes "Make these changes?" y || { say "Nothing changed."; exit 0; }
 
-# ---- Write.
 for f in "${CONFIG_DIR}"/*-*-[0-9].yml; do [[ -f "${WORK}/config/$(basename "${f}")" ]] || rm -f "${f}"; done
 cp "${WORK}"/config/*.yml "${CONFIG_DIR}/"
 [[ -n "${removals}" ]] && while read -r d; do [[ -n "${d}" && "${d}" == live/* ]] && rm -rf "${d:?}" && ok "deleted ${d}"; done <<<"${removals}"
@@ -420,7 +390,6 @@ if [[ -n "${created}" ]] && ask_yes "Check the new stacks' files against a mocke
     bin/check-files ${created} || warn "fix what is listed above, then make check-files"
 fi
 
-# ---- What a person still has to do.
 todos="$(grep -h "TODO(you):" "${CONFIG_DIR}"/*.yml 2>/dev/null | wc -l | tr -d ' ')"
 head1 "Your turn"
 if [[ "${todos}" -gt 0 ]]; then

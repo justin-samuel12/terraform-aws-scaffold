@@ -1,0 +1,23 @@
+load_balancer_type: application
+internal: true
+subnets:
+  - private-az1
+  - private-az2
+  - private-az3
+security_groups:
+  - grafana-lb
+listeners:
+  - port: 443
+    protocol: HTTPS
+    certificate_arn: grafana.example.com
+    default_action:
+      type: fixed-response
+      fixed_response:
+        content_type: text/plain
+        message_body: Not found
+        status_code: "404"
+listener_certificates:
+  - listener_arn: 443
+    certificate_arn: "*.example.org"
+  - listener_arn: 443
+    certificate_arn: arn:aws:acm:us-east-2:111111111111:certificate/net

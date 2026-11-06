@@ -69,7 +69,6 @@ resource "aws_s3_bucket_policy" "state" {
   depends_on = [aws_s3_bucket_public_access_block.state]
 }
 
-# The state bucket's policy: nothing over plain HTTP, and each other account only its own environments' keys.
 data "aws_iam_policy_document" "state" {
   source_policy_documents = [data.aws_iam_policy_document.tls_only["state"].json]
 
@@ -86,7 +85,6 @@ data "aws_iam_policy_document" "state" {
         identifiers = ["arn:aws:iam::${statement.key}:root"]
       }
 
-      # env:/ is where Terraform's S3 backend looks for workspaces on init; listing it shows names only, and none are used here.
       condition {
         test     = "StringLike"
         variable = "s3:prefix"

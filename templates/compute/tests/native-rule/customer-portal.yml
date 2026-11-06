@@ -1,0 +1,23 @@
+blueprint: frontend/v1
+server_name: ocp
+count: 2
+listener_rule:
+  listener_arn: public/443
+  priority: 1040
+  condition:
+    host_header:
+      values:
+        - customer-staging.example.internal
+root_block_device:
+  volume_size: 36
+target_group:
+  health_check:
+    path: /status
+tags:
+  CodeDeploy: "['onsite-collection-portal']"
+  Backup2AMI: "True"
+  BackupDRD: tier1b
+  BackupTier: Daily
+  Certificates: "['staging.example.com']"
+  Function: ocp
+  OS: ubuntu

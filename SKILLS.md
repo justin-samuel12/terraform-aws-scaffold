@@ -67,6 +67,65 @@ into state, not into plan output, not onto a command line.
 **There is no destroy target.** Removing infrastructure is a reviewed change to
 the code, never a command.
 
+## Files are native Terraform, never a language of our own
+
+A stack's `.yml` files describe Terraform resources, so they are written in
+Terraform's terms. Anyone who knows the AWS provider must be able to read any
+file here without learning anything else.
+
+- **The file name is the resource's name.** `staff-lb.yml` is the security group
+  `staff-lb`, `customer-portal.yml` the app `customer-portal`. Never a top-level key
+  repeating it.
+- **The keys are the resource's own arguments,** under the provider's names and
+  shapes: `ip_protocol`, `cidr_ipv4`, `referenced_security_group_id`;
+  `listener_rule.condition.host_header.values`. A key the resource does not have
+  is refused, not guessed at.
+- **The one translation is a name for an ID.** Where an argument takes the ID of
+  something this repository builds (a group, a prefix list, a load balancer, a
+  subnet), the file gives its name and the template finds the ID. An ID itself
+  passes through unchanged.
+- **No shortcuts and nothing implied.** No prefixes such as `tier:` or `list:`,
+  no keywords that expand into rules, no hidden defaults that create resources a
+  file does not mention, no flags that are not arguments. What a file says is
+  what is built; what it leaves out is not built.
+- **Blueprints are the one shared layer.** A blueprint is a set of a resource's
+  arguments that every app on it gets; an app file sets the rest. Both are
+  written in the resource's own arguments.
+- **Simple over clever.** If a reader needs a doc to understand a key, the key is
+  wrong. Prefer a few more explicit lines to a rule that saves them.
+- **Guardrails are fixed, not offered.** Encryption, TLS-only policies, flow
+  logs, access logs, IMDSv2, log redaction and `prevent_destroy` are set by the
+  modules and listed in each module's doc. No file can turn them off, so they
+  are not keys.
+
+Three deliberate exceptions in resource files, each the network or server design
+rather than a shortcut:
+
+- **The subnet layout is calculated.** `config/global.yml` carves every VPC
+  identically from each tier's `size`, `start` and `reserved`; files name the
+  resulting subnets (`private-az1`) or, in compute, a tier.
+- **Two server tags act.** `DNS` gives a server its internal A record and
+  `CodeDeploy` puts it in its app's deployment groups. No other tag does anything.
+- **Compute places servers.** `count`, `server_name`, `tier` and `members` name
+  the servers and spread them across zones. Under `members`, every key is
+  `aws_instance`'s: `subnet_id`, `private_ip`, `secondary_private_ips`. An address
+  may be a host number (`"70"`), which the subnet completes, so one file works in
+  every environment. This is the one value calculated rather than written.
+
+Outside the resource files, two layers are ours by design and are the only other
+keys a provider does not have: a blueprint's own sections (`allows`, `adds`,
+`requires`, its size lists) with its `{app}`, `{environment}`, `{region}` and
+`{server}` fill-ins, which are refused in any other file; and the network plan in
+`config/global.yml` and `config/<region>.yml`.
+
+**YAML never sits beside `.tf`.** Every stack has the same shape: its `.tf`
+files at the top of its folder, and every `.yml` it reads in its own `config/`
+folder (`live/us-west-2/staging/security-groups/config/staff-lb.yml`). A stack
+that holds more than one kind of resource keeps one folder per kind inside it
+(`messaging/config/queue/`, `messaging/config/topic/`). This `config/` is the
+stack's own; the repository's `config/global.yml` and `config/<region>.yml` are
+the network team's. `make lint` refuses YAML anywhere else in a stack.
+
 ## Best practice is the bar
 
 This repository is built to current AWS and Terraform best practice. When a
@@ -80,7 +139,9 @@ Already built in, for every stack that uses the modules:
 - **Every VPC's default security group is empty**: no rules in or out. AWS does
   not allow deleting it, so emptying it is how it is disabled.
 - **Spokes have no internet or NAT gateway**: they go out through the hub's
-  egress VPC. Only a VPC with `public: true` gets a public tier.
+  egress VPC. Only a VPC with `public: true` gets a public tier. The one
+  exception is an environment off the hub (`connectivity: peering`), which has
+  its own gateways and only the routes its network stack's files write.
 - **Environments are isolated by hub route tables**: nothing joins one by
   default, and production is never reachable from `standard`.
 - **The VPN accepts only IKEv2, AES-256, SHA-2 and Diffie-Hellman group 14 or
@@ -119,8 +180,10 @@ Already built in, for every stack that uses the modules:
   each subnet's reserved block.
 - **Load balancers and WAF log every request** to the region's log buckets,
   which are encrypted, versioned, TLS-only and never destroyed by a plan.
-- **Databases cannot reach the internet**: the `data` tier routes only
-  `10.0.0.0/8`, to the hub.
+- **Databases cannot reach the internet by default**: the `data` tier routes only
+  `10.0.0.0/8`, to the hub. An environment may add `0.0.0.0/0` through the hub
+  for self-managed servers there (a route file, as staging does for SQL Server);
+  then only their security groups allow egress, never a managed database's.
 
 Expected of everything added from here on:
 
@@ -135,7 +198,7 @@ Expected of everything added from here on:
   outside the public tier, no secrets in `user_data`.
 - **Security groups**: one per workload, rules that reference other security
   groups rather than CIDRs where possible, and no `0.0.0.0/0` inbound except a
-  public load balancer on 443.
+  public load balancer on 443 (and 80, to redirect to it).
 - **Logs kept 365 days** unless there is a stated reason for another period.
 - **Official providers, our own modules**: the only outside code is official
   HashiCorp providers (`hashicorp/aws`, `hashicorp/archive`), pinned in `.terraform.lock.hcl`. No

@@ -1,6 +1,0 @@
-description: Uses the old one-port shortcut
-ingress:
-  - description: HTTPS
-    port: 443
-    source:
-      - tier:ops

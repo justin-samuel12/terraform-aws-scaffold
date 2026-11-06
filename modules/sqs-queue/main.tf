@@ -1,51 +1,45 @@
-data "aws_partition" "current" {}
+resource "aws_sqs_queue" "queues" {
+  for_each = var.queues
 
-# Messages that keep failing land here, kept the full 14 days, instead of being retried forever or lost.
-resource "aws_sqs_queue" "dead_letter" {
-  name                              = "${var.name}-dlq${local.suffix}"
-  fifo_queue                        = var.fifo
-  message_retention_seconds         = 1209600
-  kms_master_key_id                 = var.kms_key_arn
-  kms_data_key_reuse_period_seconds = 300
+  name                        = each.key
+  fifo_queue                  = each.value.fifo_queue
+  content_based_deduplication = each.value.content_based_deduplication
+  visibility_timeout_seconds  = each.value.visibility_timeout_seconds
+  message_retention_seconds   = each.value.message_retention_seconds
+  delay_seconds               = each.value.delay_seconds
+  receive_wait_time_seconds   = each.value.receive_wait_time_seconds
+  kms_master_key_id           = var.kms_key_arn
 
-  tags = { Name = "${var.name}-dlq${local.suffix}" }
+  tags = { Name = "${local.name_prefix}${trimprefix(each.key, "${local.environment_tag}-")}" }
 }
 
-resource "aws_sqs_queue" "queue" {
-  name                              = "${var.name}${local.suffix}"
-  fifo_queue                        = var.fifo
-  content_based_deduplication       = var.fifo ? var.content_based_deduplication : null
-  visibility_timeout_seconds        = var.visibility_timeout_seconds
-  message_retention_seconds         = var.message_retention_seconds
-  delay_seconds                     = var.delay_seconds
-  receive_wait_time_seconds         = var.receive_wait_time_seconds
-  kms_master_key_id                 = var.kms_key_arn
-  kms_data_key_reuse_period_seconds = 300
+resource "aws_sqs_queue_redrive_policy" "queues" {
+  for_each = local.redriven
 
+  queue_url = aws_sqs_queue.queues[each.key].id
   redrive_policy = jsonencode({
-    deadLetterTargetArn = aws_sqs_queue.dead_letter.arn
-    maxReceiveCount     = var.max_receive_count
+    deadLetterTargetArn = each.value.redrive_policy.dead_letter_target_arn
+    maxReceiveCount     = each.value.redrive_policy.max_receive_count
   })
 
-  tags = { Name = "${var.name}${local.suffix}" }
+  depends_on = [aws_sqs_queue.queues]
 }
 
-# Only this queue may use the dead-letter queue as its own.
-resource "aws_sqs_queue_redrive_allow_policy" "dead_letter" {
-  queue_url = aws_sqs_queue.dead_letter.id
+resource "aws_sqs_queue_redrive_allow_policy" "queues" {
+  for_each = local.allowing
 
-  redrive_allow_policy = jsonencode({
-    redrivePermission = "byQueue"
-    sourceQueueArns   = [aws_sqs_queue.queue.arn]
-  })
+  queue_url = aws_sqs_queue.queues[each.key].id
+  redrive_allow_policy = jsonencode(merge(
+    { redrivePermission = each.value.redrive_allow_policy.redrive_permission },
+    each.value.redrive_allow_policy.source_queue_arns == null ? {} : { sourceQueueArns = each.value.redrive_allow_policy.source_queue_arns },
+  ))
+
+  depends_on = [aws_sqs_queue.queues]
 }
 
-resource "aws_sqs_queue_policy" "queue" {
-  queue_url = aws_sqs_queue.queue.id
-  policy    = jsonencode({ Version = "2012-10-17", Statement = local.queue_statements })
-}
+resource "aws_sqs_queue_policy" "queues" {
+  for_each = var.queues
 
-resource "aws_sqs_queue_policy" "dead_letter" {
-  queue_url = aws_sqs_queue.dead_letter.id
-  policy    = jsonencode({ Version = "2012-10-17", Statement = [local.deny_insecure_transport[1]] })
+  queue_url = aws_sqs_queue.queues[each.key].id
+  policy    = jsonencode({ Version = "2012-10-17", Statement = local.policies[each.key] })
 }

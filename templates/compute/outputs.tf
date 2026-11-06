@@ -1,8 +1,8 @@
 output "servers" {
-  description = "Server name -> its group, subnet, chosen addresses (if any), and once built its instance id and private address."
+  description = "Server name -> its group, subnet, chosen addresses (if any), its name in the environment's private zone from its DNS tag, and once built its instance id and private address."
   value = {
     for name, s in local.servers : name => merge(
-      { group = s.group, subnet = s.subnet, chosen = s.addresses },
+      { group = s.group, subnet = s.subnet, chosen = s.addresses, dns = try(local.server_names[name], null) },
       try(module.server_group[s.group].servers[name], {}),
     )
   }

@@ -1,0 +1,13 @@
+description: Session Manager on every server, decrypt with the sessions key, write session logs
+statement:
+  - effect: Allow
+    actions:
+      - kms:Decrypt
+      - kms:GenerateDataKey
+    resources:
+      - "*"
+    condition:
+      - test: ForAnyValue:StringLike
+        variable: kms:ResourceAliases
+        values:
+          - alias/*-sessions

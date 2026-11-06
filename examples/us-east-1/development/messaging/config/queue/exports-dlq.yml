@@ -1,0 +1,5 @@
+message_retention_seconds: 1209600
+redrive_allow_policy:
+  redrive_permission: byQueue
+  source_queue_arns:
+    - exports

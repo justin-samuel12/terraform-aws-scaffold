@@ -1,0 +1,21 @@
+visibility_timeout_seconds: 360
+receive_wait_time_seconds: 20
+redrive_policy:
+  dead_letter_target_arn: exports-dlq
+  max_receive_count: 5
+policy:
+  statement:
+    - effect: Allow
+      actions:
+        - sqs:SendMessage
+      principals:
+        - type: Service
+          identifiers:
+            - sns.amazonaws.com
+      resources:
+        - exports
+      condition:
+        - test: ArnEquals
+          variable: aws:SourceArn
+          values:
+            - exports

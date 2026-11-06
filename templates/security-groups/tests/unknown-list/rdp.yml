@@ -1,7 +1,9 @@
 description: Remote desktop for staff
+tags:
+  Kind: server
 ingress:
   - description: RDP from the staff networks
+    ip_protocol: tcp
     from_port: 3389
     to_port: 3389
-    source:
-      - list:staff-team
+    prefix_list_id: staff-team

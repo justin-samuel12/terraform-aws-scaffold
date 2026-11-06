@@ -1,0 +1,5 @@
+replication_configuration:
+  rule:
+    - destination:
+        - region: us-west-2
+          registry_id: shared

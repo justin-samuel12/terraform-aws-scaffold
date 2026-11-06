@@ -1,4 +1,3 @@
-# What the module builds and refuses, against a mocked AWS -- docs/global.md.
 mock_provider "aws" {
   alias = "dns"
 }
@@ -12,7 +11,7 @@ override_data {
 
 variables {
   certificates = {
-    grafana = { domain = "grafana.example.com", alternative_names = ["metrics.example.com"], zone = "example.com" }
+    grafana = { domain_name = "grafana.example.com", subject_alternative_names = ["metrics.example.com"], validation_method = "DNS", key_algorithm = "EC_prime256v1", validation_zone = "example.com" }
   }
 }
 
@@ -20,8 +19,8 @@ run "dns_validated" {
   command = plan
 
   assert {
-    condition     = aws_acm_certificate.certificates["grafana"].validation_method == "DNS" && aws_acm_certificate.certificates["grafana"].domain_name == "grafana.example.com"
-    error_message = "Certificates are validated through DNS, so they renew by themselves."
+    condition     = aws_acm_certificate.certificates["grafana"].validation_method == "DNS" && aws_acm_certificate.certificates["grafana"].domain_name == "grafana.example.com" && aws_acm_certificate.certificates["grafana"].key_algorithm == "EC_prime256v1"
+    error_message = "The certificate takes the arguments it was given."
   }
 
   assert {
@@ -35,7 +34,7 @@ run "rejects_a_name_outside_its_zone" {
 
   variables {
     certificates = {
-      grafana = { domain = "grafana.other.com", zone = "example.com" }
+      grafana = { domain_name = "grafana.other.com", validation_method = "DNS", key_algorithm = "RSA_2048", validation_zone = "example.com" }
     }
   }
 

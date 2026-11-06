@@ -1,0 +1,21 @@
+runtime: python3.12
+handler: app.handler
+memory_size: 256
+timeout: 60
+cloudwatch_log_group:
+  retention_in_days: 365
+event_source_mapping:
+  event_source_arn: exports
+  batch_size: 5
+  function_response_types:
+    - ReportBatchItemFailures
+environment:
+  variables:
+    LEVEL: info
+    BUCKET: development-exports-111111111111-us-east-1
+statement:
+  - effect: Allow
+    actions:
+      - s3:PutObject
+    resources:
+      - arn:aws:s3:::development-exports-*/*

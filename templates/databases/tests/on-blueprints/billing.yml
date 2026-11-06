@@ -1,0 +1,5 @@
+blueprint: sqlserver/v1
+instance_class: db.m6i.xlarge
+allocated_storage: 200
+vpc_security_group_ids:
+  - billing-database

@@ -1,4 +1,0 @@
-# A backend service on a blueprint: everything not here comes from blueprints/backend-service/v1.yml.
-blueprint: backend-service/v1
-priority: 1200
-count: 2

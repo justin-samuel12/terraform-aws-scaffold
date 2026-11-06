@@ -1,0 +1,16 @@
+document_type: Session
+content:
+  schemaVersion: "1.0"
+  description: Port forwarding to the dashboards database
+  sessionType: Port
+  parameters:
+    localPortNumber:
+      type: String
+      description: Port on your workstation
+      allowedPattern: ^[0-9]{1,5}$
+      default: "15432"
+  properties:
+    type: LocalPortForwarding
+    host: dashboards.abcdefghijkl.us-east-1.rds.amazonaws.com
+    portNumber: "5432"
+    localPortNumber: "{{ localPortNumber }}"

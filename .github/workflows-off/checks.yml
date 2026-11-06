@@ -1,0 +1,68 @@
+# name: Checks
+#
+# on:
+#   pull_request:
+#     branches:
+#       - master
+#   push:
+#     branches:
+#       - master
+#   schedule:
+#     - cron: "41 5 * * *"
+#   workflow_dispatch:
+#
+# permissions: {}
+#
+# concurrency:
+#   group: checks-${{ github.event.pull_request.number || github.ref }}
+#   cancel-in-progress: true
+#
+# defaults:
+#   run:
+#     shell: bash
+#
+# env:
+#   TF_IN_AUTOMATION: "1"
+#
+# jobs:
+#   static:
+#     name: Static
+#     if: vars.CI_ENABLED == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+#     runs-on:
+#       - self-hosted
+#       - linux
+#       - terraform-check
+#     timeout-minutes: 15
+#     permissions:
+#       contents: read
+#     steps:
+#       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+#         with:
+#           fetch-depth: 0
+#           persist-credentials: false
+#       - run: bin/ci doctor
+#       - run: make fmt-check lint check-order
+#       - run: bin/backends --check
+#       - run: bin/diagram --check
+#       - run: bin/workflows check
+#       - run: shellcheck -x bin/ci bin/workflows tests/ci/run.sh
+#       - run: tests/ci/run.sh
+#       - run: gitleaks git --config .gitleaks.toml --redact --no-banner --log-level error
+#
+#   units:
+#     name: Units
+#     needs: static
+#     runs-on:
+#       - self-hosted
+#       - linux
+#       - terraform-check
+#     timeout-minutes: 45
+#     permissions:
+#       contents: read
+#     env:
+#       JOBS: ${{ vars.CI_JOBS || '2' }}
+#     steps:
+#       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+#         with:
+#           persist-credentials: false
+#       - run: make test check-files check-examples JOBS="$JOBS"

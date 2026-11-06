@@ -1,0 +1,3 @@
+visibility_timeout: 60
+dead_letter:
+  max_receive_count: 3

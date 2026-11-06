@@ -1,0 +1,9 @@
+blueprint: frontend/v1
+listener_rule:
+  listener_arn: public/443
+  priority: 1100
+  condition:
+    host_header:
+      values:
+        - sso.example.com
+        - login.example.com

@@ -1,5 +1,0 @@
-grafana:
-  domain_name: grafana.example.com
-  subject_alternative_names:
-    - metrics.example.com
-  zone: example.com

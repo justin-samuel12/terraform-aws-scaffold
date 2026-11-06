@@ -8,8 +8,14 @@ variable "environment" {
   }
 }
 
+variable "blueprints_dir" {
+  description = "The folder of database blueprints, <name>/v<n>.yml each; null = blueprints/databases/ at the repository root. Tests point it at their own."
+  type        = string
+  default     = null
+}
+
 variable "config_dir" {
-  description = "The folder of database files, one <name>.yml each; null = the stack's own folder. Tests point it at their own."
+  description = "The folder of database files, one <name>.yml each; null = the stack's config/ folder. Tests point it at their own."
   type        = string
   default     = null
 }

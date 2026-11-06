@@ -1,3 +1,16 @@
-description: Port forwarding to the staging Redis database
-host: redis.staging.example.com
-port: 10701
+document_type: Session
+content:
+  schemaVersion: "1.0"
+  description: Port forwarding to the staging Redis database
+  sessionType: Port
+  parameters:
+    localPortNumber:
+      type: String
+      description: Port on your workstation
+      allowedPattern: ^[0-9]{1,5}$
+      default: "10701"
+  properties:
+    type: LocalPortForwarding
+    host: redis.staging.example.com
+    portNumber: "10701"
+    localPortNumber: "{{ localPortNumber }}"

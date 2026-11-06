@@ -44,35 +44,45 @@ variable "kms_key_arn" {
   }
 }
 
-variable "admins" {
-  description = "IAM role ARNs given cluster-wide admin access (AmazonEKSClusterAdminPolicy)."
-  type        = list(string)
-  default     = []
+variable "access_entries" {
+  description = "Who may use the cluster, as aws_eks_access_entry and aws_eks_access_policy_association take it: each an IAM role's ARN (principal_arn) and the EKS access policies it gets, each with its access_scope (type cluster, or namespace with namespaces)."
+  type = list(object({
+    principal_arn = string
+    access_policy_associations = list(object({
+      policy_arn = string
+      access_scope = object({
+        type       = string
+        namespaces = optional(list(string), [])
+      })
+    }))
+  }))
+  default = []
 
   validation {
-    condition     = alltrue([for arn in var.admins : can(regex("^arn:aws[a-z-]*:iam::[0-9]{12}:role/.+$", arn))])
-    error_message = "admins are IAM role ARNs, such as arn:aws:iam::111111111111:role/platform-admin."
+    condition     = alltrue([for e in var.access_entries : can(regex("^arn:aws[a-z-]*:iam::[0-9]{12}:role/.+$", e.principal_arn))])
+    error_message = "principal_arn is an IAM role's ARN, such as arn:aws:iam::111111111111:role/platform-admin."
+  }
+
+  validation {
+    condition     = length(distinct([for e in var.access_entries : e.principal_arn])) == length(var.access_entries)
+    error_message = "A role has one access entry, holding every policy it gets."
+  }
+
+  validation {
+    condition = alltrue(flatten([for e in var.access_entries : [
+      for a in e.access_policy_associations : can(regex("^arn:aws[a-z-]*:eks::aws:cluster-access-policy/[A-Za-z]+$", a.policy_arn)) && ((a.access_scope.type == "cluster" && length(a.access_scope.namespaces) == 0) || (a.access_scope.type == "namespace" && length(a.access_scope.namespaces) > 0))
+    ]]))
+    error_message = "policy_arn is an EKS access policy's ARN, and access_scope is type cluster, or type namespace with namespaces."
   }
 }
 
-variable "viewers" {
-  description = "IAM role ARNs given cluster-wide read-only access (AmazonEKSViewPolicy), which does not include reading secrets."
-  type        = list(string)
-  default     = []
-
-  validation {
-    condition     = alltrue([for arn in var.viewers : can(regex("^arn:aws[a-z-]*:iam::[0-9]{12}:role/.+$", arn))])
-    error_message = "viewers are IAM role ARNs, such as arn:aws:iam::111111111111:role/developer."
-  }
-
-  validation {
-    condition     = length(setintersection(toset(var.admins), toset(var.viewers))) == 0
-    error_message = "A role is an admin or a viewer, not both."
-  }
+variable "endpoint_public_access" {
+  description = "Whether the Kubernetes API is reachable from the internet, from public_access_cidrs only. The private endpoint is always on."
+  type        = bool
 }
 
 variable "public_access_cidrs" {
-  description = "Addresses that may reach the Kubernetes API from the internet. Empty (the default) keeps the API private: reachable only from inside the network."
+  description = "Addresses that may reach the Kubernetes API from the internet, when endpoint_public_access is true."
   type        = list(string)
   default     = []
 
@@ -80,12 +90,16 @@ variable "public_access_cidrs" {
     condition     = alltrue([for c in var.public_access_cidrs : can(cidrnetmask(c)) && c != "0.0.0.0/0"])
     error_message = "public_access_cidrs are CIDRs such as 203.0.113.10/32, and never 0.0.0.0/0."
   }
+
+  validation {
+    condition     = var.endpoint_public_access == (length(var.public_access_cidrs) > 0)
+    error_message = "public_access_cidrs are set exactly when endpoint_public_access is true."
+  }
 }
 
 variable "deletion_protection" {
-  description = "Whether EKS refuses to delete the cluster. Set false only to take an environment down."
+  description = "Whether EKS refuses to delete the cluster."
   type        = bool
-  default     = true
 }
 
 variable "log_retention_days" {

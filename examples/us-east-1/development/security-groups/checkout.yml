@@ -1,7 +1,0 @@
-description: The checkout service's tasks (ECS), reached only by the internal load balancer
-ingress:
-  - description: The application, from its load balancer
-    from_port: 3000
-    to_port: 3000
-    source:
-      - dashboards-lb

@@ -1,0 +1,7 @@
+targets:
+  - key: InstanceIds
+    values:
+      - "*"
+parameters:
+  DomainName: aadds.example.com
+domain: aadds.example.com

@@ -1,0 +1,8 @@
+engine: postgres
+engine_version: "16"
+instance_class: db.t4g.medium
+allocated_storage: 50
+max_allocated_storage: 200
+multi_az: true
+vpc_security_group_ids:
+  - database

@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Create a stack under live/: link live/common and call templates/<component> when there is one -- docs/configuration.md.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -11,7 +10,6 @@ stack="${1:-}"
 dir="live/${stack}"
 [[ ! -e "${dir}/context.tf" ]] || { echo "bin/stack: ${dir} already exists" >&2; exit 1; }
 
-# Relative paths from the stack back to live/ and to the repository root.
 depth="$(tr -cd '/' <<<"${stack}" | wc -c | tr -d ' ')"
 to_live="$(printf '../%.0s' $(seq 0 "${depth}"))"
 to_root="../${to_live}"
@@ -31,12 +29,10 @@ if [[ ! -d "templates/${component}" ]]; then
     exit 0
 fi
 
-# Pass only the inputs the template declares: a hub has no environment, a certificate list no region.
 inputs=""
 grep -q '^variable "environment"' "templates/${component}/variables.tf" 2>/dev/null && inputs+="  environment = local.environment"$'\n'
 grep -q '^variable "region"' "templates/${component}/variables.tf" 2>/dev/null && inputs+="  region = local.region"$'\n'
 grep -q '^variable "config_path"' "templates/${component}/variables.tf" 2>/dev/null && inputs+="  config_path = local.config_dir"$'\n'
-# Every alias a template declares (aws.hub, aws.us_east_1) is one live/common already configures; the stack passes each along.
 providers_block=""
 aliases="$(sed -n 's/.*configuration_aliases *= *\[\(.*\)\].*/\1/p' "templates/${component}/versions.tf" 2>/dev/null | tr -d ' ' | tr ',' '\n' | grep . || true)"
 if [[ -n "${aliases}" ]]; then
@@ -49,7 +45,6 @@ block=""
 [[ -n "${inputs}" ]] && block=$'\n'"${inputs}"
 
 cat > "${dir}/main.tf" <<HCL
-# This stack is templates/${component} for its environment and region -- docs/architecture.md.
 module "${name}" {
   source = "${to_root}templates/${component}"
 ${providers_block}${block}}

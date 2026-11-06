@@ -1,38 +1,36 @@
 variable "repositories" {
-  description = "Repository names: lowercase, with optional path segments such as team/app."
-  type        = set(string)
+  description = "Repository name -> its tags, and the policy documents (JSON) of its aws_ecr_lifecycle_policy and aws_ecr_repository_policy; null builds neither. Tags are always IMMUTABLE, every push is scanned and images are encrypted: those are not arguments."
+  type = map(object({
+    tags              = optional(map(string), {})
+    lifecycle_policy  = optional(string)
+    repository_policy = optional(string)
+  }))
+  default = {}
 
   validation {
-    condition     = alltrue([for r in var.repositories : can(regex("^[a-z0-9]+([._-][a-z0-9]+)*(/[a-z0-9]+([._-][a-z0-9]+)*)*$", r))])
-    error_message = "Repository names are lowercase letters and digits, separated by . _ - or /."
+    condition     = alltrue([for r in keys(var.repositories) : can(regex("^[a-z0-9]+([._-][a-z0-9]+)*$", r))])
+    error_message = "Repository names are lowercase letters and digits, separated by . _ or -."
   }
 }
 
-variable "keep_images" {
-  description = "Tagged images kept per repository; older ones expire."
-  type        = number
-  default     = 30
-}
-
-variable "untagged_days" {
-  description = "Days an untagged image is kept."
-  type        = number
-  default     = 14
-}
-
-variable "replicate_to" {
-  description = "Other regions every repository is copied to, so images survive a regional outage. The registry has one replication setting, so one stack per region sets it."
-  type        = set(string)
-  default     = []
-}
-
-variable "pull_accounts" {
-  description = "Other accounts whose roles may pull every repository: each environment's account, when environments have their own."
-  type        = set(string)
-  default     = []
+variable "replication_configuration" {
+  description = "The registry's aws_ecr_replication_configuration: its rule list, each with destination (region, registry_id) and repository_filter (filter, filter_type). null builds none. The registry has one, so one stack per account and region sets it."
+  type = object({
+    rule = list(object({
+      destination = list(object({
+        region      = string
+        registry_id = string
+      }))
+      repository_filter = optional(list(object({
+        filter      = string
+        filter_type = string
+      })), [])
+    }))
+  })
+  default = null
 
   validation {
-    condition     = alltrue([for a in var.pull_accounts : can(regex("^[0-9]{12}$", a))])
-    error_message = "pull_accounts are 12-digit account IDs."
+    condition     = var.replication_configuration == null || alltrue(flatten([for r in try(var.replication_configuration.rule, []) : [for d in r.destination : can(regex("^[0-9]{12}$", d.registry_id))]]))
+    error_message = "registry_id is a 12-digit account ID."
   }
 }

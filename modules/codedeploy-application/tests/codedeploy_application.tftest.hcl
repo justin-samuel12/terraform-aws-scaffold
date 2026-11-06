@@ -1,4 +1,3 @@
-# Applications and deployment groups, against a mocked AWS -- docs/compute.md#deploying-with-codedeploy.
 mock_provider "aws" {}
 
 mock_provider "external" {

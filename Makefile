@@ -1,9 +1,9 @@
-# Thin entry point over bin/ and the tests -- docs/configuration.md.
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
 REPO_ROOT     := $(shell pwd)
-STACK_DIR      = live/$(STACK)
+TARGET         = $(if $(findstring /,$(STACK)),$(STACK),$(if $(and $(REGION),$(ENV)),$(REGION)/$(ENV)$(if $(STACK),/$(STACK)),$(STACK)))
+STACK_DIR      = live/$(TARGET)
 EXAMPLE       := us-east-2/operations/network
 STACKS        := $(sort $(patsubst %/main.tf,%,$(wildcard live/*/*/*/main.tf)))
 JOBS          ?= 4
@@ -14,8 +14,8 @@ export TF_PLUGIN_CACHE_DIR ?= $(REPO_ROOT)/.terraform.d/plugin-cache
         order render check fmt fmt-check lint test validate-all check-files check-examples check-order diagram clean
 
 define require_stack
-	@test -n "$(STACK)" || { echo "STACK is required, e.g. STACK=$(EXAMPLE)" >&2; exit 1; }
-	@test -d "$(STACK_DIR)" || { echo "no stack at $(STACK_DIR); create it with make stack STACK=$(STACK)" >&2; exit 1; }
+	@test -n "$(TARGET)" || { echo "STACK is required, e.g. STACK=$(EXAMPLE), or REGION=us-east-2 ENV=operations STACK=network" >&2; exit 1; }
+	@test -f "$(STACK_DIR)/main.tf" || { echo "no stack at $(STACK_DIR): use <region>/<environment>/<component>, or REGION, ENV and STACK together; create one with make stack" >&2; exit 1; }
 endef
 
 ##@ First time, in this order
@@ -24,6 +24,7 @@ help: ## List targets
 	@awk 'BEGIN {FS = ":.*## "} /^##@/ {printf "\n%s\n", substr($$0, 5)} /^[a-z-]+:.*## / {printf "  %-15s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@echo
 	@echo "  STACK=<region>/<environment>/<component>, e.g. make plan STACK=$(EXAMPLE); make order also takes <region>/<environment>"
+	@echo "  REGION= and ENV= with a short STACK, e.g. make plan REGION=us-east-2 ENV=operations STACK=network; make order takes REGION= and ENV= alone"
 	@echo "  ARGS=  more for terraform plan, e.g. ARGS='-replace=<address>' to rebuild one server on purpose; apply runs that plan"
 	@echo "  ONLY=  some stacks for check-files or check-examples, e.g. ONLY=\"us-east-2/operations/compute\""
 	@echo "  CHANGED=1  skip whatever is unchanged since it last passed; JOBS=n  checks at a time (default 4)"
@@ -50,8 +51,8 @@ hooks: ## Install the git hooks: format, lint, secrets and backends on every com
 ##@ One stack at a time (STACK=)
 
 stack: ## Create a stack, calling templates/<component> when one exists
-	@test -n "$(STACK)" || { echo "STACK is required, e.g. STACK=$(EXAMPLE)" >&2; exit 1; }
-	bin/stack $(STACK)
+	@test -n "$(TARGET)" || { echo "STACK is required, e.g. STACK=$(EXAMPLE)" >&2; exit 1; }
+	bin/stack $(TARGET)
 
 init: ## Connect a stack to its state
 	$(require_stack)
@@ -70,7 +71,7 @@ output: ## Show a stack's outputs
 	bin/tf $(STACK_DIR) output
 
 order: ## The order to apply stacks in, and what is applied (STACK= an environment or one stack; read-only)
-	bin/order $(STACK)
+	bin/order $(TARGET)
 
 render: ## Apps on blueprints: all of them, or APP=<app> across its environments (read-only)
 	bin/render $(APP)
@@ -95,6 +96,10 @@ fmt-check: ## Check formatting without changing files
 
 lint: ## Lint every module, template and stack with tflint
 	@command -v tflint >/dev/null || { echo "tflint is not installed -- docs/configuration.md" >&2; exit 1; }
+	@stray=$$(for s in $(STACKS); do find $$s \( -name .terraform -o -name tests -o -name config \) -prune -o \( -name '*.yml' -o -name '*.yaml' \) -print; done); \
+	  if [ -n "$$stray" ]; then echo "A stack's .yml files go in its config/ folder, never beside its .tf files or anywhere else:" >&2; echo "$$stray" | sed 's/^/  /' >&2; exit 1; fi
+	@mixed=$$(find modules templates live -name main.tf -not -path '*/.terraform/*' -exec grep -l '^data "' {} +); \
+	  if [ -n "$$mixed" ]; then echo "Data sources go in data.tf, never main.tf:" >&2; echo "$$mixed" | sed 's/^/  /' >&2; exit 1; fi
 	tflint --init >/dev/null
 	tflint --recursive --format compact
 

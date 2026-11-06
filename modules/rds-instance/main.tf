@@ -1,13 +1,10 @@
-data "aws_partition" "current" {}
-
 resource "aws_db_subnet_group" "database" {
   name       = var.name
   subnet_ids = var.subnet_ids
 
-  tags = { Name = var.name }
+  tags = merge(var.tags, { Name = "${local.name_prefix}${local.short_name}" })
 }
 
-# RDS Custom takes no parameter or option groups: its settings live on the server.
 resource "aws_db_parameter_group" "database" {
   count = local.custom ? 0 : 1
 
@@ -23,46 +20,15 @@ resource "aws_db_parameter_group" "database" {
     }
   }
 
-  tags = { Name = var.name }
+  tags = merge(var.tags, { Name = "${local.name_prefix}${local.short_name}" })
 
   lifecycle {
     create_before_destroy = true
   }
 }
 
-# Native backup and restore: SQL Server writes .bak files to the bucket, encrypted with the data key.
-resource "aws_iam_role" "backup_restore" {
-  count = var.backup_restore_bucket == null ? 0 : 1
-
-  name                 = "${var.name}-backup-restore"
-  description          = "Native backup and restore for ${var.name}"
-  max_session_duration = 3600
-
-  assume_role_policy = jsonencode({
-    Version   = "2012-10-17"
-    Statement = [{ Effect = "Allow", Action = "sts:AssumeRole", Principal = { Service = "rds.amazonaws.com" } }]
-  })
-
-  tags = { Name = "${var.name}-backup-restore" }
-}
-
-resource "aws_iam_role_policy" "backup_restore" {
-  count = var.backup_restore_bucket == null ? 0 : 1
-
-  name = "${var.name}-backup-restore-policy"
-  role = aws_iam_role.backup_restore[0].name
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      { Effect = "Allow", Action = ["s3:ListBucket", "s3:GetBucketLocation"], Resource = "arn:${data.aws_partition.current.partition}:s3:::${var.backup_restore_bucket}" },
-      { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:ListMultipartUploadParts", "s3:AbortMultipartUpload"], Resource = "arn:${data.aws_partition.current.partition}:s3:::${var.backup_restore_bucket}/*" },
-      { Effect = "Allow", Action = ["kms:Encrypt", "kms:Decrypt", "kms:ReEncrypt*", "kms:GenerateDataKey*", "kms:DescribeKey"], Resource = var.kms_key_arn },
-    ]
-  })
-}
-
 resource "aws_db_option_group" "database" {
-  count = local.sqlserver && length(local.options) > 0 ? 1 : 0
+  count = local.sqlserver && length(var.option) > 0 ? 1 : 0
 
   name_prefix              = "${var.name}-"
   option_group_description = "Options for ${var.name}"
@@ -70,42 +36,39 @@ resource "aws_db_option_group" "database" {
   major_engine_version     = "${local.major}.00"
 
   dynamic "option" {
-    for_each = local.options
+    for_each = var.option
     content {
-      option_name                    = option.key
+      option_name                    = option.value.option_name
       port                           = option.value.port
-      vpc_security_group_memberships = option.value.security_groups
+      version                        = option.value.version
+      vpc_security_group_memberships = option.value.vpc_security_group_memberships
 
       dynamic "option_settings" {
-        for_each = option.value.settings
+        for_each = option.value.option_settings
         content {
-          name  = option_settings.key
-          value = option_settings.value
+          name  = option_settings.value.name
+          value = option_settings.value.value
         }
       }
     }
   }
 
-  tags = { Name = var.name }
-
-  depends_on = [aws_iam_role_policy.backup_restore]
+  tags = merge(var.tags, { Name = "${local.name_prefix}${local.short_name}" })
 
   lifecycle {
     create_before_destroy = true
   }
 }
 
-# Created before the database, so its logs are kept a year rather than forever.
 resource "aws_cloudwatch_log_group" "database" {
   for_each = toset(local.log_exports)
 
   name              = "/aws/rds/instance/${var.name}/${each.key}"
   retention_in_days = 365
 
-  tags = { Name = var.name }
+  tags = merge(var.tags, { Name = "${local.name_prefix}${local.short_name}" })
 }
 
-# RDS Custom cannot keep its own password in Secrets Manager: one is made at creation and handed over write-only, never in state or plan.
 resource "aws_secretsmanager_secret" "password" {
   count = local.custom ? 1 : 0
 
@@ -113,17 +76,15 @@ resource "aws_secretsmanager_secret" "password" {
   description = "The dbadmin login for ${var.name}"
   kms_key_id  = var.kms_key_arn
 
-  tags = { Name = var.name }
+  tags = merge(var.tags, { Name = "${local.name_prefix}${local.short_name}" })
 }
 
-# Written after the database, in the same apply and with the same password. A build that fails writes nothing, so its retry
-# writes the password it actually used; a replaced database rewrites it. Raising password_generation resets both together.
 resource "aws_secretsmanager_secret_version" "password" {
   count = local.custom ? 1 : 0
 
   secret_id                = aws_secretsmanager_secret.password[0].id
   secret_string_wo         = jsonencode({ username = "dbadmin", password = local.password })
-  secret_string_wo_version = var.password_generation
+  secret_string_wo_version = var.password_wo_version
 
   depends_on = [aws_db_instance.database]
 
@@ -137,25 +98,24 @@ resource "aws_db_instance" "database" {
   engine         = var.engine
   engine_version = var.engine_version
   instance_class = var.instance_class
-  license_model  = local.sqlserver || local.custom ? var.license_model : null
+  license_model  = var.license_model
   port           = local.sqlserver || local.custom ? 1433 : null
 
-  allocated_storage     = var.storage
-  max_allocated_storage = var.max_storage
+  allocated_storage     = var.allocated_storage
+  max_allocated_storage = var.max_allocated_storage
   storage_type          = "gp3"
   storage_encrypted     = true
   kms_key_id            = var.kms_key_arn
 
-  # RDS keeps the password in Secrets Manager and rotates it; it never passes through Terraform.
   username                      = "dbadmin"
   manage_master_user_password   = local.custom ? null : true
   master_user_secret_kms_key_id = local.custom ? null : var.kms_key_arn
   password_wo                   = local.custom ? local.password : null
-  password_wo_version           = local.custom ? var.password_generation : null
+  password_wo_version           = local.custom ? var.password_wo_version : null
 
   multi_az               = var.multi_az
   db_subnet_group_name   = aws_db_subnet_group.database.name
-  vpc_security_group_ids = var.security_group_ids
+  vpc_security_group_ids = var.vpc_security_group_ids
   publicly_accessible    = false
   parameter_group_name   = local.custom ? null : aws_db_parameter_group.database[0].name
   option_group_name      = try(aws_db_option_group.database[0].name, null)
@@ -173,7 +133,6 @@ resource "aws_db_instance" "database" {
 
   custom_iam_instance_profile = var.custom_iam_instance_profile
 
-  # SQL Server has no IAM database authentication.
   iam_database_authentication_enabled = !(local.sqlserver || local.custom)
   enabled_cloudwatch_logs_exports     = local.log_exports
 
@@ -185,7 +144,6 @@ resource "aws_db_instance" "database" {
   skip_final_snapshot       = false
   final_snapshot_identifier = "${var.name}-final"
 
-  # RDS Custom upgrades only when we choose a new version for it.
   auto_minor_version_upgrade  = !local.custom && !local.pinned
   allow_major_version_upgrade = false
 
@@ -195,11 +153,10 @@ resource "aws_db_instance" "database" {
   monitoring_interval                   = local.custom ? 0 : 60
   monitoring_role_arn                   = var.monitoring_role_arn
 
-  tags = { Name = var.name, Backup = "standard" }
+  tags = merge(var.tags, { Name = "${local.name_prefix}${local.short_name}", Backup = "standard" })
 
   depends_on = [aws_cloudwatch_log_group.database, aws_secretsmanager_secret.password]
 
-  # RDS Custom builds its server for hours, and Multi-AZ SQL Server takes a while too.
   timeouts {
     create = "4h"
     update = "4h"

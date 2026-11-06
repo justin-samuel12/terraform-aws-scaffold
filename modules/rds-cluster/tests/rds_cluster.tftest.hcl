@@ -1,15 +1,15 @@
-# What the module builds and refuses, against a mocked AWS -- docs/data.md.
 mock_provider "aws" {}
 
 variables {
-  name                = "reporting"
-  engine              = "aurora-postgresql"
-  engine_version      = "16.6"
-  instance_class      = "db.r6g.large"
-  subnet_ids          = ["subnet-data-1", "subnet-data-2", "subnet-data-3"]
-  security_group_ids  = ["sg-reporting-database"]
-  kms_key_arn         = "arn:aws:kms:us-east-2:111111111111:key/mrk-data"
-  monitoring_role_arn = "arn:aws:iam::111111111111:role/rds-monitoring-operations"
+  name                   = "reporting"
+  engine                 = "aurora-postgresql"
+  engine_version         = "16.6"
+  instance_class         = "db.r6g.large"
+  subnet_ids             = ["subnet-data-1", "subnet-data-2", "subnet-data-3"]
+  vpc_security_group_ids = ["sg-reporting-database"]
+  instances              = 2
+  kms_key_arn            = "arn:aws:kms:us-east-2:111111111111:key/mrk-data"
+  monitoring_role_arn    = "arn:aws:iam::111111111111:role/rds-monitoring-operations"
 }
 
 run "postgresql" {
@@ -32,7 +32,7 @@ run "postgresql" {
 
   assert {
     condition     = length(aws_rds_cluster_instance.instance) == 2 && aws_rds_cluster_instance.instance[1].identifier == "reporting-2" && aws_rds_cluster_instance.instance[0].performance_insights_enabled && aws_rds_cluster_instance.instance[0].monitoring_interval == 60
-    error_message = "Two instances by default, each with Performance Insights and enhanced monitoring."
+    error_message = "Two instances, each with Performance Insights and enhanced monitoring."
   }
 
   assert {
@@ -70,10 +70,9 @@ run "serverless" {
   command = plan
 
   variables {
-    instance_class = "db.serverless"
-    instances      = 1
-    min_capacity   = 0.5
-    max_capacity   = 8
+    instance_class                     = "db.serverless"
+    instances                          = 1
+    serverlessv2_scaling_configuration = { min_capacity = 0.5, max_capacity = 8 }
   }
 
   assert {
@@ -89,18 +88,17 @@ run "rejects_serverless_without_capacity" {
     instance_class = "db.serverless"
   }
 
-  expect_failures = [var.max_capacity]
+  expect_failures = [var.serverlessv2_scaling_configuration]
 }
 
 run "rejects_capacity_on_provisioned" {
   command = plan
 
   variables {
-    min_capacity = 1
-    max_capacity = 4
+    serverlessv2_scaling_configuration = { min_capacity = 1, max_capacity = 4 }
   }
 
-  expect_failures = [var.max_capacity]
+  expect_failures = [var.serverlessv2_scaling_configuration]
 }
 
 run "rejects_unknown_engine" {

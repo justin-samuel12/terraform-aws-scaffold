@@ -1,9 +1,3 @@
-data "aws_caller_identity" "current" {}
-
-data "aws_partition" "current" {}
-
-data "aws_region" "current" {}
-
 resource "aws_kms_key" "keys" {
   for_each = var.purposes
 
@@ -14,9 +8,8 @@ resource "aws_kms_key" "keys" {
   deletion_window_in_days = 30
   policy                  = local.policies[each.key]
 
-  tags = { Name = "${var.environment}-${each.key}", Purpose = each.key }
+  tags = { Name = "${local.name_prefix}${each.key}", Purpose = each.key }
 
-  # Destroying a key makes everything encrypted with it unreadable, forever.
   lifecycle {
     prevent_destroy = true
   }
@@ -38,7 +31,7 @@ resource "aws_kms_replica_key" "replicas" {
   deletion_window_in_days = 30
   policy                  = local.policies[each.value.purpose]
 
-  tags = { Name = "${var.environment}-${each.value.purpose}", Purpose = each.value.purpose }
+  tags = { Name = "${local.name_prefix}${each.value.purpose}", Purpose = each.value.purpose }
 
   lifecycle {
     prevent_destroy = true

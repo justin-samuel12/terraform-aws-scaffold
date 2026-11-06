@@ -4,35 +4,19 @@ module "ip_plan" {
   config_path = var.config_path
 }
 
-# The VPC, its route tables and the tier's subnets are found by their tags, not by reading the network stack's state.
-data "aws_vpc" "vpc" {
-  tags = {
-    Environment = var.environment
-    Component   = "network"
-    Name        = "vpc-01"
+locals {
+  resolved = {
+    for name, e in local.endpoints : name => merge(e, {
+      subnet_ids         = [for s in e.subnet_ids : startswith(s, "subnet-") ? s : data.aws_subnet.subnets[s].id]
+      security_group_ids = [for g in e.security_group_ids : startswith(g, "sg-") ? g : data.aws_security_group.groups[g].id]
+      route_table_ids    = [for s in e.route_table_ids : startswith(s, "rtb-") ? s : data.aws_route_table.route_tables[s].id]
+    })
   }
-}
-
-data "aws_route_tables" "route_tables" {
-  vpc_id = data.aws_vpc.vpc.id
-}
-
-data "aws_subnets" "tier" {
-  filter {
-    name   = "vpc-id"
-    values = [data.aws_vpc.vpc.id]
-  }
-
-  tags = { Tier = local.settings.tier }
 }
 
 module "vpc_endpoint" {
   source = "../../modules/vpc-endpoint"
 
-  vpc_id          = data.aws_vpc.vpc.id
-  vpc_cidr        = data.aws_vpc.vpc.cidr_block
-  interface       = toset(local.settings.interface)
-  gateway         = toset(local.settings.gateway)
-  subnet_ids      = data.aws_subnets.tier.ids
-  route_table_ids = data.aws_route_tables.route_tables.ids
+  vpc_id    = data.aws_vpc.vpc.id
+  endpoints = local.resolved
 }

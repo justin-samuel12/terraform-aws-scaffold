@@ -1,4 +1,0 @@
-topic:
-  subscriptions:
-    - protocol: lambda
-      endpoint: lambda:audit

@@ -9,6 +9,11 @@ variables {
 run "hub" {
   command = plan
 
+  override_data {
+    target = data.aws_default_tags.current
+    values = { tags = { Environment = "shared" } }
+  }
+
   variables {
     routes = {
       restricted-default = { route_table = "restricted", destination = "0.0.0.0/0", attachment_id = "tgw-attach-egress" }
@@ -23,8 +28,13 @@ run "hub" {
   }
 
   assert {
-    condition     = length(aws_ec2_transit_gateway_route_table.route_tables) == 3 && aws_ec2_transit_gateway_route_table.route_tables["restricted"].tags.Name == "tgw-01-restricted"
-    error_message = "One route table per isolation level, named <tgw>-<level>."
+    condition     = length(aws_ec2_transit_gateway_route_table.route_tables) == 3 && aws_ec2_transit_gateway_route_table.route_tables["restricted"].tags.Name == "Shared - Transit Gateway Restricted" && aws_ec2_transit_gateway_route_table.route_tables["restricted"].tags.Segment == "restricted"
+    error_message = "One route table per isolation level, named for the console and found by its Segment tag."
+  }
+
+  assert {
+    condition     = aws_ec2_transit_gateway.transit_gateway.tags.Name == "Shared - Transit Gateway"
+    error_message = "The Transit Gateway's Name tag is its environment, then what it is."
   }
 
   assert {

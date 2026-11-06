@@ -1,0 +1,17 @@
+zones:
+  - usw2-az1
+  - usw2-az2
+  - usw2-az3
+hub:
+  account_id: "111111111111"
+  team:
+  cidr: 10.60.0.0/20
+  amazon_side_asn: 64513
+  security_group_referencing: false
+vpcs:
+  staging:
+    account_id: "222222222222"
+    team:
+    cidr: 10.62.0.0/16
+    segment: standard
+    public: true

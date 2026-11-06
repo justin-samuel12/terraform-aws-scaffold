@@ -1,8 +1,7 @@
 output "networks" {
-  description = "\"<environment>/<region>\" -> CIDR, purpose, segment, propagation, zones, public tier, hub ASN, whether it is the primary hub, subnet CIDRs per tier, and each network tier's route."
+  description = "\"<environment>/<region>\" -> CIDR, purpose, connectivity, segment, propagation, zones, public tier, hub ASN, whether it is the primary hub, where its region's hub has resolver endpoints (inbound, outbound) and which domains it forwards (domains), subnet CIDRs per tier, and each network tier's route."
   value       = local.networks
 
-  # The rules every region file in config/ must meet -- docs/network.md.
   precondition {
     condition     = length(local.files.names) == 0
     error_message = "Region files are named after an AWS region, config/<region>.yml; these are not: ${join(", ", local.files.names)}."
@@ -20,8 +19,36 @@ output "networks" {
     error_message = "shared is the hub's environment and cannot be under vpcs: ${join(", ", local.files.reserved)}."
   }
   precondition {
-    condition     = alltrue([for cidr in local.hq.cidrs : can(cidrnetmask(cidr))]) && (local.hq.ip_address == null || can(cidrhost("${local.hq.ip_address}/32", 0)))
-    error_message = "hq in config/global.yml: cidrs must be a list of CIDRs, and ip_address an IPv4 address or empty."
+    condition     = try(local.global.hq, null) == null
+    error_message = "hq in config/global.yml is now sites: every network reached over a VPN is a named site under sites, each with enabled, ip_address, bgp_asn, cidrs and forward."
+  }
+  precondition {
+    condition     = (try(local.global.sites, null) == null || can(keys(local.global.sites))) && alltrue([for name, site in local.site_files : can(regex("^[a-z][a-z0-9-]*$", name)) && can(keys(site)) && alltrue([for k in try(keys(site), []) : contains(local.site_keys, k)])])
+    error_message = "sites in config/global.yml: named sites, each with enabled, ip_address, bgp_asn, cidrs and forward (sites: { office: { ip_address: ..., bgp_asn: ..., cidrs: [...] } }); a site's name is lowercase with hyphens."
+  }
+  precondition {
+    condition     = alltrue([for name, site in local.site_files : try(site.enabled, null) == null || can(tobool(site.enabled))])
+    error_message = "sites in config/global.yml: enabled is true or false; leave it out for true."
+  }
+  precondition {
+    condition     = alltrue([for name, site in local.all_sites : alltrue([for cidr in site.cidrs : can(cidrnetmask(cidr))]) && alltrue([for ip in site.ip_addresses : can(regex("^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$", ip)) && can(cidrhost("${ip}/32", 0))]) && (length(site.ip_addresses) == 0 || site.bgp_asn != null)])
+    error_message = "sites in config/global.yml: each site's cidrs are CIDRs, its ip_address one IPv4 address or a list of them (one per link), and a site with an ip_address needs its bgp_asn."
+  }
+  precondition {
+    condition     = length(distinct(flatten([for name, site in local.sites : site.ip_addresses]))) == length(flatten([for name, site in local.sites : site.ip_addresses]))
+    error_message = "sites in config/global.yml: an ip_address is listed twice; each address is one VPN device, in one site."
+  }
+  precondition {
+    condition     = length(local.directory_problems) == 0
+    error_message = "The directory cannot be built as written: ${join("; ", local.directory_problems)}."
+  }
+  precondition {
+    condition     = length(local.resolver_problems) == 0
+    error_message = "The DNS resolver is not placed so it can work: ${join("; ", local.resolver_problems)}."
+  }
+  precondition {
+    condition     = length(local.site_overlaps) == 0
+    error_message = "sites in config/global.yml: a site's range overlaps a network in AWS, so traffic to it could not be told apart: ${join("; ", local.site_overlaps)}."
   }
   precondition {
     condition     = length(local.layout_problems) == 0
@@ -29,15 +56,19 @@ output "networks" {
   }
   precondition {
     condition     = length(local.problems.shape) == 0
-    error_message = "Unknown or misspelt keys (a network has account_id, team, cidr, segment and public; a hub has account_id, team, cidr, amazon_side_asn, primary and security_group_referencing): ${join(", ", [for key in local.problems.shape : local.labels[key]])}."
+    error_message = "Unknown or misspelt keys (a network has account_id, team, cidr, segment, public and connectivity; a hub has account_id, team, cidr, amazon_side_asn, primary and security_group_referencing): ${join(", ", [for key in local.problems.shape : local.labels[key]])}."
   }
   precondition {
     condition     = length(local.problems.cidr) == 0
     error_message = "cidr must be a network address, a /16 for a network and a /20 for a hub: ${join(", ", [for key in local.problems.cidr : local.labels[key]])}."
   }
   precondition {
+    condition     = length(local.problems.connectivity) == 0
+    error_message = "connectivity is transit_gateway (the default: through the region's hub) or peering (its own NAT and VPC peering, routes from the network stack's config/route-table/): ${join(", ", [for key in local.problems.connectivity : local.labels[key]])}."
+  }
+  precondition {
     condition     = length(local.problems.segment) == 0
-    error_message = "segment must be restricted, standard or shared: ${join(", ", [for key in local.problems.segment : local.labels[key]])}."
+    error_message = "segment must be restricted, standard or shared for a network on the hub, and is left out for one with connectivity: peering: ${join(", ", [for key in local.problems.segment : local.labels[key]])}."
   }
   precondition {
     condition     = length(local.problems.referencing) == 0
@@ -86,9 +117,19 @@ output "internal_cidr" {
   value       = local.internal_cidr
 }
 
-output "hq" {
-  description = "HQ, from config/global.yml: its public IP and BGP ASN for the VPN (ip_address null until known) and its address ranges, for security group rules."
-  value       = local.hq
+output "sites" {
+  description = "The enabled sites, from config/global.yml: site name -> its VPN devices' public IPs, one per link (none until known: no VPN), its BGP ASN, the address ranges behind it, and the domains forwarded to its DNS servers. A site with enabled: false is left out entirely."
+  value       = local.sites
+}
+
+output "site_cidrs" {
+  description = "Every enabled site's address ranges, together."
+  value       = local.site_cidrs
+}
+
+output "directory" {
+  description = "The AWS Managed Microsoft AD the primary hub builds, from directory in config/global.yml (name, short_name, edition, description), or null while it is absent or enabled: false."
+  value       = local.directory
 }
 
 output "primary_region" {
@@ -109,20 +150,54 @@ output "prefix_lists" {
 }
 
 output "dns" {
-  description = "DNS from config/global.yml: whether HQ may resolve AWS private names (inbound), domain -> HQ DNS server IPs to forward to, and the private hosted zones every VPC attaches to."
+  description = "DNS from config/global.yml: whether the sites may resolve AWS private names (inbound), domain -> DNS server IPs to forward to (every enabled site's forward, together), the private hosted zones in the hub that every VPC attaches to (private_zones, the private domain itself among them), the public domains (public_domains), where a name is written only when its file names the zone, and the private domain under which each environment has its own zone."
   value       = local.dns
 
   precondition {
-    condition     = alltrue(flatten([for domain, targets in local.dns.forward : concat([can(regex("^[a-z0-9.-]+$", domain)) && length(targets) > 0], [for ip in targets : can(cidrhost("${ip}/32", 0))])]))
-    error_message = "dns.forward in config/global.yml: each domain needs at least one DNS server IP."
+    condition     = (try(local.global.dns.public_domain, null) == null || can(tolist(local.global.dns.public_domain))) && length(distinct(local.dns.public_domains)) == length(local.dns.public_domains) && alltrue([for d in local.dns.public_domains : can(regex("^([a-z0-9]([a-z0-9-]*[a-z0-9])?\\.)+[a-z]{2,}$", d))])
+    error_message = "dns.public_domain in config/global.yml: a list of domain names, each once (- example.com)."
   }
+
+  precondition {
+    condition     = (try(local.global.dns.private_domain, null) == null || can(tostring(local.global.dns.private_domain))) && (local.dns.private_domain == null || can(regex("^([a-z0-9]([a-z0-9-]*[a-z0-9])?\\.)+[a-z]{2,}$", coalesce(local.dns.private_domain, "-"))))
+    error_message = "dns.private_domain in config/global.yml: one domain name (example.internal), not a list."
+  }
+
+  precondition {
+    condition     = !endswith(coalesce(local.dns.private_domain, "-"), ".local")
+    error_message = "dns.private_domain in config/global.yml: not .local, which laptops resolve by multicast instead of DNS; use .internal, reserved for private names."
+  }
+
+  precondition {
+    condition     = length(local.dns.resolve_all) == 0 || (local.dns.inbound && local.dns.private_domain != null && alltrue([for env in local.dns.resolve_all : contains(local.environment_names, env)]))
+    error_message = "dns.resolve_all_private in config/global.yml: environments in config/, and it needs dns.inbound: true and a private_domain, since their VPCs ask the hub's inbound resolver."
+  }
+
+  precondition {
+    condition     = try(local.global.dns.forward, null) == null
+    error_message = "dns.forward in config/global.yml has moved: a domain is forwarded by the site whose DNS servers answer it, as sites.<site>.forward, so removing the site removes its forwarding too."
+  }
+
+  precondition {
+    condition     = length(distinct(local.site_forward_domains)) == length(local.site_forward_domains)
+    error_message = "sites in config/global.yml: a domain is forwarded by more than one enabled site; each domain goes to one site's DNS servers."
+  }
+
+  precondition {
+    condition     = alltrue(flatten([for domain, targets in local.dns.forward : concat([can(regex("^[a-z0-9.-]+$", domain)) && length(targets) > 0], [for ip in targets : can(cidrhost("${ip}/32", 0))])]))
+    error_message = "sites.<site>.forward in config/global.yml: each domain needs at least one DNS server IP."
+  }
+}
+
+output "zones" {
+  description = "Environment -> its private zone (<environment>.<private_domain>, in its own account): where its names go when a file names no zone."
+  value       = local.zones
 }
 
 output "accounts" {
   description = "Every account in config/: hub (each region's hub account) and environments (each environment's account), from its own account_id or config/global.yml's."
   value = {
-    hubs = { for key, n in local.networks : split("/", key)[1] => n.account_id if n.purpose == "egress" }
-    # An environment in two regions has one account (the plan refuses otherwise), so the first is its account.
+    hubs         = { for key, n in local.networks : split("/", key)[1] => n.account_id if n.purpose == "egress" }
     environments = { for env, accounts in { for key, n in local.networks : split("/", key)[0] => n.account_id... if n.purpose == "spoke" } : env => accounts[0] }
   }
 }

@@ -1,0 +1,42 @@
+description: An internal HTTP service behind a load balancer, reached by path, deployed by CodeDeploy
+allows:
+  - count
+  - instance_type
+  - ami
+  - target_group.health_check
+  - target_group.stickiness
+  - tags.Owner
+requires:
+  - listener_rule
+instance_types:
+  default: t3.small
+  allowed:
+    - t3.small
+    - t3.medium
+    - t3.large
+    - t3.xlarge
+role:
+  managed_policies:
+    - AmazonSSMManagedInstanceCore
+  policies:
+    - session-manager
+group:
+  count: 1
+  ami: ami-0123456789abcdef0
+  tier: private
+  vpc_security_group_ids:
+    - backend-services
+  root_block_device:
+    volume_size: 30
+  user_data: scripts/boot.sh
+  target_group:
+    port: 443
+    protocol: HTTPS
+    health_check:
+      path: /{app}/status
+      matcher: "200"
+  tags:
+    Backup: standard
+    CodeDeploy: "['{app}']"
+    ServerRole: appsvc
+    WorkloadType: services

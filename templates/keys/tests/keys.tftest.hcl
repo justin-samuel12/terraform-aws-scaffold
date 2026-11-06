@@ -1,4 +1,3 @@
-# The environment's keys, against a mocked AWS -- docs/data.md.
 mock_provider "aws" {}
 
 override_data {

@@ -1,4 +1,3 @@
-# The state bucket, with and without a replica, against a mocked AWS -- docs/configuration.md.
 mock_provider "aws" {
   mock_resource "aws_s3_bucket" {
     override_during = plan

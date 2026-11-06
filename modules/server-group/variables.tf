@@ -27,6 +27,7 @@ variable "servers" {
       instance_type = string
       private_ip    = optional(string)
       secondary_ips = optional(list(string), [])
+      tags          = optional(map(string), {})
     }))
     image_id           = string
     security_group_ids = list(string)
@@ -36,10 +37,11 @@ variable "servers" {
     volumes = optional(map(object({
       device     = string
       size       = number
+      name       = optional(string)
       iops       = optional(number, 3000)
       throughput = optional(number, 125)
+      tags       = optional(map(string), {})
     })), {})
-    backup    = optional(bool, true)
     user_data = optional(string)
     tags      = optional(map(string), {})
   })
@@ -58,18 +60,23 @@ variable "health" {
 }
 
 variable "target" {
-  description = "How its own target group talks to it: protocol (HTTP or HTTPS), the health check's healthy codes, sticky sessions in seconds (null: none), and slow start in seconds (0: none)."
+  description = "How its own target group talks to it: protocol (HTTP or HTTPS), the health check's healthy codes, aws_lb_target_group's stickiness block as written (null: no block), and slow start in seconds (0: none)."
   type = object({
-    protocol   = optional(string, "HTTP")
-    matcher    = optional(string, "200-399")
-    stickiness = optional(number)
+    protocol = optional(string, "HTTP")
+    matcher  = optional(string, "200-399")
+    stickiness = optional(object({
+      enabled         = optional(bool)
+      type            = string
+      cookie_duration = optional(number)
+      cookie_name     = optional(string)
+    }))
     slow_start = optional(number, 0)
   })
   default = {}
 
   validation {
-    condition     = contains(["HTTP", "HTTPS"], var.target.protocol) && (var.target.slow_start == 0 || (var.target.slow_start >= 30 && var.target.slow_start <= 900)) && (var.target.stickiness == null || (coalesce(var.target.stickiness, 1) >= 1 && coalesce(var.target.stickiness, 1) <= 604800))
-    error_message = "target: protocol HTTP or HTTPS; slow_start 0 or 30 to 900 seconds; stickiness 1 to 604800 seconds."
+    condition     = contains(["HTTP", "HTTPS"], var.target.protocol) && (var.target.slow_start == 0 || (var.target.slow_start >= 30 && var.target.slow_start <= 900)) && (var.target.stickiness == null || try(contains(["lb_cookie", "app_cookie"], var.target.stickiness.type) && (var.target.stickiness.cookie_duration == null || (var.target.stickiness.cookie_duration >= 1 && var.target.stickiness.cookie_duration <= 604800)), false))
+    error_message = "target: protocol HTTP or HTTPS; slow_start 0 or 30 to 900 seconds; stickiness type lb_cookie or app_cookie, cookie_duration 1 to 604800 seconds."
   }
 }
 
@@ -100,12 +107,27 @@ variable "routes" {
 }
 
 variable "names" {
-  description = "DNS names for it: each an alias to a load balancer, in a zone."
+  description = "DNS names for it in zones the hub's account owns (the public domain itself): each an alias to a load balancer."
   type = list(object({
-    zone_id     = string
-    name        = string
-    lb_dns_name = string
-    lb_zone_id  = string
+    zone_id                = string
+    name                   = string
+    type                   = string
+    lb_dns_name            = string
+    evaluate_target_health = bool
+    lb_zone_id             = string
+  }))
+  default = []
+}
+
+variable "own_names" {
+  description = "DNS names for it in the environment's own private zone, written with its own account: each an alias to a load balancer."
+  type = list(object({
+    zone_id                = string
+    name                   = string
+    type                   = string
+    lb_dns_name            = string
+    evaluate_target_health = bool
+    lb_zone_id             = string
   }))
   default = []
 }

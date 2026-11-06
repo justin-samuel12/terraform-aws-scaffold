@@ -1,0 +1,3 @@
+description: Callers of SQL Server; no rules, attached to every server or task that connects to it, and admitted by sqlserver
+tags:
+  Kind: client

@@ -1,5 +1,7 @@
 locals {
-  # "<tier>-<zone>" -> one subnet; every subnet gets its own route table.
+  name_prefix = try("${title(data.aws_default_tags.current.tags["Environment"])} - ", "")
+  tier_titles = { for tier in keys(var.subnets) : tier => lookup({ dmz = "DMZ", dns = "DNS" }, tier, title(tier)) }
+
   subnets = merge([
     for tier, subnet in var.subnets : {
       for index, zone in var.availability_zone_ids : "${tier}-${zone}" => {
@@ -19,10 +21,15 @@ locals {
     }
   ]...)
 
-  internet_gateway = anytrue([for subnet in var.subnets : subnet.default_route == "internet"])
-  nat_gateways     = var.nat_gateway_subnets == null ? toset([]) : toset(var.availability_zone_ids)
+  internet_gateway = anytrue([for subnet in var.subnets : subnet.default_route == "internet"]) || anytrue([for r in var.routes : r.gateway_id == "own"])
 
-  # Only VPC Flow Logs, acting for this account's flow logs, may take the role.
+  routes = merge([
+    for name, r in var.routes : {
+      for zone in var.availability_zone_ids : "${r.tier}-${zone}-${r.destination_cidr_block}" => merge(r, { subnet = "${r.tier}-${zone}", zone = zone })
+    }
+  ]...)
+  nat_gateways = var.nat_gateway_subnets == null ? toset([]) : toset(var.availability_zone_ids)
+
   flow_log_assume_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{

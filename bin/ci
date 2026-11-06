@@ -1,0 +1,168 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "${REPO_ROOT}"
+source bin/lib/units.sh
+
+export TF_IN_AUTOMATION=1
+BIN_TF="${BIN_TF:-bin/tf}"
+BIN_ORDER="${BIN_ORDER:-bin/order}"
+TOOLS="terraform tflint yq jq aws git gh gitleaks shellcheck actionlint make"
+REPORT_LIMIT=60000
+STACK_FORM='^(global|[a-z]{2}-[a-z]+-[0-9])/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*$'
+
+usage() {
+    cat >&2 <<'TEXT'
+usage: bin/ci doctor
+       bin/ci changed <base commit> | --files <file listing paths>
+       bin/ci plan <report folder> [stack...]
+       bin/ci drift <report folder>
+       bin/ci apply <stack> "<the plan's summary line>"
+TEXT
+    exit 2
+}
+
+stacks_in_order() {
+    bin/order --offline | grep -oE '[a-z0-9-]+/[a-z0-9-]+/[a-z0-9-]+' | awk '!seen[$0]++' | while read -r s; do
+        if [[ -f "live/${s}/main.tf" ]]; then echo "${s}"; fi
+    done
+}
+
+is_stack() { [[ "$1" =~ ${STACK_FORM} && -f "live/$1/main.tf" ]]; }
+
+blockers_of() {
+    "${BIN_ORDER}" --unapplied "$1" 2>/dev/null | awk '$1 == "missing" || $1 == "not-applied" {print $2}' | xargs
+}
+
+summary_of() {
+    terraform -chdir="live/$1" show -no-color .terraform/plan.tfplan | grep -E '^(Plan:|No changes)' | head -1 || true
+}
+
+discard_plan() { rm -f "live/$1/.terraform/plan.tfplan" "live/$1/.terraform/plan.fingerprint"; }
+
+cmd_doctor() {
+    local missing=0 tool
+    for tool in ${TOOLS}; do
+        if command -v "${tool}" >/dev/null; then echo "ok    ${tool}"; else echo "FAIL  ${tool} is not installed"; missing=1; fi
+    done
+    [[ "${missing}" == 0 ]]
+}
+
+cmd_changed() {
+    [[ $# -ge 1 ]] || usage
+    local changed s
+    if [[ "$1" == --files ]]; then
+        [[ -f "${2:-}" ]] || usage
+        changed="$(cat "$2")"
+    else
+        changed="$(git diff --name-only "$1...HEAD")"
+    fi
+    [[ -n "${changed}" ]] || return 0
+    stacks_in_order | while read -r s; do
+        if unit_inputs "files:${s}" | grep -vE '^(tests/mock/|bin/check-files$)' | grep -Fxq -f <(printf '%s\n' "${changed}"); then
+            echo "${s}"
+        fi
+    done
+}
+
+plan_stack() {
+    local stack="$1" folder="$2" log blockers
+    log="${folder}/$(tr '/' '_' <<<"${stack}").txt"
+    STATUS=failed; SUMMARY=""
+    blockers="$(blockers_of "${stack}")"
+    if [[ -n "${blockers}" ]]; then
+        STATUS=blocked; SUMMARY="needs ${blockers}"
+        return 0
+    fi
+    if ! { make -s init STACK="${stack}" && make -s plan STACK="${stack}" ARGS="-lock=false -no-color"; } >"${log}" 2>&1; then
+        SUMMARY="see the log"
+        return 0
+    fi
+    SUMMARY="$(summary_of "${stack}")"
+    terraform -chdir="live/${stack}" show -no-color .terraform/plan.tfplan >"${log}" 2>&1 || true
+    discard_plan "${stack}"
+    if [[ "${SUMMARY}" == "No changes"* ]]; then STATUS=clean; else STATUS=changes; fi
+}
+
+start_report() {
+    { echo "$1"; echo; echo "$2"; echo; echo '| Stack | Result | Summary |'; echo '|---|---|---|'; } >"$3"
+}
+
+add_details() {
+    local report="$1" stack="$2" log="$3" room
+    [[ -s "${log}" ]] || return 0
+    room=$(( REPORT_LIMIT - $(wc -c <"${report}") - 200 ))
+    if (( room <= 0 )); then return 0; fi
+    { echo; echo "<details><summary>${stack}</summary>"; echo; echo '``````text'
+      head -c "${room}" "${log}"; echo; echo '``````'; echo; echo '</details>'; } >>"${report}"
+}
+
+cmd_plan() {
+    [[ $# -ge 1 ]] || usage
+    local folder="$1" report failed=0 s; shift
+    mkdir -p "${folder}"
+    report="${folder}/report.md"
+    start_report '<!-- terraform-plan -->' '### Terraform plan' "${report}"
+    if [[ $# == 0 ]]; then
+        echo '| none | clean | no stack is affected |' >>"${report}"
+        return 0
+    fi
+    for s in "$@"; do is_stack "${s}" || { echo "bin/ci: ${s} is not a stack" >&2; exit 2; }; done
+    for s in "$@"; do
+        plan_stack "${s}" "${folder}"
+        echo "| \`${s}\` | ${STATUS} | ${SUMMARY} |" >>"${report}"
+        if [[ "${STATUS}" == failed ]]; then failed=1; fi
+    done
+    for s in "$@"; do add_details "${report}" "${s}" "${folder}/$(tr '/' '_' <<<"${s}").txt"; done
+    [[ "${failed}" == 0 ]]
+}
+
+cmd_drift() {
+    [[ $# == 1 ]] || usage
+    local folder="$1" report failed=0 s
+    mkdir -p "${folder}"
+    report="${folder}/report.md"
+    start_report '<!-- terraform-drift -->' '### Terraform drift' "${report}"
+    for s in $(stacks_in_order); do
+        if ! { make -s init STACK="${s}" >/dev/null 2>&1 && "${BIN_TF}" "live/${s}" state list 2>/dev/null | grep -q .; }; then continue; fi
+        plan_stack "${s}" "${folder}"
+        if [[ "${STATUS}" == clean ]]; then continue; fi
+        echo "| \`${s}\` | ${STATUS} | ${SUMMARY} |" >>"${report}"
+        if [[ "${STATUS}" == failed ]]; then failed=1; else touch "${folder}/drifted"; fi
+        add_details "${report}" "${s}" "${folder}/$(tr '/' '_' <<<"${s}").txt"
+    done
+    [[ "${failed}" == 0 ]]
+}
+
+cmd_apply() {
+    [[ $# == 2 ]] || usage
+    local stack="$1" expected actual
+    expected="$(xargs <<<"$2")"
+    is_stack "${stack}" || { echo "bin/ci: ${stack} is not a stack" >&2; exit 2; }
+    make -s init STACK="${stack}"
+    make -s plan STACK="${stack}" ARGS="-no-color"
+    actual="$(summary_of "${stack}" | xargs)"
+    if [[ "${actual}" == "No changes"* ]]; then
+        discard_plan "${stack}"
+        echo "bin/ci: ${stack} has no changes; nothing applied."
+        return 0
+    fi
+    if [[ -z "${actual}" || "${actual}" != "${expected}" ]]; then
+        discard_plan "${stack}"
+        echo "bin/ci: refusing: the plan says '${actual}', and the run was told to expect '${expected}'." >&2
+        exit 1
+    fi
+    APPLY_CONFIRMED=yes make -s apply STACK="${stack}" </dev/null
+}
+
+[[ $# -ge 1 ]] || usage
+command="$1"; shift
+case "${command}" in
+    doctor) cmd_doctor "$@" ;;
+    changed) cmd_changed "$@" ;;
+    plan) cmd_plan "$@" ;;
+    drift) cmd_drift "$@" ;;
+    apply) cmd_apply "$@" ;;
+    *) usage ;;
+esac

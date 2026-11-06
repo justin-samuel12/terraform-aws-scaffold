@@ -19,7 +19,13 @@ variable "region" {
 }
 
 variable "config_dir" {
-  description = "The folder of service files, one <service>.yml each; null = the stack's own folder. Tests point it at their own."
+  description = "The folder of service files, one <service>.yml each; null = the stack's config/ folder. Tests point it at their own."
+  type        = string
+  default     = null
+}
+
+variable "blueprints_dir" {
+  description = "The folder of container blueprints, <name>/v<n>.yml each; null = blueprints/containers/ beside config/. Tests point it at their own."
   type        = string
   default     = null
 }

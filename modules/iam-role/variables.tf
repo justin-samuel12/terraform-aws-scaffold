@@ -29,14 +29,14 @@ variable "policies" {
 }
 
 variable "roles" {
-  description = "Role name -> what it is for, which AWS services may assume it, AWS managed policies by name, our own policies by name, and statements only it needs."
+  description = "Role name -> what it is for, which AWS services may assume it (or its whole trust policy, as JSON, in assume_role_policy), AWS managed policies by name, our own policies by name, and statements only it needs."
   type = map(object({
-    description      = string
-    services         = set(string)
-    managed_policies = optional(list(string), [])
-    policies         = optional(list(string), [])
-    # Policies made elsewhere (a role in a stack attaching the account's shared policies, made by the iam stack), by ARN.
-    policy_arns = optional(list(string), [])
+    description        = string
+    services           = optional(set(string), [])
+    assume_role_policy = optional(string)
+    managed_policies   = optional(list(string), [])
+    policies           = optional(list(string), [])
+    policy_arns        = optional(list(string), [])
     statements = optional(list(object({
       effect    = optional(string, "Allow")
       actions   = list(string)
@@ -55,8 +55,8 @@ variable "roles" {
   }
 
   validation {
-    condition     = alltrue([for r in var.roles : length(r.services) > 0 && alltrue([for s in r.services : can(regex("^[a-z0-9.-]+$", s))])])
-    error_message = "Every role is assumed by at least one AWS service, named without .amazonaws.com (ec2, lambda)."
+    condition     = alltrue([for r in var.roles : (length(r.services) > 0) != (r.assume_role_policy != null) && alltrue([for s in r.services : can(regex("^[a-z0-9.-]+$", s))])])
+    error_message = "Every role is assumed by at least one AWS service, named without .amazonaws.com (ec2, lambda), or has an assume_role_policy, never both."
   }
 
   validation {
@@ -74,5 +74,16 @@ variable "roles" {
   validation {
     condition     = alltrue(flatten([for r in var.roles : [for p in r.policies : contains(keys(var.policies), p)]]))
     error_message = "A role's policies must be policies defined here (policies/<name>.yml); AWS's own go under managed_policies."
+  }
+}
+
+variable "instance_profiles" {
+  description = "Instance profile name -> the role it holds; null gives every role EC2 assumes a profile of its own name."
+  type        = map(string)
+  default     = null
+
+  validation {
+    condition     = var.instance_profiles == null || alltrue([for name, role in coalesce(var.instance_profiles, {}) : can(regex("^[a-zA-Z0-9+=,.@_-]{1,128}$", name)) && contains(keys(var.roles), role)])
+    error_message = "An instance profile's name is up to 128 letters, digits and +=,.@_-, and its role is one of the roles here."
   }
 }

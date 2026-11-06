@@ -1,0 +1,12 @@
+lifecycle_configuration:
+  rule:
+    - id: retention
+      status: Enabled
+      filter:
+        prefix: ""
+      expiration:
+        days: 400
+      noncurrent_version_expiration:
+        noncurrent_days: 30
+      abort_incomplete_multipart_upload:
+        days_after_initiation: 7

@@ -1,0 +1,11 @@
+description: A task for tests, its groups inside network_configuration
+adds:
+  - network_configuration.security_groups
+service:
+  desired_count: 2
+  network_configuration:
+    subnets:
+      - private-az1
+      - private-az2
+    security_groups:
+      - ecs-services

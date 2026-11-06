@@ -1,0 +1,5 @@
+content:
+  inputs:
+    idleSessionTimeout: "20"
+    maxSessionDuration: "480"
+    s3BucketName: session-logs

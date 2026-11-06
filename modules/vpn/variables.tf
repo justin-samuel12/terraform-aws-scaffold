@@ -1,10 +1,10 @@
 variable "name" {
-  description = "Name tag of the VPN connection, for example vpn-01; the customer gateway is named from it."
+  description = "The site this VPN reaches, its name under sites in config/global.yml (office); with the device's address it names the tunnel log group and each Name tag (Shared - Office VPN 203.0.113.10), so a site with two links has two of each."
   type        = string
 
   validation {
-    condition     = can(regex("^vpn-[0-9]{2}$", var.name))
-    error_message = "name must be vpn-NN, for example vpn-01 (docs/conventions.md)."
+    condition     = can(regex("^[a-z][a-z0-9-]*$", var.name))
+    error_message = "name is the site's name: lowercase letters, digits and hyphens, such as office."
   }
 }
 

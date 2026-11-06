@@ -2,7 +2,7 @@ resource "aws_db_subnet_group" "cluster" {
   name       = var.name
   subnet_ids = var.subnet_ids
 
-  tags = { Name = var.name }
+  tags = merge(var.tags, { Name = "${local.name_prefix}${local.short_name}" })
 }
 
 resource "aws_rds_cluster_parameter_group" "cluster" {
@@ -18,33 +18,31 @@ resource "aws_rds_cluster_parameter_group" "cluster" {
     }
   }
 
-  tags = { Name = var.name }
+  tags = merge(var.tags, { Name = "${local.name_prefix}${local.short_name}" })
 
   lifecycle {
     create_before_destroy = true
   }
 }
 
-# The instances' own group: empty for now, so a setting can be changed later without replacing anything.
 resource "aws_db_parameter_group" "instance" {
   name_prefix = "${var.name}-instance-"
   family      = local.family
 
-  tags = { Name = var.name }
+  tags = merge(var.tags, { Name = "${local.name_prefix}${local.short_name}" })
 
   lifecycle {
     create_before_destroy = true
   }
 }
 
-# Created before the cluster, so its logs are kept a year rather than forever.
 resource "aws_cloudwatch_log_group" "cluster" {
   for_each = toset(local.log_exports)
 
   name              = "/aws/rds/cluster/${var.name}/${each.key}"
   retention_in_days = 365
 
-  tags = { Name = var.name }
+  tags = merge(var.tags, { Name = "${local.name_prefix}${local.short_name}" })
 }
 
 resource "aws_rds_cluster" "cluster" {
@@ -56,13 +54,12 @@ resource "aws_rds_cluster" "cluster" {
   storage_encrypted = true
   kms_key_id        = var.kms_key_arn
 
-  # RDS keeps the password in Secrets Manager and rotates it; it never passes through Terraform.
   master_username               = "dbadmin"
   manage_master_user_password   = true
   master_user_secret_kms_key_id = var.kms_key_arn
 
   db_subnet_group_name            = aws_db_subnet_group.cluster.name
-  vpc_security_group_ids          = var.security_group_ids
+  vpc_security_group_ids          = var.vpc_security_group_ids
   db_cluster_parameter_group_name = aws_rds_cluster_parameter_group.cluster.name
 
   iam_database_authentication_enabled = true
@@ -78,14 +75,14 @@ resource "aws_rds_cluster" "cluster" {
   allow_major_version_upgrade  = false
 
   dynamic "serverlessv2_scaling_configuration" {
-    for_each = var.instance_class == "db.serverless" ? [1] : []
+    for_each = var.serverlessv2_scaling_configuration == null ? [] : [var.serverlessv2_scaling_configuration]
     content {
-      min_capacity = var.min_capacity
-      max_capacity = var.max_capacity
+      min_capacity = serverlessv2_scaling_configuration.value.min_capacity
+      max_capacity = serverlessv2_scaling_configuration.value.max_capacity
     }
   }
 
-  tags = { Name = var.name, Backup = "standard" }
+  tags = merge(var.tags, { Name = "${local.name_prefix}${local.short_name}", Backup = "standard" })
 
   depends_on = [aws_cloudwatch_log_group.cluster]
 
@@ -117,5 +114,5 @@ resource "aws_rds_cluster_instance" "instance" {
 
   copy_tags_to_snapshot = true
 
-  tags = { Name = "${var.name}-${count.index + 1}" }
+  tags = merge(var.tags, { Name = "${local.name_prefix}${local.short_name}-${count.index + 1}" })
 }

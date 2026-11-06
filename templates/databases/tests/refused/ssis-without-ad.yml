@@ -1,6 +1,0 @@
-engine: sqlserver-se
-engine_version: "16.00"
-instance_class: db.m6i.xlarge
-allocated_storage: 200
-options:
-  SSIS: {}

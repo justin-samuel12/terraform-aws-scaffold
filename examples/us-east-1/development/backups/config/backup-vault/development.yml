@@ -1,0 +1,4 @@
+kms_key_arn: development-backup
+lock_configuration:
+  min_retention_days: 7
+  max_retention_days: 3650

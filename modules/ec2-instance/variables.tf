@@ -14,13 +14,14 @@ variable "group" {
 }
 
 variable "members" {
-  description = "Server name -> its subnet (id and Subnet tag), its instance type, and its chosen primary and secondary addresses, if any."
+  description = "Server name -> its subnet (id and Subnet tag), its instance type, its chosen primary and secondary addresses, if any, and tags of its own."
   type = map(object({
     subnet_id     = string
     subnet        = string
     instance_type = string
     private_ip    = optional(string)
     secondary_ips = optional(list(string), [])
+    tags          = optional(map(string), {})
   }))
 }
 
@@ -57,12 +58,14 @@ variable "root_size" {
 }
 
 variable "volumes" {
-  description = "Extra disks per server: name -> device, size in GB, and optional IOPS and throughput."
+  description = "Extra disks per server: key -> device, size in GB, and an optional name, IOPS, throughput and tags."
   type = map(object({
     device     = string
     size       = number
+    name       = optional(string)
     iops       = optional(number, 3000)
     throughput = optional(number, 125)
+    tags       = optional(map(string), {})
   }))
   default = {}
 }

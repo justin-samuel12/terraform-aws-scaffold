@@ -1,5 +1,3 @@
-# The examples' own config: one region, us-east-1, with one environment, development. Never used by live/.
-# The account every environment and hub uses, unless its entry in config/<region>.yml names its own. Quote it.
 account_id: ""
 state:
   bucket: ""
@@ -41,27 +39,35 @@ subnets:
     dns:
       size: 28
       start: 14
-hq:
-  ip_address: 203.0.113.10
-  bgp_asn: 65010
-  cidrs:
-    - 192.168.0.0/16
+sites:
+  office:
+    ip_address: 203.0.113.10
+    bgp_asn: 65010
+    cidrs:
+      - 192.168.0.0/16
+    forward:
+      corp.example.com:
+        - 192.168.10.10
+        - 192.168.10.11
+  partner:
+    enabled: false
+    ip_address: 198.51.100.20
+    bgp_asn: 65020
+    cidrs:
+      - 172.20.0.0/16
 prefix_lists:
   staff:
     - cidr: 192.168.20.0/24
       description: Staff VPN
 dns:
   inbound: false
-  forward:
-    ad.example.com:
-      - 192.168.10.10
-      - 192.168.10.11
   private_zones:
     - internal.example.com
-# How every CodeDeploy application deploys, unless its compute stack's deployments/<application>.yml says otherwise.
-# Servers say which applications they run in their CodeDeploy tag -- docs/compute.md#deploying-with-codedeploy.
+  public_domain:
+    - example.com
+  private_domain: example.internal
 codedeploy:
-  deployment_group_names: # one per branch deployed from; a shared, containerized application gets primary-<environment> instead
+  deployment_group_names:
     - master
     - development
     - adhoc
@@ -69,7 +75,9 @@ codedeploy:
   auto_rollback_configuration:
     events:
       - DEPLOYMENT_FAILURE
-  # bootstrap: a GitHub revision deployed and stopped once per application, so CodeDeploy's GitHub connection exists first.
-  # bootstrap:
-  #   repository: <organization>/<repository>
-  #   commit_id: <a commit in it>
+directory:
+  enabled: false
+  name: ad.corp.internal
+  short_name: CORP
+  edition: Standard
+  description: AWS Managed Microsoft AD, in the primary hub

@@ -1,5 +1,5 @@
 output "name" {
-  description = "The topic's name, with .fifo when it is FIFO."
+  description = "The topic's name."
   value       = aws_sns_topic.topic.name
 }
 

@@ -1,0 +1,17 @@
+description: The dashboards application's servers
+assume_role_policy:
+  statement:
+    - effect: Allow
+      actions:
+        - sts:AssumeRole
+      principals:
+        - type: Service
+          identifiers:
+            - ec2.amazonaws.com
+managed_policy_arns:
+  - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+  - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+  - session-manager
+  - read-revisions
+  - mount-files
+  - publish-exports

@@ -13,50 +13,82 @@ variable "kms_key_arn" {
   type        = string
 }
 
-variable "noncurrent_days" {
-  description = "Days an overwritten or deleted object's old version is kept."
-  type        = number
-  default     = 90
+variable "tags" {
+  description = "The bucket's tags; Backup = standard puts it in the environment's AWS Backup plan. Name is the bucket's name."
+  type        = map(string)
+  default     = {}
 }
 
-variable "expire_days" {
-  description = "Days before current objects expire; null to keep them."
-  type        = number
-  default     = null
-}
-
-variable "backup" {
-  description = "Back the bucket up with the environment's AWS Backup plan."
+variable "object_lock_enabled" {
+  description = "aws_s3_bucket's object_lock_enabled: whether the bucket can hold locked objects. Set only when the bucket is created."
   type        = bool
   default     = false
 }
 
-variable "object_lock" {
-  description = "Objects that must not change or be deleted for a time: GOVERNANCE (admins can override) or COMPLIANCE (no one can), and for how many days. Set only when the bucket is created."
+variable "object_lock_configuration" {
+  description = "aws_s3_bucket_object_lock_configuration's rule.default_retention: mode GOVERNANCE (admins can override) or COMPLIANCE (no one can), and days or years. null for none."
   type = object({
-    mode = string
-    days = number
+    rule = object({
+      default_retention = object({
+        mode  = string
+        days  = optional(number)
+        years = optional(number)
+      })
+    })
   })
   default = null
 
   validation {
-    condition     = var.object_lock == null || try(contains(["GOVERNANCE", "COMPLIANCE"], var.object_lock.mode) && var.object_lock.days >= 1, false)
-    error_message = "object_lock.mode is GOVERNANCE or COMPLIANCE, and days at least 1."
+    condition     = var.object_lock_configuration == null || try(contains(["GOVERNANCE", "COMPLIANCE"], var.object_lock_configuration.rule.default_retention.mode) && (var.object_lock_configuration.rule.default_retention.days == null) != (var.object_lock_configuration.rule.default_retention.years == null), false)
+    error_message = "default_retention.mode is GOVERNANCE or COMPLIANCE, with days or years."
+  }
+
+  validation {
+    condition     = var.object_lock_configuration == null || var.object_lock_enabled
+    error_message = "object_lock_configuration needs object_lock_enabled."
   }
 }
 
-variable "cors" {
-  description = "CORS rules, for browsers uploading or reading directly."
+variable "lifecycle_rule" {
+  description = "aws_s3_bucket_lifecycle_configuration's rules: id, status, filter (prefix; left out, the whole bucket), expiration (days), noncurrent_version_expiration (noncurrent_days), abort_incomplete_multipart_upload (days_after_initiation). None, no lifecycle configuration."
   type = list(object({
-    allowed_methods = list(string)
-    allowed_origins = list(string)
-    allowed_headers = optional(list(string), [])
-    max_age_seconds = optional(number, 3000)
+    id     = string
+    status = string
+    filter = optional(object({
+      prefix = optional(string)
+    }))
+    expiration = optional(object({
+      days = number
+    }))
+    noncurrent_version_expiration = optional(object({
+      noncurrent_days = number
+    }))
+    abort_incomplete_multipart_upload = optional(object({
+      days_after_initiation = number
+    }))
   }))
   default = []
 
   validation {
-    condition     = alltrue([for c in var.cors : !contains(c.allowed_origins, "*")])
+    condition     = alltrue([for r in var.lifecycle_rule : contains(["Enabled", "Disabled"], r.status)])
+    error_message = "A lifecycle rule's status is Enabled or Disabled."
+  }
+}
+
+variable "cors_rule" {
+  description = "aws_s3_bucket_cors_configuration's cors_rule list, for browsers uploading or reading directly. None, no CORS configuration."
+  type = list(object({
+    id              = optional(string)
+    allowed_methods = list(string)
+    allowed_origins = list(string)
+    allowed_headers = optional(list(string))
+    expose_headers  = optional(list(string))
+    max_age_seconds = optional(number)
+  }))
+  default = []
+
+  validation {
+    condition     = alltrue([for c in var.cors_rule : !contains(c.allowed_origins, "*")])
     error_message = "CORS origins are named; * would let any website use the bucket from a visitor's browser."
   }
 }

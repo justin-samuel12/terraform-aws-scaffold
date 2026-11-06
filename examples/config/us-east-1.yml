@@ -1,4 +1,3 @@
-# The examples' region. Blank accounts are filled with placeholders when the examples are checked.
 zones:
   - use1-az1
   - use1-az2
@@ -16,4 +15,10 @@ vpcs:
     team: platform
     cidr: 10.41.0.0/16
     segment: standard
+    public: true
+  adhoc:
+    account_id: ""
+    team: platform
+    cidr: 10.43.0.0/16
+    connectivity: peering
     public: true

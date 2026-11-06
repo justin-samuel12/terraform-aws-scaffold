@@ -1,2 +1,7 @@
-zone: example.com
-load_balancer: external
+zone_id: example.com
+name: api.example.com
+type: A
+alias:
+  name: external
+  zone_id: external
+  evaluate_target_health: true

@@ -34,9 +34,8 @@ variable "instance_class" {
 }
 
 variable "instances" {
-  description = "How many instances: the first is the writer, the others readers in other zones that take over by themselves."
+  description = "How many aws_rds_cluster_instance: the first, <name>-1, is the writer, the others readers in other zones that take over by themselves."
   type        = number
-  default     = 2
 
   validation {
     condition     = var.instances >= 1 && var.instances <= 15 && floor(var.instances) == var.instances
@@ -44,25 +43,17 @@ variable "instances" {
   }
 }
 
-variable "min_capacity" {
-  description = "Serverless v2 only: the fewest Aurora capacity units (ACUs) each instance scales down to."
-  type        = number
-  default     = null
-}
-
-variable "max_capacity" {
-  description = "Serverless v2 only: the most Aurora capacity units (ACUs) each instance scales up to."
-  type        = number
-  default     = null
+variable "serverlessv2_scaling_configuration" {
+  description = "Serverless v2 only (instance_class db.serverless): min_capacity and max_capacity, in Aurora capacity units (ACUs), for each instance."
+  type = object({
+    min_capacity = number
+    max_capacity = number
+  })
+  default = null
 
   validation {
-    condition     = (var.instance_class == "db.serverless") == (var.min_capacity != null && var.max_capacity != null)
-    error_message = "Serverless v2 (instance_class db.serverless) needs min_capacity and max_capacity, and only it takes them."
-  }
-
-  validation {
-    condition     = var.max_capacity == null || try(var.min_capacity >= 0 && var.min_capacity <= var.max_capacity && var.max_capacity <= 256, false)
-    error_message = "Capacity is 0 to 256 ACUs, with min_capacity no more than max_capacity."
+    condition     = (var.instance_class == "db.serverless") == (var.serverlessv2_scaling_configuration != null)
+    error_message = "Serverless v2 (instance_class db.serverless) needs serverlessv2_scaling_configuration, and only it takes one."
   }
 }
 
@@ -71,8 +62,8 @@ variable "subnet_ids" {
   type        = list(string)
 }
 
-variable "security_group_ids" {
-  description = "The cluster's security groups."
+variable "vpc_security_group_ids" {
+  description = "The cluster's security groups, by ID."
   type        = list(string)
 }
 
@@ -96,4 +87,10 @@ variable "maintenance_window" {
   description = "Weekly maintenance window, UTC; after the backup window."
   type        = string
   default     = "sun:07:30-sun:08:30"
+}
+
+variable "tags" {
+  description = "Tags from the file, on everything this module builds; the ones it sets itself (Name and the like) win."
+  type        = map(string)
+  default     = {}
 }

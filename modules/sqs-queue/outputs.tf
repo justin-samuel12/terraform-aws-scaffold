@@ -1,19 +1,9 @@
-output "name" {
-  description = "The queue's name, with .fifo when it is FIFO."
-  value       = aws_sqs_queue.queue.name
+output "arns" {
+  description = "Queue name -> ARN."
+  value       = { for name, q in aws_sqs_queue.queues : name => q.arn }
 }
 
-output "arn" {
-  description = "The queue's ARN."
-  value       = aws_sqs_queue.queue.arn
-}
-
-output "url" {
-  description = "The queue's URL, which SDKs send to."
-  value       = aws_sqs_queue.queue.url
-}
-
-output "dead_letter_arn" {
-  description = "The dead-letter queue's ARN, for alarms on messages arriving there."
-  value       = aws_sqs_queue.dead_letter.arn
+output "urls" {
+  description = "Queue name -> URL, which SDKs send to."
+  value       = { for name, q in aws_sqs_queue.queues : name => q.url }
 }

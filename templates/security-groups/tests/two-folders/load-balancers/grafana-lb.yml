@@ -1,0 +1,21 @@
+description: Internal load balancer in front of Grafana
+tags:
+  Kind: load-balancer
+  Team: observability
+ingress:
+  - description: HTTPS from production
+    ip_protocol: tcp
+    from_port: 443
+    to_port: 443
+    cidr_ipv4: 10.41.0.0/16
+  - description: HTTPS from the staff team
+    ip_protocol: tcp
+    from_port: 443
+    to_port: 443
+    prefix_list_id: pl-0staffteam
+egress:
+  - description: To the Grafana servers
+    ip_protocol: tcp
+    from_port: 443
+    to_port: 443
+    referenced_security_group_id: grafana

@@ -1,0 +1,10 @@
+description: Uses the old shortcuts
+tags:
+  Kind: server
+load_balancer: true
+ingress:
+  - description: HTTPS from the ops tier
+    ip_protocol: tcp
+    from_port: 443
+    to_port: 443
+    source: tier:ops

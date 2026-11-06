@@ -1,0 +1,14 @@
+description: The reporting database (Aurora PostgreSQL)
+tags:
+  Kind: database
+ingress:
+  - description: PostgreSQL from the dashboards
+    ip_protocol: tcp
+    from_port: 5432
+    to_port: 5432
+    referenced_security_group_id: dashboards
+  - description: PostgreSQL from the operator tooling, for tunnels and migrations
+    ip_protocol: tcp
+    from_port: 5432
+    to_port: 5432
+    referenced_security_group_id: operators

@@ -1,5 +1,5 @@
 variable "region" {
-  description = "The region the repositories live in; they are copied to every other region in config/"
+  description = "The region the registry is in."
   type        = string
 
   validation {
@@ -9,7 +9,7 @@ variable "region" {
 }
 
 variable "config_dir" {
-  description = "The folder holding ecr.yml; null = the stack's own folder. Tests point it at their own."
+  description = "The folder of repository files, <name>.yml each, and the registry's replication-configuration/<name>.yml; null = the stack's config/ folder. Tests point it at their own."
   type        = string
   default     = null
 }

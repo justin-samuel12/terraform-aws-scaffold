@@ -1,0 +1,38 @@
+description: A SQL Server cluster the team runs itself
+tags:
+  Kind: database
+ingress:
+  - description: SQL from the operator tooling
+    ip_protocol: tcp
+    from_port: 1433
+    to_port: 1433
+    referenced_security_group_id: operators
+  - description: Cluster traffic between nodes
+    ip_protocol: tcp
+    from_port: 1433
+    to_port: 1433
+    referenced_security_group_id: sqlserver
+  - description: Cluster traffic between nodes
+    ip_protocol: tcp
+    from_port: 3343
+    to_port: 3343
+    referenced_security_group_id: sqlserver
+  - description: Cluster traffic between nodes
+    ip_protocol: tcp
+    from_port: 5022
+    to_port: 5022
+    referenced_security_group_id: sqlserver
+egress:
+  - description: Internal traffic, through the hub
+    ip_protocol: "-1"
+    cidr_ipv4: 10.0.0.0/8
+  - description: HTTPS out, through the hub egress
+    ip_protocol: tcp
+    from_port: 443
+    to_port: 443
+    cidr_ipv4: 0.0.0.0/0
+  - description: HTTP out, through the hub egress, for package mirrors and Windows Update
+    ip_protocol: tcp
+    from_port: 80
+    to_port: 80
+    cidr_ipv4: 0.0.0.0/0

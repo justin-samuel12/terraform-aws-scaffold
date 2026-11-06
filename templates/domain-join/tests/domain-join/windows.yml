@@ -1,0 +1,8 @@
+targets:
+  - key: tag:Domain
+    values:
+      - aadds.example.com
+parameters:
+  DomainName: aadds.example.com
+  OrganizationalUnit: OU=Staging,OU=AADDC Computers,DC=aadds,DC=example,DC=com
+schedule_expression: rate(1 day)

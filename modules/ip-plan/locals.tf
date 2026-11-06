@@ -14,11 +14,12 @@ locals {
     key => local.purposes[key] == "egress" ? "hub in config/${split("/", key)[1]}.yml" : "vpcs.${split("/", key)[0]} in config/${split("/", key)[1]}.yml"
   }
 
-  segments = ["restricted", "standard", "shared"]
+  segments     = ["restricted", "standard", "shared"]
+  connectivity = ["transit_gateway", "peering"]
   allowed_keys = {
     file   = ["zones", "hub", "vpcs"]
-    egress = ["account_id", "team", "cidr", "amazon_side_asn", "primary", "security_group_referencing"]
-    spoke  = ["account_id", "team", "cidr", "segment", "public"]
+    egress = ["account_id", "team", "cidr", "amazon_side_asn", "primary", "security_group_referencing", "resolver"]
+    spoke  = ["account_id", "team", "cidr", "segment", "public", "connectivity"]
   }
 
   files = {
@@ -45,7 +46,11 @@ locals {
       for key, d in local.vpc_definitions : key
       if !can(cidrnetmask(d.cidr)) || try(cidrsubnet(d.cidr, 0, 0) != d.cidr, true) || try(split("/", d.cidr)[1] != (local.purposes[key] == "egress" ? "20" : "16"), true)
     ]
-    segment = [for key, d in local.vpc_definitions : key if local.purposes[key] == "spoke" && !contains(local.segments, try(d.segment, ""))]
+    connectivity = [for key, d in local.vpc_definitions : key if local.purposes[key] == "spoke" && !contains(local.connectivity, try(tostring(d.connectivity), "transit_gateway"))]
+    segment = [
+      for key, d in local.vpc_definitions : key
+      if local.purposes[key] == "spoke" && (try(tostring(d.connectivity), "transit_gateway") == "peering" ? try(d.segment, null) != null : !contains(local.segments, try(d.segment, "")))
+    ]
     public  = [for key, d in local.vpc_definitions : key if local.purposes[key] == "spoke" && !can(tobool(d.public))]
     primary = [for key, d in local.vpc_definitions : key if local.purposes[key] == "egress" && !can(tobool(try(d.primary, false)))]
     referencing = [
@@ -86,18 +91,18 @@ locals {
 
   vpcs = {
     for key, d in local.vpc_definitions : key => {
-      cidr            = d.cidr
-      purpose         = local.purposes[key]
-      segment         = local.purposes[key] == "egress" ? "shared" : d.segment
-      public          = local.purposes[key] == "egress" ? true : tobool(d.public)
-      amazon_side_asn = local.purposes[key] == "egress" ? d.amazon_side_asn : null
-      primary         = local.purposes[key] == "egress" ? tobool(try(d.primary, false)) : false
-      # Off unless the region's hub turns it on; every VPC in the region follows its hub.
+      cidr                       = d.cidr
+      purpose                    = local.purposes[key]
+      connectivity               = local.purposes[key] == "egress" ? "transit_gateway" : try(tostring(d.connectivity), "transit_gateway")
+      segment                    = local.purposes[key] == "egress" ? "shared" : try(tostring(d.connectivity), "transit_gateway") == "peering" ? null : d.segment
+      public                     = local.purposes[key] == "egress" ? true : tobool(d.public)
+      amazon_side_asn            = local.purposes[key] == "egress" ? d.amazon_side_asn : null
+      primary                    = local.purposes[key] == "egress" ? tobool(try(d.primary, false)) : false
       security_group_referencing = try(tobool(local.region_files[split("/", key)[1]].hub.security_group_referencing), false)
     }
     if !anytrue([for rule in ["names", "shape", "reserved", "zones"] : contains(local.files[rule], "config/${split("/", key)[1]}.yml")])
     && length(local.layout_problems) == 0
-    && !anytrue([for rule in ["shape", "cidr", "segment", "public", "asn", "primary"] : contains(local.problems[rule], key)])
+    && !anytrue([for rule in ["shape", "cidr", "connectivity", "segment", "public", "asn", "primary"] : contains(local.problems[rule], key)])
     && length(local.problems.referencing) == 0
   }
 
@@ -116,8 +121,6 @@ locals {
     shared     = ["restricted", "standard", "shared"]
   }
 
-  # The subnet layout in config/global.yml: per tier, a size and the third octet its block starts at, counted from the VPC's first address.
-  # Every tier reserves room for zone_slots zones; zone azN always takes the Nth block, so zones can be added without moving any subnet.
   zone_slots     = 6
   layout_prefix  = { spoke = 16, egress = 20 }
   layout_section = { spoke = "environment", egress = "hub" }
@@ -183,20 +186,20 @@ locals {
     ]),
   )
 
-
   networks = {
     for key, vpc in local.vpcs : key => {
       cidr                       = vpc.cidr
       purpose                    = vpc.purpose
+      connectivity               = vpc.connectivity
       segment                    = vpc.segment
-      propagates_to              = local.propagation[vpc.segment]
+      propagates_to              = vpc.segment == null ? [] : local.propagation[vpc.segment]
       public                     = vpc.public
       amazon_side_asn            = vpc.amazon_side_asn
       primary                    = vpc.primary
       security_group_referencing = vpc.security_group_referencing
-      # The account it is built in: its own account_id, else config/global.yml's.
-      account_id = try(tostring(local.vpc_definitions[key].account_id), "") != "" ? tostring(local.vpc_definitions[key].account_id) : try(tostring(local.global.account_id), "")
-      zones      = local.region_files[split("/", key)[1]].zones
+      resolver                   = local.resolvers[split("/", key)[1]]
+      account_id                 = try(tostring(local.vpc_definitions[key].account_id), "") != "" ? tostring(local.vpc_definitions[key].account_id) : try(tostring(local.global.account_id), "")
+      zones                      = local.region_files[split("/", key)[1]].zones
       subnets = {
         for tier, t in local.global.subnets[local.layout_section[vpc.purpose]] :
         tier => [
@@ -205,7 +208,6 @@ locals {
         ]
         if vpc.purpose == "egress" || try(t.route, "") != "internet" || vpc.public
       }
-      # The second block of the reserved size in each subnet (.64-.127 for a /26): kept for addresses people choose, never handed out by AWS.
       reserved = vpc.purpose == "egress" ? {} : {
         for tier, t in local.global.subnets.environment : tier => [
           for zone in local.region_files[split("/", key)[1]].zones :
@@ -221,21 +223,91 @@ locals {
   }
 
   internal_cidr = "10.0.0.0/8"
-  # Named address groups for security group rules, and DNS forwarding to HQ, from config/global.yml; both built in each hub.
   prefix_lists = {
     for name, entries in coalesce(try(local.global.prefix_lists, null), {}) : name => [
       for e in entries : { cidr = e.cidr, description = e.description }
     ]
   }
   dns = {
-    inbound       = try(tobool(local.global.dns.inbound), false)
-    forward       = { for domain, targets in coalesce(try(local.global.dns.forward, null), {}) : domain => [for ip in targets : tostring(ip)] }
-    private_zones = toset(coalesce(try(local.global.dns.private_zones, null), []))
+    inbound        = try(tobool(local.global.dns.inbound), false)
+    forward        = merge({}, [for name, site in local.sites : site.forward]...)
+    private_zones  = toset(compact(concat(tolist(coalesce(try(local.global.dns.private_zones, null), [])), [local.private_domain])))
+    public_domains = local.public_domains
+    private_domain = local.private_domain
+    resolve_all    = [for env in coalesce(try(local.global.dns.resolve_all_private, null), []) : tostring(env)]
+  }
+  private_domain = try(tostring(local.global.dns.private_domain), null)
+  public_domains = [for d in try(tolist(local.global.dns.public_domain), []) : try(tostring(d), "")]
+
+  environment_names = distinct([for key in keys(local.vpc_definitions) : split("/", key)[0] if split("/", key)[0] != "shared"])
+  zones = {
+    for env in local.environment_names : env => {
+      private = local.dns.private_domain == null ? null : "${env}.${local.dns.private_domain}"
+    }
   }
 
-  hq = {
-    ip_address = try(local.global.hq.ip_address, null)
-    bgp_asn    = try(local.global.hq.bgp_asn, null)
-    cidrs      = try(tolist(local.global.hq.cidrs), [])
+  site_files = try({ for name, site in local.global.sites : name => site }, {})
+  all_sites = {
+    for name, site in local.site_files : name => {
+      enabled      = try(tobool(site.enabled), true)
+      ip_addresses = try(site.ip_address, null) == null ? [] : try([tostring(site.ip_address)], [for ip in tolist(site.ip_address) : tostring(ip)], ["-"])
+      bgp_asn      = try(tonumber(site.bgp_asn), null)
+      cidrs        = try([for c in tolist(site.cidrs) : tostring(c)], [])
+      forward      = { for domain, targets in try(tomap(site.forward), {}) : domain => [for ip in targets : tostring(ip)] }
+    }
   }
+  sites               = { for name, site in local.all_sites : name => { ip_addresses = site.ip_addresses, bgp_asn = site.bgp_asn, cidrs = site.cidrs, forward = site.forward } if site.enabled }
+  site_keys           = ["enabled", "ip_address", "bgp_asn", "cidrs", "forward"]
+  site_cidrs          = distinct(flatten([for name, site in local.sites : site.cidrs]))
+  resolver_files      = { for region, d in local.region_files : region => try(d.hub.resolver, null) }
+  resolve_all_regions = toset([for key, v in local.vpcs : split("/", key)[1] if contains(local.dns.resolve_all, split("/", key)[0])])
+  directory_file      = try(local.global.directory, null)
+  directory_keys      = ["enabled", "name", "short_name", "edition", "description"]
+  directory = local.directory_file == null || !try(tobool(local.directory_file.enabled), true) ? null : {
+    name        = try(tostring(local.directory_file.name), "")
+    short_name  = try(tostring(local.directory_file.short_name), "")
+    edition     = try(tostring(local.directory_file.edition), "")
+    description = try(tostring(local.directory_file.description), "")
+  }
+  primary_region_name = try(one([for key, v in local.vpcs : split("/", key)[1] if v.purpose == "egress" && v.primary]), null)
+  resolvers = {
+    for region, r in local.resolver_files : region => {
+      inbound  = local.dns.inbound && try(tobool(r.inbound), try(local.vpcs["shared/${region}"].primary, false))
+      outbound = try(tobool(r.outbound), true) && (length(local.dns.forward) > 0 || contains(local.resolve_all_regions, region) || (local.directory != null && region == local.primary_region_name))
+      domains  = try(tobool(r.outbound), true) ? sort(concat(keys(local.dns.forward), local.directory != null && region == local.primary_region_name ? [local.directory.name] : [])) : []
+    }
+  }
+  directory_problems = local.directory_file == null ? [] : concat(
+    [for x in [1] : "directory in config/global.yml: keys are ${join(", ", local.directory_keys)}" if !can(keys(local.directory_file)) || !alltrue([for k in try(keys(local.directory_file), []) : contains(local.directory_keys, k)])],
+    [for x in [1] : "directory in config/global.yml: enabled is true or false" if try(local.directory_file.enabled, null) != null && !can(tobool(try(local.directory_file.enabled, null)))],
+    local.directory == null ? [] : concat(
+      [for x in [1] : "directory.name in config/global.yml: the domain's DNS name, such as ad.example.internal" if !can(regex("^([a-z0-9]([a-z0-9-]*[a-z0-9])?\\.)+[a-z]{2,}$", local.directory.name))],
+      [for x in [1] : "directory.short_name in config/global.yml: the NetBIOS name, up to 15 letters, digits and hyphens, such as CORP" if !can(regex("^[A-Za-z0-9][A-Za-z0-9-]{0,14}$", local.directory.short_name))],
+      [for x in [1] : "directory.edition in config/global.yml: Standard or Enterprise" if !contains(["Standard", "Enterprise"], local.directory.edition)],
+      [for x in [1] : "directory.name in config/global.yml: ${local.directory.name} is already a site's forward; one domain answers in one place" if contains(keys(local.dns.forward), local.directory.name)],
+      [for x in [1] : "directory.name in config/global.yml: ${local.directory.name} is a hosted zone of ours; give the domain its own name, such as ad.${coalesce(local.dns.private_domain, "example.internal")}" if contains(concat(tolist(local.dns.private_zones), local.dns.public_domains), local.directory.name)],
+      [for x in [1] : "directory in config/global.yml: it is built in the primary hub's dns tier, which needs a hub with primary: true" if local.primary_region_name == null],
+    ),
+  )
+  resolver_problems = concat(
+    [for region, r in local.resolver_files : "config/${region}.yml: hub.resolver takes inbound and outbound, each true or false" if r != null && (!can(keys(r)) || !alltrue([for k in try(keys(r), []) : contains(["inbound", "outbound"], k) && can(tobool(r[k]))]))],
+    [for region in local.resolve_all_regions : "config/${region}.yml: ${join(", ", [for key, v in local.vpcs : split("/", key)[0] if split("/", key)[1] == region && contains(local.dns.resolve_all, split("/", key)[0])])} resolve every private name through this region's hub, which needs hub.resolver inbound and outbound here" if !try(local.resolvers[region].inbound && local.resolvers[region].outbound, false)],
+    [for x in [1] : "dns.inbound is true, but no region's hub has an inbound endpoint (hub.resolver.inbound: false everywhere)" if local.dns.inbound && !anytrue([for region, r in local.resolvers : r.inbound])],
+  )
+  site_ranges = flatten([
+    for name, site in local.sites : [
+      for cidr in site.cidrs : {
+        site  = name
+        cidr  = cidr
+        start = sum([for i, octet in split(".", split("/", cidr)[0]) : tonumber(octet) * pow(256, 3 - i)])
+        size  = pow(2, 32 - tonumber(split("/", cidr)[1]))
+      } if can(cidrnetmask(cidr))
+    ]
+  ])
+  site_overlaps = flatten([
+    for s in local.site_ranges : [
+      for key, r in local.ranges : "${s.site}'s ${s.cidr} and ${key}" if s.start < r.start + r.size && r.start < s.start + s.size
+    ]
+  ])
+  site_forward_domains = flatten([for name, site in local.sites : keys(site.forward)])
 }

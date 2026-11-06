@@ -1,4 +1,3 @@
-# Normalise line endings.
 *        text=auto
 *.lock   text -diff
 *.md     linguist-documentation

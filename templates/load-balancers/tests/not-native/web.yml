@@ -1,0 +1,24 @@
+load_balancer_type: application
+internal: true
+tier: private
+certificate: www.example.com
+listeners:
+  - port: 443
+    protocol: HTTPS
+    ssl_policy: ELBSecurityPolicy-2016-08
+    default_action:
+      type: forward
+      target: web
+  - port: 80
+    protocol: HTTP
+    redirect: true
+targets:
+  web:
+    port: 8080
+    protocol: HTTP
+listener_rules:
+  old-name:
+    listener: 443
+    priority: 10
+    host_header:
+      - metrics.example.com

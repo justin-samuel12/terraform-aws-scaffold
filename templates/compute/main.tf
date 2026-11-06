@@ -4,78 +4,40 @@ module "ip_plan" {
   config_path = var.config_path
 }
 
+module "blueprint" {
+  source = "../../modules/blueprint"
+
+  files       = local.raw_files
+  dir         = local.blueprints_dir
+  label       = "blueprints/compute"
+  body        = "group"
+  example     = "backend-service/v1"
+  choices     = { instance_type = "instance_types" }
+  sections    = ["role"]
+  environment = var.environment
+  region      = var.region
+}
+
 module "placement" {
   source = "../../modules/placement"
 
-  groups  = local.fixed
-  network = local.network
-  label   = "${var.environment}'s VPC in ${var.region}"
+  groups   = local.fixed
+  network  = local.network
+  label    = "${var.environment}'s VPC in ${var.region}"
+  existing = local.existing
 }
 
-# Everything shared is found by name and tags: the VPC, subnets, security groups, roles, the data key, load balancers, listeners and zones.
-data "aws_vpc" "vpc" {
-  count = local.usable && length(local.files) > 0 ? 1 : 0
-
-  tags = {
-    Environment = var.environment
-    Component   = "network"
-    Name        = "vpc-01"
-  }
-}
-
-# An Auto Scaling group's subnets: every zone of its tier.
-data "aws_subnets" "tiers" {
-  for_each = local.usable ? toset([for f in values(local.scaled) : try(f.tier, "private")]) : toset([])
-
-  filter {
-    name   = "vpc-id"
-    values = [data.aws_vpc.vpc[0].id]
-  }
-
-  tags = { Tier = each.key }
-}
-
-data "aws_subnet" "subnets" {
-  for_each = local.usable ? toset([for s in values(local.servers) : s.subnet]) : toset([])
-
-  vpc_id = data.aws_vpc.vpc[0].id
-  tags   = { Subnet = each.key }
-}
-
-data "aws_security_group" "groups" {
-  for_each = local.usable ? toset(flatten([for f in values(local.files) : try(f.security_groups, [])])) : toset([])
-
-  vpc_id = data.aws_vpc.vpc[0].id
-  tags   = { Name = each.key }
-}
-
-# Roles made in the iam stack, by name; an application on a blueprint has its own, made below, instead.
-data "aws_iam_instance_profile" "profiles" {
-  for_each = local.usable ? toset([for group, f in local.files : f.iam_instance_profile if !contains(keys(local.app_role_names), group)]) : toset([])
-
-  name = each.key
-}
-
-# The account's shared policies a blueprint's role takes (session-manager, read-revisions), made by the iam stack.
-data "aws_iam_policy" "shared" {
-  for_each = local.usable ? local.app_role_policies : toset([])
-
-  name = each.key
-}
-
-# One role and instance profile per application on a blueprint: the blueprint's permissions, the application's own identity.
 module "app_roles" {
   source = "../../modules/iam-role"
   count  = local.usable && length(local.app_role_names) > 0 ? 1 : 0
 
   roles = {
     for group, name in local.app_role_names : name => {
-      description      = "${group}'s servers in ${var.environment}, ${var.region} (blueprint ${local.blueprint_refs[group]})"
-      services         = ["ec2"]
-      managed_policies = try(tolist(local.blueprints[local.blueprint_refs[group]].role.managed_policies), [])
-      policy_arns      = [for p in try(local.blueprints[local.blueprint_refs[group]].role.policies, []) : data.aws_iam_policy.shared[p].arn]
+      description = "${group}'s servers in ${var.environment}, ${var.region} (blueprint ${local.blueprint_refs[group]})"
+      services    = ["ec2"]
+      policy_arns = [for p in try(tolist(local.blueprints[local.blueprint_refs[group]].role.managed_policy_arns), []) : startswith(p, "arn:") ? p : data.aws_iam_policy.shared[p].arn]
       statements = [for st in try(local.blueprints[local.blueprint_refs[group]].role.statement, []) : {
-        effect    = try(st.effect, "Allow")
+        effect    = st.effect
         actions   = tolist(st.actions)
         resources = [for r in tolist(st.resources) : replace(replace(replace(r, "{app}", group), "{environment}", var.environment), "{region}", var.region)]
         condition = [for c in try(st.condition, []) : { test = c.test, variable = c.variable, values = [for v in c.values : replace(replace(tostring(v), "{app}", group), "{environment}", var.environment)] }]
@@ -84,40 +46,6 @@ module "app_roles" {
   }
 }
 
-data "aws_kms_key" "data" {
-  count = local.usable && length(local.files) > 0 ? 1 : 0
-
-  key_id = "alias/${var.environment}-data"
-}
-
-data "aws_lb" "load_balancers" {
-  for_each = local.usable ? toset(compact(concat([for r in local.routes : r.load_balancer], [for n in local.names : n.load_balancer]))) : toset([])
-
-  name = "${var.environment}-${each.key}"
-}
-
-data "aws_lb_listener" "listeners" {
-  for_each = local.usable ? toset(local.listener_keys) : toset([])
-
-  load_balancer_arn = data.aws_lb.load_balancers[split(":", each.key)[0]].arn
-  port              = tonumber(split(":", each.key)[1])
-}
-
-data "aws_lb_target_group" "targets" {
-  for_each = local.usable ? toset(flatten([for t in values(local.targets) : keys(t)])) : toset([])
-
-  tags = { Name = "${var.environment}-${replace(each.key, "/", "-")}", Environment = var.environment }
-}
-
-data "aws_route53_zone" "zones" {
-  provider = aws.hub
-  for_each = local.usable ? toset([for n in local.names : "${n.zone}|${n.private}"]) : toset([])
-
-  name         = split("|", each.key)[0]
-  private_zone = split("|", each.key)[1] == "true"
-}
-
-# One CodeDeploy service role per environment, only when some group's servers run an application deployed by CodeDeploy.
 module "codedeploy_role" {
   source = "../../modules/iam-role"
   count  = local.usable && length(local.applications) > 0 ? 1 : 0
@@ -136,7 +64,7 @@ module "server_group" {
 
   providers = {
     aws     = aws
-    aws.hub = aws.hub
+    aws.dns = aws.dns
   }
 
   for_each = { for group, f in local.files : group => f if local.usable }
@@ -149,7 +77,7 @@ module "server_group" {
   target = {
     protocol   = try(each.value.target_group.protocol, "HTTP")
     matcher    = try(tostring(each.value.target_group.health_check.matcher), "200-399")
-    stickiness = try(each.value.target_group.stickiness.cookie_duration, null)
+    stickiness = try(each.value.target_group.stickiness, null)
     slow_start = try(each.value.target_group.slow_start, 0)
   }
   targets = {
@@ -160,29 +88,34 @@ module "server_group" {
     }
   }
   instance_type = try(each.value.instance_type, null)
-  autoscaling = can(each.value.autoscaling) ? {
-    subnet_ids                    = data.aws_subnets.tiers[try(each.value.tier, "private")].ids
-    min_size                      = each.value.autoscaling.min_size
-    max_size                      = each.value.autoscaling.max_size
-    desired_capacity              = each.value.autoscaling.desired_capacity
-    target_tracking_configuration = try(each.value.autoscaling.target_tracking_configuration, null)
+  autoscaling = can(each.value.autoscaling_group) ? {
+    subnet_ids       = data.aws_subnets.tiers[try(each.value.tier, "private")].ids
+    min_size         = each.value.autoscaling_group.min_size
+    max_size         = each.value.autoscaling_group.max_size
+    desired_capacity = each.value.autoscaling_group.desired_capacity
+    target_tracking_configuration = can(each.value.autoscaling_policy.target_tracking_configuration) ? {
+      predefined_metric_type = each.value.autoscaling_policy.target_tracking_configuration.predefined_metric_specification.predefined_metric_type
+      resource_label         = try(each.value.autoscaling_policy.target_tracking_configuration.predefined_metric_specification.resource_label, null)
+      target_value           = each.value.autoscaling_policy.target_tracking_configuration.target_value
+    } : null
   } : null
 
   servers = {
-    image_id           = each.value.ami
-    security_group_ids = [for g in try(each.value.security_groups, []) : data.aws_security_group.groups[g].id]
+    image_id           = startswith(each.value.ami, "ami-") ? each.value.ami : data.aws_ami.images[each.value.ami].id
+    security_group_ids = [for g in try(each.value.vpc_security_group_ids, []) : startswith(g, "sg-") ? g : data.aws_security_group.groups[g].id]
     instance_profile   = contains(keys(local.app_role_names), each.key) ? module.app_roles[0].instance_profiles[local.app_role_names[each.key]] : data.aws_iam_instance_profile.profiles[each.value.iam_instance_profile].name
     kms_key_arn        = data.aws_kms_key.data[0].arn
     root_size          = try(each.value.root_block_device.volume_size, 30)
-    backup             = try(each.value.backup, true)
     user_data          = contains(keys(local.user_data_paths), each.key) ? file(local.user_data_paths[each.key]) : null
-    tags               = local.server_tags[each.key]
+    tags               = local.group_tags[each.key]
     volumes = {
-      for name, v in try(each.value.ebs_block_device, {}) : name => {
+      for v in try(tolist(each.value.ebs_block_device), []) : basename(v.device_name) => {
         device     = v.device_name
         size       = v.volume_size
+        name       = try(tostring(v.tags.Name), basename(v.device_name))
         iops       = try(v.iops, 3000)
         throughput = try(v.throughput, 125)
+        tags       = try(tomap(v.tags), {})
       }
     }
     members = {
@@ -190,8 +123,9 @@ module "server_group" {
         subnet_id     = data.aws_subnet.subnets[s.subnet].id
         subnet        = s.subnet
         instance_type = s.type
-        private_ip    = try(s.addresses.primary, null)
-        secondary_ips = [for role, a in s.addresses : a if role != "primary"]
+        private_ip    = s.private_ip
+        secondary_ips = s.secondary_ips
+        tags          = local.member_tags[name]
       }
       if s.group == each.key
     }
@@ -209,19 +143,38 @@ module "server_group" {
 
   names = [
     for n in local.names : {
-      zone_id     = data.aws_route53_zone.zones["${n.zone}|${n.private}"].zone_id
-      name        = n.name
-      lb_dns_name = data.aws_lb.load_balancers[n.load_balancer].dns_name
-      lb_zone_id  = data.aws_lb.load_balancers[n.load_balancer].zone_id
+      zone_id                = n.by_id ? n.zone : data.aws_route53_zone.zones["${n.zone}|${n.private}"].zone_id
+      name                   = n.name
+      type                   = n.type
+      lb_dns_name            = data.aws_lb.load_balancers[n.load_balancer].dns_name
+      lb_zone_id             = data.aws_lb.load_balancers[n.load_balancer].zone_id
+      evaluate_target_health = n.evaluate
     }
-    if n.group == each.key
+    if n.group == each.key && !n.own
+  ]
+  own_names = [
+    for n in local.names : {
+      zone_id                = data.aws_route53_zone.own_zones["${n.zone}|${n.private}"].zone_id
+      name                   = n.name
+      type                   = n.type
+      lb_dns_name            = data.aws_lb.load_balancers[n.load_balancer].dns_name
+      lb_zone_id             = data.aws_lb.load_balancers[n.load_balancer].zone_id
+      evaluate_target_health = n.evaluate
+    }
+    if n.group == each.key && n.own
   ]
 }
 
-data "aws_caller_identity" "current" {}
+resource "aws_route53_record" "servers" {
+  for_each = local.usable ? local.server_names : {}
 
-# One per application the groups' CodeDeploy tags list: the same name in every environment, a deployment group per branch
-# (or per environment when shared and containerized), finding its servers by their CodeDeploy:<application> tag.
+  zone_id = data.aws_route53_zone.own_zones["${local.own_zone}|true"].zone_id
+  name    = each.value
+  type    = "A"
+  ttl     = 300
+  records = [module.server_group[local.servers[each.key].group].servers[each.key].private_ip]
+}
+
 module "codedeploy_application" {
   source   = "../../modules/codedeploy-application"
   for_each = local.usable ? local.applications : toset([])

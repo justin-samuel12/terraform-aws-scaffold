@@ -1,11 +1,7 @@
-data "aws_caller_identity" "current" {}
-
-data "aws_elb_service_account" "current" {}
-
 resource "aws_s3_bucket" "logs" {
   bucket = var.name
 
-  tags = { Name = var.name }
+  tags = merge(var.tags, { Name = "${local.name_prefix}${var.name}" })
 
   lifecycle {
     prevent_destroy = true
@@ -41,7 +37,6 @@ resource "aws_s3_bucket_versioning" "logs" {
   }
 }
 
-# Load balancer access logs support only S3-managed keys.
 resource "aws_s3_bucket_server_side_encryption_configuration" "logs" {
   bucket = aws_s3_bucket.logs.id
 
@@ -53,28 +48,43 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "logs" {
 }
 
 resource "aws_s3_bucket_lifecycle_configuration" "logs" {
+  count = length(var.rule) > 0 ? 1 : 0
+
   bucket = aws_s3_bucket.logs.id
 
-  rule {
-    id     = "retention"
-    status = "Enabled"
+  dynamic "rule" {
+    for_each = var.rule
+    content {
+      id     = rule.value.id
+      status = rule.value.status
 
-    filter {}
+      filter {
+        prefix = rule.value.filter.prefix
+      }
 
-    expiration {
-      days = var.retention_days
-    }
+      dynamic "expiration" {
+        for_each = rule.value.expiration == null ? [] : [rule.value.expiration]
+        content {
+          days = expiration.value.days
+        }
+      }
 
-    noncurrent_version_expiration {
-      noncurrent_days = 30
-    }
+      dynamic "noncurrent_version_expiration" {
+        for_each = rule.value.noncurrent_version_expiration == null ? [] : [rule.value.noncurrent_version_expiration]
+        content {
+          noncurrent_days = noncurrent_version_expiration.value.noncurrent_days
+        }
+      }
 
-    abort_incomplete_multipart_upload {
-      days_after_initiation = 7
+      dynamic "abort_incomplete_multipart_upload" {
+        for_each = rule.value.abort_incomplete_multipart_upload == null ? [] : [rule.value.abort_incomplete_multipart_upload]
+        content {
+          days_after_initiation = abort_incomplete_multipart_upload.value.days_after_initiation
+        }
+      }
     }
   }
 
-  # Rules on old versions need versioning on first.
   depends_on = [aws_s3_bucket_versioning.logs]
 }
 

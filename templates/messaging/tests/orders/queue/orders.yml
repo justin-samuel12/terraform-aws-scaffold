@@ -1,0 +1,30 @@
+visibility_timeout_seconds: 180
+receive_wait_time_seconds: 20
+redrive_policy:
+  dead_letter_target_arn: orders-dlq
+  max_receive_count: 3
+policy:
+  statement:
+    - effect: Allow
+      actions:
+        - sqs:SendMessage
+      principals:
+        - type: Service
+          identifiers:
+            - sns.amazonaws.com
+      resources:
+        - orders
+      condition:
+        - test: ArnEquals
+          variable: aws:SourceArn
+          values:
+            - orders
+    - actions:
+        - sqs:SendMessage
+      principals:
+        - type: AWS
+          identifiers:
+            - operations
+            - "222222222222"
+      resources:
+        - orders

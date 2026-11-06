@@ -1,4 +1,3 @@
-# What the module builds and refuses, against a mocked AWS -- docs/systems-manager.md.
 mock_provider "aws" {}
 
 override_data {
@@ -18,19 +17,21 @@ override_data {
 
 variables {
   kms_key_arn = "arn:aws:kms:us-east-2:111111111111:key/mrk-sessions"
+  document    = { content = { inputs = { idleSessionTimeout = "20", maxSessionDuration = "480" } } }
+  log_group   = { retention_in_days = 365 }
 }
 
 run "preferences" {
   command = plan
 
   assert {
-    condition     = aws_ssm_document.preferences.name == "SSM-SessionManagerRunShell" && jsondecode(aws_ssm_document.preferences.content).inputs.idleSessionTimeout == "20"
+    condition     = aws_ssm_document.preferences[0].name == "SSM-SessionManagerRunShell" && jsondecode(aws_ssm_document.preferences[0].content).inputs.idleSessionTimeout == "20"
     error_message = "Sessions are encrypted, logged, and closed after 20 idle minutes."
   }
 
   assert {
-    condition     = aws_cloudwatch_log_group.sessions.retention_in_days == 365
-    error_message = "Session logs are kept a year."
+    condition     = aws_cloudwatch_log_group.sessions[0].retention_in_days == 365
+    error_message = "Session logs are kept as long as the log group says."
   }
 
   assert {
@@ -52,12 +53,36 @@ run "primary_creates_the_role" {
   }
 }
 
+run "nothing_but_default_host_management" {
+  command = plan
+
+  variables {
+    document  = null
+    log_group = null
+  }
+
+  assert {
+    condition     = length(aws_ssm_document.preferences) == 0 && length(aws_cloudwatch_log_group.sessions) == 0 && output.log_group == null
+    error_message = "Without a document or a log group, neither is built."
+  }
+}
+
 run "rejects_long_idle" {
   command = plan
 
   variables {
-    idle_timeout_minutes = 240
+    document = { content = { inputs = { idleSessionTimeout = "240", maxSessionDuration = "480" } } }
   }
 
-  expect_failures = [var.idle_timeout_minutes]
+  expect_failures = [var.document]
+}
+
+run "rejects_preferences_without_their_log_group" {
+  command = plan
+
+  variables {
+    log_group = null
+  }
+
+  expect_failures = [aws_ssm_document.preferences]
 }

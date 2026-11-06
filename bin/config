@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
-# The whole configuration as tables, each field marked filled, to check, or missing -- docs/configuration.md. Read-only.
 set -uo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
 cd "${REPO_ROOT}"
 
 G="${CONFIG_DIR}/global.yml"
 missing=0; check=0
-# cell <value> [todo comment] -> the value marked: ✓ filled, ? to check (a TODO on its line), ✗ missing
 cell() {
     if [[ -z "$1" || "$1" == null ]]; then missing=$((missing + 1)); printf '%s✗ missing%s' "${C_BAD}" "${C_END}"
     elif [[ -n "${2:-}" ]]; then check=$((check + 1)); printf '%s? %s%s' "${C_WARN}" "$1" "${C_END}"
@@ -14,7 +12,6 @@ cell() {
 }
 opt() { [[ -z "$1" || "$1" == null ]] && printf '%s- not set%s' "${C_DIM}" "${C_END}" || printf '%s✓%s %s' "${C_OK}" "${C_END}" "$1"; }
 row() { printf '  %-26s %b\n' "$1" "$2"; }
-# todo_on <file> <yq path to a scalar> -> its TODO(you) comment, if the line carries one
 todo_on() { yq -r "($2) | line_comment" "$1" 2>/dev/null | grep -o 'TODO(you).*' || true; }
 
 head1 "config/global.yml"
@@ -25,8 +22,8 @@ row "repository" "$(opt "$(yq -r '.repository // ""' "${G}")")"
 row "state.bucket" "$(opt "$(yq -r '.state.bucket // ""' "${G}")")  (blank: make bootstrap names it)"
 row "state.region" "$(cell "$(yq -r '.state.region // ""' "${G}")")"
 row "state.replica_region" "$(opt "$(yq -r '.state.replica_region // ""' "${G}")")"
-row "hq (office VPN)" "$(opt "$(yq -r '.hq.ip_address // ""' "${G}")")  ranges: $(yq -r '.hq.cidrs // [] | join(", ")' "${G}" | grep . || echo none)"
-row "dns.forward" "$(opt "$(yq -r '.dns.forward // {} | keys | join(", ")' "${G}")")"
+row "sites (VPN)" "$(opt "$(yq -o=json '.sites // {}' "${G}" | jq -r 'to_entries | map(.key + (if .value.enabled == false then " (off)" elif ([.value.ip_address // empty] | flatten | length) == 0 then " (no device yet)" else " " + ([.value.ip_address] | flatten | join(" + ")) end)) | join(", ")')")"
+row "directory (Managed AD)" "$(opt "$(yq -o=json '.directory // null' "${G}" | jq -r 'if . == null then "" elif .enabled == false then "off" else .name end')")  (built in the primary hub when enabled)"
 row "dns.private_zones" "$(opt "$(yq -r '.dns.private_zones // [] | join(", ")' "${G}")")"
 row "prefix_lists" "$(opt "$(yq -r '.prefix_lists // {} | keys | join(", ")' "${G}")")"
 
@@ -43,7 +40,6 @@ for r in $(region_files); do
     for e in $(yq -r '.vpcs // {} | keys | .[]' "${f}"); do
         a="$(yq -r ".vpcs.\"${e}\".account_id // \"\"" "${f}")"; [[ -z "${a}" ]] && a="$(global_account)"
         t="$(yq -r ".vpcs.\"${e}\".team // \"\"" "${f}")"
-        # Padded before colouring, so the columns line up.
         ac="$(printf '%-16s' "${a:-missing}")"; tc="$(printf '%-14s' "${t:-missing}")"
         [[ -z "${a}" ]] && { ac="${C_BAD}${ac}${C_END}"; missing=$((missing + 1)); }
         [[ -z "${t}" ]] && { tc="${C_BAD}${tc}${C_END}"; missing=$((missing + 1)); }

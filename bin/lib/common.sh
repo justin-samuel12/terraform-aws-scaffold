@@ -1,6 +1,3 @@
-# Shared by bin/status, bin/setup, bin/configure and bin/bootstrap -- docs/configuration.md.
-# Sourced, never run. Every AWS call here is read-only.
-
 REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 CONFIG_DIR="${CONFIG_DIR:-${REPO_ROOT}/config}"
 MACHINE_CONFIG="${INFRA_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/infra/hashicorp-terraform.config}"
@@ -14,7 +11,6 @@ todo() { printf '  %s·%s %s\n' "${C_DIM}" "${C_END}" "$*"; }
 say()  { printf '  %s\n' "$*"; }
 head1() { printf '\n%s%s%s\n' "${C_BOLD}" "$*" "${C_END}"; }
 
-# ask <prompt> <default> -> the answer, or the default on an empty line. The prompt goes to stderr, so answers can be captured.
 ask() {
     local answer
     read -r -p "  $1${2:+ [$2]}: " answer || true
@@ -22,13 +18,10 @@ ask() {
 }
 ask_yes() { [[ "$(ask "$1 (y/n)" "$2")" =~ ^[Yy] ]]; }
 
-# Region files, the primary region, and every environment's account (its own, else config/global.yml's).
 region_files()   { local f; for f in "${CONFIG_DIR}"/*-*-[0-9].yml; do [[ -f "${f}" ]] && basename "${f}" .yml; done; }
 primary_region() { local r; for r in $(region_files); do [[ "$(yq -r '.hub.primary // false' "${CONFIG_DIR}/${r}.yml")" == true ]] && { echo "${r}"; return; }; done; }
 global_account() { yq -r '.account_id // ""' "${CONFIG_DIR}/global.yml" 2>/dev/null; }
-# environments -> "shared" and every vpcs key, once each
 environments() { local r; { echo shared; for r in $(region_files); do yq -r '.vpcs // {} | keys | .[]' "${CONFIG_DIR}/${r}.yml"; done; } | awk '!seen[$0]++'; }
-# account_for <environment> -> its own account in any region file, else the global one
 account_for() {
     local env="$1" r a path
     [[ "${env}" == shared ]] && path='.hub.account_id' || path=".vpcs[\"${env}\"].account_id"
@@ -38,13 +31,9 @@ account_for() {
     done
     global_account
 }
-# profile_for <environment> -> this machine's profile for it, if chosen
 profile_for() { [[ -f "${MACHINE_CONFIG}" ]] && yq -r ".profiles[\"$1\"] // \"\"" "${MACHINE_CONFIG}" 2>/dev/null || true; }
-# caller_account <profile or empty> -> the account those credentials reach, or nothing (read-only sts)
 caller_account() { aws sts get-caller-identity ${1:+--profile "$1"} --query Account --output text 2>/dev/null || true; }
 
-# ip_plan_problems [config dir] -> every problem the IP plan finds in config/, one per line, in the words a plan
-# would use (nothing: the plan is sound). It evaluates the module's own checks with terraform console; nothing is planned.
 ip_plan_problems() {
     local dir="${1:-${CONFIG_DIR}}" out
     terraform -chdir="${REPO_ROOT}/modules/ip-plan" init -backend=false -input=false >/dev/null 2>&1 || { echo "the IP plan could not be loaded (terraform init in modules/ip-plan)"; return; }
@@ -79,9 +68,7 @@ ip_plan_problems() {
         | if $what == "" then .where else "\(.where): \($what)" end' <<<"${json}" | awk '!seen[$0]++'
 }
 
-# hub_account_for <region> -> the region's hub account: its own, else the global one
 hub_account_for() { local a; a="$(yq -r '.hub.account_id // ""' "${CONFIG_DIR}/$1.yml" 2>/dev/null)"; echo "${a:-$(global_account)}"; }
-# missing_account_stacks -> "<stack>" per line: the stacks an environment in its own account needs and does not have yet
 missing_account_stacks() {
     local r env acct hub
     for r in $(region_files); do
@@ -95,8 +82,6 @@ missing_account_stacks() {
     done | awk '!seen[$0]++'
 }
 
-
-# zone_prefix <region> -> the prefix of its zone IDs (us-east-2 -> use2, ap-southeast-1 -> apse1, eu-central-1 -> euc1)
 zone_prefix() {
     local area dir num
     area="$(cut -d- -f1 <<<"$1")"; dir="$(cut -d- -f2 <<<"$1")"; num="$(cut -d- -f3 <<<"$1")"
@@ -107,11 +92,9 @@ zone_prefix() {
     echo "${area}${dir}${num}"
 }
 
-# ip_to_int / int_to_ip: dotted quads to integers and back, for planning ranges
 ip_to_int() { local a b c d; IFS=. read -r a b c d <<<"$1"; echo $(( (a << 24) + (b << 16) + (c << 8) + d )); }
 int_to_ip() { echo "$(( ($1 >> 24) & 255 )).$(( ($1 >> 16) & 255 )).$(( ($1 >> 8) & 255 )).$(( $1 & 255 ))"; }
 
-# slash16s <scope> -> every /16 inside a scope of /8 to /16, in order
 slash16s() {
     local base bits n i start
     base="${1%/*}"; bits="${1#*/}"

@@ -1,5 +1,3 @@
-# Once per cluster, by the platform team, not Terraform: the "internal" ingress class. Every Ingress naming it shares one
-# internal ALB (the group), in the private subnets, with HTTPS on the environment's certificate. Apply: kubectl apply -f
 apiVersion: eks.amazonaws.com/v1
 kind: IngressClassParams
 metadata:
@@ -13,7 +11,7 @@ spec:
       Tier:
         - private
   certificateARNs:
-    - arn:aws:acm:us-east-1:111111111111:certificate/00000000-0000-0000-0000-000000000000 # from the certificates stack
+    - arn:aws:acm:us-east-1:111111111111:certificate/00000000-0000-0000-0000-000000000000
 ---
 apiVersion: networking.k8s.io/v1
 kind: IngressClass

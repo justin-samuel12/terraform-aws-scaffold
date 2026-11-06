@@ -1,4 +1,3 @@
-# The region's log buckets, against a mocked AWS -- docs/global.md.
 mock_provider "aws" {}
 
 override_data {
@@ -10,29 +9,54 @@ variables {
   region = "us-east-2"
 }
 
-run "default_retention" {
-  command = plan
-
-  assert {
-    condition     = local.buckets["load-balancer"] == "lb-logs-111111111111-us-east-2" && local.buckets.waf == "aws-waf-logs-111111111111-us-east-2"
-    error_message = "One bucket for load balancer logs and one for WAF, named by account and region."
-  }
-
-  assert {
-    condition     = local.settings.retention_days == 365
-    error_message = "Without logging.yml, logs are kept a year."
-  }
-}
-
-run "retention_from_file" {
+run "buckets" {
   command = plan
 
   variables {
-    config_dir = "tests/settings"
+    config_dir = "tests/buckets"
   }
 
   assert {
-    condition     = local.settings.retention_days == 400
-    error_message = "logging.yml sets the retention."
+    condition     = local.buckets["lb-logs"].bucket == "lb-logs-111111111111-us-east-2" && local.buckets["aws-waf-logs"].bucket == "aws-waf-logs-111111111111-us-east-2" && length(local.problems) == 0
+    error_message = "One bucket per file, named by the file, the account and the region."
   }
+
+  assert {
+    condition     = local.buckets["lb-logs"].delivers == "load-balancer" && local.buckets["aws-waf-logs"].delivers == "waf"
+    error_message = "Which service delivers follows from which bucket it is."
+  }
+
+  assert {
+    condition     = local.buckets["lb-logs"].rule[0].expiration.days == 400 && length(local.buckets["aws-waf-logs"].rule) == 0
+    error_message = "Lifecycle rules are the file's own; a file without any keeps its logs."
+  }
+}
+
+run "nothing" {
+  command = plan
+
+  assert {
+    condition     = output.buckets == {}
+    error_message = "Without files, no buckets."
+  }
+}
+
+run "refusals" {
+  command = plan
+
+  variables {
+    config_dir = "tests/refused"
+  }
+
+  assert {
+    condition = alltrue([for p in [
+      "logging.yml: a log bucket is lb-logs (load balancer access logs) or aws-waf-logs",
+      "lb-logs.yml: keys are tags, lifecycle_configuration",
+      "cloudtrail.yml: a log bucket is lb-logs (load balancer access logs) or aws-waf-logs",
+      "cloudtrail.yml: a lifecycle rule takes id, status",
+    ] : length([for q in local.problems : q if startswith(q, p)]) == 1])
+    error_message = "An old settings file, a key that is not an argument, an unknown bucket and an unsupported rule key are each refused."
+  }
+
+  expect_failures = [output.buckets]
 }

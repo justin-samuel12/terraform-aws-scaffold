@@ -1,7 +1,6 @@
 mock_provider "aws" {}
 
 variables {
-  name = "tgw-peering-01"
   requester = {
     region             = "us-west-2"
     transit_gateway_id = "tgw-oregon"

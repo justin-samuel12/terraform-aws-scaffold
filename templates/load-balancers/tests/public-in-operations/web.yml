@@ -1,11 +1,15 @@
 load_balancer_type: application
 internal: false
-certificate: www.example.com
+subnets:
+  - public-az1
+  - public-az2
 listeners:
-  "443":
+  - port: 443
     protocol: HTTPS
-    target: web
-targets:
-  web:
-    port: 8080
-    protocol: HTTP
+    certificate_arn: www.example.com
+    default_action:
+      type: fixed-response
+      fixed_response:
+        content_type: text/plain
+        message_body: Not found
+        status_code: "404"

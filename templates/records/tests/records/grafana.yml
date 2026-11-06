@@ -1,3 +1,6 @@
-zone: internal.example.com
-private_zone: true
-server: grafana-01
+zone_id: operations.corp.internal
+name: grafana.operations.corp.internal
+type: A
+ttl: 300
+records:
+  - grafana-01

@@ -1,4 +1,3 @@
-# One region's hub: Transit Gateway, egress VPC and the VPN to HQ -- docs/network.md.
 module "ip_plan" {
   source = "../../modules/ip-plan"
 
@@ -14,9 +13,6 @@ module "transit_gateway" {
 
   security_group_referencing = local.network.security_group_referencing
 
-  # Every segment reaches the internet through the egress VPC. Restricted and standard also blackhole the rest of 10.0.0.0/8:
-  # otherwise traffic to another segment would follow 0.0.0.0/0 to the egress VPC and come back through the shared table.
-  # The routes each table should have (its own segment, shared, HQ, the peering) are more specific and still win.
   routes = merge(
     {
       for table in local.tables : "${table}-internet" => {
@@ -38,7 +34,6 @@ module "transit_gateway" {
 module "vpc" {
   source = "../../modules/vpc"
 
-  name                  = "vpc-01"
   cidr_block            = local.network.cidr
   availability_zone_ids = local.network.zones
 
@@ -59,74 +54,52 @@ module "vpc" {
   }
 }
 
-# Built only once HQ's public IP is set in modules/ip-plan.
 module "vpn" {
-  source = "../../modules/vpn"
-  count  = module.ip_plan.hq.ip_address == null ? 0 : 1
+  source   = "../../modules/vpn"
+  for_each = merge({}, [for name, site in module.ip_plan.sites : { for ip in site.ip_addresses : "${name}/${ip}" => { site = name, ip_address = ip, bgp_asn = site.bgp_asn } }]...)
 
-  name                        = "vpn-01"
+  name                        = each.value.site
   transit_gateway_id          = module.transit_gateway.transit_gateway_id
-  customer_gateway            = { ip_address = module.ip_plan.hq.ip_address, bgp_asn = module.ip_plan.hq.bgp_asn }
+  customer_gateway            = { ip_address = each.value.ip_address, bgp_asn = each.value.bgp_asn }
   association_route_table_id  = module.transit_gateway.route_table_ids["shared"]
   propagation_route_table_ids = module.transit_gateway.route_table_ids
 }
 
-# Named address groups for security group rules, from config/global.yml.
 module "prefix_list" {
   source = "../../modules/prefix-list"
 
   lists = module.ip_plan.prefix_lists
 }
 
-# DNS between AWS and HQ: the endpoints live here; each environment's network associates the rules with its VPC.
+module "managed_directory" {
+  source = "../../modules/managed-directory"
+  count  = local.directory ? 1 : 0
+
+  name        = module.ip_plan.directory.name
+  short_name  = module.ip_plan.directory.short_name
+  edition     = module.ip_plan.directory.edition
+  description = module.ip_plan.directory.description
+  vpc_id      = module.vpc.vpc_id
+  subnet_ids  = slice(module.vpc.subnet_ids["dns"], 0, 2)
+}
+
 module "route53_resolver" {
   source = "../../modules/route53-resolver"
   count  = local.dns_tier ? 1 : 0
 
   name          = "dns-01"
   vpc_id        = module.vpc.vpc_id
-  subnet_ids    = module.vpc.subnet_ids["dns"]
-  clients_cidrs = concat([module.ip_plan.internal_cidr], module.ip_plan.hq.cidrs)
-  inbound       = module.ip_plan.dns.inbound
-  forward       = module.ip_plan.dns.forward
-}
+  subnet_ids    = slice(module.vpc.subnet_ids["dns"], 0, min(2, length(module.vpc.subnet_ids["dns"])))
+  clients_cidrs = concat([module.ip_plan.internal_cidr], [for c in module.ip_plan.site_cidrs : c if !startswith(c, "10.")])
+  inbound       = local.network.resolver.inbound
+  forward       = local.network.resolver.outbound ? merge(module.ip_plan.dns.forward, local.directory ? { (module.ip_plan.directory.name) = module.managed_directory[0].dns_ip_addresses } : {}) : {}
 
-# The other regions' hubs, found by their tags; each must be applied before the primary hub requests its peering.
-data "aws_ec2_transit_gateway" "peers" {
-  for_each = toset(local.peer_regions)
-
-  region = each.key
-
-  filter {
-    name   = "tag:Component"
-    values = ["hub"]
-  }
-  filter {
-    name   = "state"
-    values = ["available"]
-  }
-}
-
-data "aws_ec2_transit_gateway_route_table" "peers" {
-  for_each = { for pair in setproduct(local.peer_regions, local.tables) : "${pair[0]}/${pair[1]}" => { region = pair[0], table = pair[1] } }
-
-  region = each.value.region
-
-  filter {
-    name   = "transit-gateway-id"
-    values = [data.aws_ec2_transit_gateway.peers[each.value.region].id]
-  }
-  filter {
-    name   = "tag:Name"
-    values = ["tgw-01-${each.value.table}"]
-  }
+  inbound_domains = local.network.resolver.inbound && local.network.resolver.outbound && module.ip_plan.dns.private_domain != null && length(module.ip_plan.dns.resolve_all) > 0 ? [module.ip_plan.dns.private_domain] : []
 }
 
 module "peering" {
   source   = "../../modules/transit-gateway-peering"
   for_each = toset(local.peer_regions)
-
-  name = format("tgw-peering-%02d", index(local.peer_regions, each.key) + 1)
 
   requester = {
     region             = var.region
@@ -143,15 +116,13 @@ module "peering" {
   }
 }
 
-# Multiple accounts: the network is shared with every other account that has an environment here (one share, network-01).
-# Within an AWS Organization with RAM sharing on, it reaches them directly; otherwise each accepts it from its network stack.
 resource "aws_ram_resource_share" "network" {
   count = length(local.share_accounts) > 0 ? 1 : 0
 
   name                      = "network-01"
   allow_external_principals = !module.ip_plan.organization_sharing
 
-  tags = { Name = "network-01" }
+  tags = { Name = "${local.name_prefix}Network Share" }
 }
 
 resource "aws_ram_resource_association" "network" {
@@ -167,4 +138,3 @@ resource "aws_ram_principal_association" "network" {
   resource_share_arn = aws_ram_resource_share.network[0].arn
   principal          = each.key
 }
-

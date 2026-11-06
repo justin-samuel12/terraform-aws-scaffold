@@ -1,21 +1,29 @@
 engine: sqlserver-se
 engine_version: "16.00"
+license_model: license-included
 instance_class: db.m6i.xlarge
 allocated_storage: 200
 multi_az: true
 timezone: Eastern Standard Time
 character_set_name: SQL_Latin1_General_CP1_CI_AS
-options:
-  SQLSERVER_BACKUP_RESTORE:
-    bucket: sqlserver-backups
-  TDE: {}
-  SSRS:
-    MAX_MEMORY: 50
+option:
+  - option_name: SQLSERVER_BACKUP_RESTORE
+    option_settings:
+      - name: IAM_ROLE_ARN
+        value: operations-sqlserver-backups
+  - option_name: TDE
+  - option_name: SSRS
+    port: 8443
+    vpc_security_group_memberships:
+      - billing-database
+    option_settings:
+      - name: MAX_MEMORY
+        value: "50"
 domain_fqdn: corp.example.com
 domain_ou: OU=RDS,DC=corp,DC=example,DC=com
 domain_auth_secret_arn: arn:aws:secretsmanager:us-east-2:111111111111:secret:rds-domain-join
 domain_dns_ips:
   - 10.10.0.10
   - 10.10.0.11
-security_groups:
+vpc_security_group_ids:
   - billing-database

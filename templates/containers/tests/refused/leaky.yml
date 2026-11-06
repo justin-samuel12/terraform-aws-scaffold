@@ -1,7 +1,19 @@
-image: nginx:1.27
-security_groups:
-  - web
-environment:
-  DB_PASSWORD: hunter2
-secrets:
-  API_KEY: the-key-itself
+cpu: 256
+memory: 512
+desired_count: 1
+network_configuration:
+  subnets:
+    - private-az1
+  security_groups:
+    - web
+container_definitions:
+  - name: leaky
+    image: nginx:1.27
+    environment:
+      - name: DB_PASSWORD
+        value: hunter2
+    secrets:
+      - name: API_KEY
+        valueFrom: the-key-itself
+  - name: leaky
+    image: nginx:1.27

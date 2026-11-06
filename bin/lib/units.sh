@@ -1,13 +1,5 @@
-# Units of checking, and the fingerprint of everything each one reads -- docs/configuration.md#checking-without-credentials.
-# Sourced, never run. A unit is one of:
-#   test:<folder>      terraform test in a module, a template, bootstrap/ or a live stack with tests
-#   files:<stack>      a live stack's own files, planned against a mocked AWS
-#   example:<stack>    an example's files, planned the same way
-# A unit's fingerprint changes when anything it reads changes, so a unit that passed with this fingerprint passes again.
-
 CHECKED_DIR="${CHECKED_DIR:-${REPO_ROOT}/.terraform.d/checked}"
 
-# Every unit, in a stable order.
 all_units() {
     local d
     for d in modules/*/ templates/*/ bootstrap/; do
@@ -18,7 +10,6 @@ all_units() {
     find examples -mindepth 3 -maxdepth 3 -type d -not -path 'examples/config*' | sed 's#^examples/##' | sort | sed 's#^#example:#'
 }
 
-# The folders a folder's Terraform reads through relative module sources, itself included, transitively.
 module_closure() {
     local queue=("$1") seen=" " d src target
     while [[ ${#queue[@]} -gt 0 ]]; do
@@ -32,34 +23,36 @@ module_closure() {
     done
 }
 
-# Every file a unit reads, one path per line.
 unit_inputs() {
     local kind="${1%%:*}" path="${1#*:}" component dirs=()
     case "${kind}" in
         test)
             dirs=($(module_closure "${path}"))
             [[ "${path}" == live/* ]] && dirs+=(live/common)
-            dirs+=(tests/config tests/stacks tests/unset) ;;
+            dirs+=(tests/config tests/stacks tests/unset)
+            [[ "${path}" == templates/compute ]] && dirs+=(blueprints/compute scripts)
+            [[ "${path}" == templates/containers ]] && dirs+=(blueprints/containers)
+            [[ "${path}" == templates/databases ]] && dirs+=(blueprints/databases) ;;
         files)
             component="${path##*/}"
             dirs=($(module_closure "live/${path}") live/common config tests/mock)
-            [[ "${component}" == compute ]] && dirs+=(blueprints)
+            [[ "${component}" == compute ]] && dirs+=(blueprints/compute scripts)
+            [[ "${component}" == containers || "${component}" == databases ]] && dirs+=("blueprints/${component}")
             echo bin/check-files ;;
         example)
             component="${path##*/}"
             dirs=("examples/${path}" examples/config live/common tests/mock)
             [[ -d "templates/${component}" ]] && dirs+=($(module_closure "templates/${component}"))
-            [[ "${component}" == compute ]] && dirs+=(blueprints)
+            [[ "${component}" == compute ]] && dirs+=(blueprints/compute scripts)
+            [[ "${component}" == containers || "${component}" == databases ]] && dirs+=("blueprints/${component}")
             printf '%s\n' bin/check-files bin/stack bin/backends ;;
     esac
     echo tests/lock/.terraform.lock.hcl
     find "${dirs[@]}" -type f -not -path '*/.terraform/*' -not -name '.terraform.lock.hcl' -not -name '*.tfstate*' 2>/dev/null
-    # A stack's lock file pins its providers, so it counts; modules and templates do not commit one.
     [[ "${kind}" == files && -f "live/${path}/.terraform.lock.hcl" ]] && echo "live/${path}/.terraform.lock.hcl"
     return 0
 }
 
-# fingerprint <unit> -> one hash of every input's path and content, and of the Terraform version.
 fingerprint() {
     { echo "${TF_VERSION:-$(terraform version -json 2>/dev/null | jq -r .terraform_version)}"
       unit_inputs "$1" | sort -u | tr '\n' '\0' | xargs -0 shasum -a 256

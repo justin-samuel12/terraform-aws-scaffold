@@ -1,0 +1,8 @@
+service_name: com.amazonaws.us-east-2.ssm
+vpc_endpoint_type: Interface
+subnet_ids:
+  - public-az1
+  - public-az2
+security_group_ids:
+  - sg-0endpoints
+private_dns_enabled: true

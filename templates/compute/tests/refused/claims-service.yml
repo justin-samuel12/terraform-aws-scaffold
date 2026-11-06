@@ -1,2 +1,8 @@
 blueprint: backend-service/v3
-priority: 1310
+listener_rule:
+  listener_arn: internal/443
+  priority: 1310
+  condition:
+    path_pattern:
+      values:
+        - /claims-service/*

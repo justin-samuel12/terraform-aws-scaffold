@@ -2,22 +2,23 @@ count: 2
 instance_type: r6i.2xlarge
 ami: ami-0123456789abcdef0
 iam_instance_profile: sqlserver
-security_groups:
+vpc_security_group_ids:
   - sqlserver
 ebs_block_device:
-  data:
-    device_name: /dev/sdf
+  - device_name: /dev/sdf
     volume_size: 1000
+    tags:
+      Name: data
 members:
   sqlserver-01:
-    subnet: data-az1
-    ips:
-      primary: 70
-      cluster: 71
-      listener: 72
+    subnet_id: data-az1
+    private_ip: "70"
+    secondary_private_ips:
+      - "71"
+      - "72"
   sqlserver-02:
-    subnet: data-az2
-    ips:
-      primary: 70
-      cluster: 71
-      listener: 72
+    subnet_id: data-az2
+    private_ip: "70"
+    secondary_private_ips:
+      - "71"
+      - "72"

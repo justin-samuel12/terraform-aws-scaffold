@@ -3,21 +3,26 @@ instance_type: t3.medium
 ami: ami-0123456789abcdef0
 tier: ops
 iam_instance_profile: grafana
-security_groups:
+vpc_security_group_ids:
   - grafana
 target_group:
   port: 3000
   slow_start: 30
   health_check:
     path: /api/health
-listener_rules:
-  - load_balancer: internal
+listener_rule:
+  listener_arn: internal/443
+  priority: 10
+  condition:
     host_header:
-      - grafana.example.com
-    priority: 10
+      values:
+        - grafana.example.com
 route53_records:
-  - name: grafana
-    zone: example.com
-    private_zone: true
+  - name: grafana.example.com
+    type: A
+    zone_id: example.com
+    alias:
+      name: internal
+      evaluate_target_health: true
 tags:
   CodeDeploy: "['grafana']"

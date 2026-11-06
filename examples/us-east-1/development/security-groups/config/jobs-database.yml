@@ -1,0 +1,9 @@
+description: The jobs database (Aurora MySQL Serverless v2)
+tags:
+  Kind: database
+ingress:
+  - description: MySQL from the backend services
+    ip_protocol: tcp
+    from_port: 3306
+    to_port: 3306
+    referenced_security_group_id: backend-services

@@ -1,0 +1,21 @@
+version: "1.35"
+deletion_protection: true
+vpc_config:
+  subnet_ids:
+    - private-az1
+    - private-az2
+    - private-az4
+  security_group_ids:
+    - kubernetes-api
+  endpoint_public_access: false
+access_entry:
+  - principal_arn: platform-admin
+    access_policy_association:
+      - policy_arn: arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy
+        access_scope:
+          type: cluster
+  - principal_arn: developer
+    access_policy_association:
+      - policy_arn: arn:aws:eks::aws:cluster-access-policy/AmazonEKSViewPolicy
+        access_scope:
+          type: cluster

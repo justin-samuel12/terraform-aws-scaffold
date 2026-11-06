@@ -1,11 +1,9 @@
 #!/bin/bash
-# Commit message format -- CONTRIBUTING.md.
 
 COMMIT_MSG=$(cat "$1")
 HEADER=$(echo "$COMMIT_MSG" | head -n 1)
 VALID_TYPES=(terraform infra docs ci)
 
-# git's own messages for reverts and merges pass as written.
 if [[ "$HEADER" =~ ^(Revert|Merge)\  ]]; then
     exit 0
 fi

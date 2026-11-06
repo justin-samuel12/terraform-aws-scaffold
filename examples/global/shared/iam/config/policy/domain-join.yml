@@ -1,0 +1,7 @@
+description: Read the environment's domain join account, for Windows servers that join the domain
+statement:
+  - effect: Allow
+    actions:
+      - secretsmanager:GetSecretValue
+    resources:
+      - arn:aws:secretsmanager:*:*:secret:domain-join/*

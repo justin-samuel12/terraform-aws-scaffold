@@ -1,0 +1,14 @@
+object_lock_enabled: true
+object_lock_configuration:
+  rule:
+    default_retention:
+      mode: COMPLIANCE
+      days: 2555
+lifecycle_configuration:
+  rule:
+    - id: versions
+      status: Enabled
+      noncurrent_version_expiration:
+        noncurrent_days: 90
+      abort_incomplete_multipart_upload:
+        days_after_initiation: 7

@@ -1,0 +1,4 @@
+blueprint: sqlserver/v1
+allocated_storage: 200
+vpc_security_group_ids:
+  - ledger-database

@@ -1,4 +1,3 @@
-# The reports worker: no Service or Ingress, since nothing calls it; it reads from S3 with its own IAM role (reports-worker.yml).
 apiVersion: v1
 kind: Namespace
 metadata:

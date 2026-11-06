@@ -3,14 +3,8 @@ module "acm_certificate" {
 
   providers = {
     aws     = aws
-    aws.dns = aws.hub
+    aws.dns = aws.dns
   }
 
-  certificates = {
-    for name, c in local.certificates : name => {
-      domain            = c.domain_name
-      alternative_names = try(tolist(c.subject_alternative_names), [])
-      zone              = c.zone
-    }
-  }
+  certificates = local.certificates
 }

@@ -1,0 +1,23 @@
+rule:
+  - rule_name: daily
+    target_vault_name: operations
+    schedule: cron(0 7 * * ? *)
+    start_window: 60
+    completion_window: 360
+    lifecycle:
+      delete_after: 35
+    copy_action:
+      - destination_vault_arn: operations-us-west-2
+        lifecycle:
+          delete_after: 35
+  - rule_name: monthly
+    target_vault_name: operations
+    schedule: cron(0 8 1 * ? *)
+    start_window: 60
+    completion_window: 720
+    lifecycle:
+      delete_after: 365
+    copy_action:
+      - destination_vault_arn: operations-us-west-2
+        lifecycle:
+          delete_after: 365

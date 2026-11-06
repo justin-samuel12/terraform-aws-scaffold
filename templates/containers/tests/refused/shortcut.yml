@@ -1,0 +1,7 @@
+image: nginx:1.27
+port: 80
+tier: private
+security_groups:
+  - web
+health_check:
+  path: /

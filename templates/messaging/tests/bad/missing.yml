@@ -1,4 +1,0 @@
-topic:
-  subscriptions:
-    - protocol: sqs
-      endpoint: queue:nowhere

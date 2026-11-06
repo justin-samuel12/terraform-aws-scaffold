@@ -1,0 +1,66 @@
+description: Docker on its own servers, on the staff load balancer, reached by host name, deployed by CodeDeploy as a shared containerized application
+allows:
+  - count
+  - server_name
+  - instance_type
+  - ami
+  - root_block_device.volume_size
+  - target_group.health_check
+  - target_group.stickiness
+  - members.*.tags
+  - members.*.subnet_id
+adds:
+  - vpc_security_group_ids
+requires:
+  - listener_rule
+instance_types:
+  default: t3a.small
+  allowed:
+    - t3a.small
+    - t3a.medium
+    - t3a.large
+    - t3a.xlarge
+    - t3.small
+    - t3.medium
+    - t3.large
+    - t3.xlarge
+environments:
+  production:
+    instance_types:
+      default: m7i.large
+      allowed:
+        - m7i.large
+        - m7i.xlarge
+        - m7i.2xlarge
+role:
+  managed_policy_arns:
+    - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+    - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+    - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+    - session-manager
+    - read-revisions
+group:
+  count: 1
+  ami: ami-0123456789abcdef0
+  tier: private
+  vpc_security_group_ids:
+    - container-apps
+    - services-lb-clients
+    - sqlserver-clients
+    - monitoring-agent
+  root_block_device:
+    volume_size: 75
+  user_data: scripts/ubuntu.sh
+  target_group:
+    port: 443
+    protocol: HTTPS
+    health_check:
+      path: /
+      matcher: "200"
+  tags:
+    Backup: standard
+    DNS: "{server}"
+    CodeDeploy: "['{app}']"
+    isContainerized: "true"
+    ServerRole: appsvc
+    WorkloadType: "['containers']"

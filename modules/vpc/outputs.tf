@@ -33,3 +33,8 @@ output "subnets" {
     }
   }
 }
+
+output "network_acl_ids" {
+  description = "Tier -> the id of its network ACL, for the tiers that have one."
+  value       = { for tier, acl in aws_network_acl.network_acls : tier => acl.id }
+}

@@ -1,0 +1,8 @@
+blueprint: staff-app/v1
+listener_rule:
+  listener_arn: staff/443
+  priority: 0
+  condition:
+    host_header:
+      values:
+        - Admin Portal

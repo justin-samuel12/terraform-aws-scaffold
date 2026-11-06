@@ -1,5 +1,9 @@
-# gitleaks configuration -- SECURITY.md.
 title = "terraform-aws-scaffold"
 
 [extend]
 useDefault = true
+
+[[allowlists]]
+description = "ACM key types (aws_acm_certificate.key_algorithm), not keys"
+regexTarget = "match"
+regexes = ['''key_algorithm\s*(=|==|:)\s*"?(RSA_1024|RSA_2048|RSA_3072|RSA_4096|EC_prime256v1|EC_secp384r1|EC_secp521r1)"?''']

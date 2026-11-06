@@ -19,13 +19,25 @@ variable "region" {
 }
 
 variable "config_dir" {
-  description = "The folder of group files, one <group>.yml each; null = the stack's own folder. Tests point it at their own."
+  description = "The folder of group files, one <group>.yml each; null = the stack's config/ folder. Tests point it at their own."
   type        = string
   default     = null
 }
 
 variable "blueprints_dir" {
-  description = "The folder of blueprints, <name>/v<n>.yml each; null = blueprints/ beside config/. Tests point it at their own."
+  description = "The folder of compute blueprints, <name>/v<n>.yml each; null = blueprints/compute/ beside config/. Tests point it at their own."
+  type        = string
+  default     = null
+}
+
+variable "amis_dir" {
+  description = "The folder of named images, one data.aws_ami's arguments per file; null = amis/ inside config/. Tests point it at their own."
+  type        = string
+  default     = null
+}
+
+variable "scripts_dir" {
+  description = "The folder of shared boot scripts, which user_data: scripts/<name> names; null = scripts/ beside config/. Tests point it at their own."
   type        = string
   default     = null
 }

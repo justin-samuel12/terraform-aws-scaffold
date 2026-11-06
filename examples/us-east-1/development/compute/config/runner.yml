@@ -1,0 +1,11 @@
+count: 2
+instance_type: c6i.large
+ami: ubuntu-2404
+tier: ops
+iam_instance_profile: runner
+vpc_security_group_ids:
+  - runner
+  - operators
+  - monitoring-agent
+tags:
+  Backup: standard

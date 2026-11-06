@@ -1,11 +1,11 @@
 resource "aws_lb" "load_balancer" {
   name                       = var.name
-  load_balancer_type         = var.type
+  load_balancer_type         = var.load_balancer_type
   internal                   = var.internal
-  subnets                    = var.subnet_ids
-  security_groups            = var.security_group_ids
+  subnets                    = var.subnets
+  security_groups            = var.security_groups
   enable_deletion_protection = true
-  drop_invalid_header_fields = var.type == "application" ? true : null
+  drop_invalid_header_fields = var.load_balancer_type == "application" ? true : null
 
   access_logs {
     bucket  = var.access_logs_bucket
@@ -13,138 +13,135 @@ resource "aws_lb" "load_balancer" {
     enabled = true
   }
 
-  tags = { Name = var.name }
+  tags = { Name = "${local.name_prefix}${local.short_name}" }
 }
 
 resource "aws_lb_target_group" "targets" {
-  for_each = var.targets
+  for_each = var.target_groups
 
   name                 = local.target_group_names[each.key]
   vpc_id               = var.vpc_id
   port                 = each.value.port
   protocol             = each.value.protocol
-  target_type          = "instance"
-  deregistration_delay = 60
+  target_type          = each.value.target_type
+  deregistration_delay = each.value.deregistration_delay
 
   dynamic "health_check" {
-    for_each = each.value.health_check_path == null ? [] : [each.value.health_check_path]
+    for_each = each.value.health_check == null ? [] : [each.value.health_check]
     content {
-      path    = health_check.value
-      matcher = "200-399"
+      enabled             = health_check.value.enabled
+      path                = health_check.value.path
+      port                = health_check.value.port
+      protocol            = health_check.value.protocol
+      matcher             = health_check.value.matcher
+      interval            = health_check.value.interval
+      timeout             = health_check.value.timeout
+      healthy_threshold   = health_check.value.healthy_threshold
+      unhealthy_threshold = health_check.value.unhealthy_threshold
     }
   }
 
-  tags = { Name = "${var.name}-${each.key}" }
+  tags = { Name = "${local.name_prefix}${local.short_name}-${each.key}", Key = "${var.name}-${each.key}" }
 
-  # A new group is built first and every listener and rule moves to it in place; the old one goes last.
   lifecycle {
     create_before_destroy = true
   }
 }
 
-# TLS 1.2 and 1.3 only; plain HTTP exists only to redirect to HTTPS.
 resource "aws_lb_listener" "listeners" {
-  for_each = var.listeners
+  for_each = local.listeners
 
   load_balancer_arn = aws_lb.load_balancer.arn
-  port              = tonumber(each.key)
+  port              = each.value.port
   protocol          = each.value.protocol
   ssl_policy        = contains(["HTTPS", "TLS"], each.value.protocol) ? "ELBSecurityPolicy-TLS13-1-2-2021-06" : null
-  certificate_arn   = contains(["HTTPS", "TLS"], each.value.protocol) ? var.certificate_arn : null
+  certificate_arn   = each.value.certificate_arn
 
-  dynamic "default_action" {
-    for_each = each.value.redirect || each.value.target == null ? [] : [each.value.target]
-    content {
-      type             = "forward"
-      target_group_arn = aws_lb_target_group.targets[default_action.value].arn
+  default_action {
+    type             = each.value.default_action.type
+    target_group_arn = each.value.default_action.target_group_arn == null ? null : try(aws_lb_target_group.targets[each.value.default_action.target_group_arn].arn, each.value.default_action.target_group_arn)
+
+    dynamic "redirect" {
+      for_each = each.value.default_action.redirect == null ? [] : [each.value.default_action.redirect]
+      content {
+        host        = redirect.value.host
+        path        = redirect.value.path
+        port        = redirect.value.port
+        protocol    = redirect.value.protocol
+        query       = redirect.value.query
+        status_code = redirect.value.status_code
+      }
     }
-  }
 
-  dynamic "default_action" {
-    for_each = each.value.redirect ? [1] : []
-    content {
-      type = "redirect"
-      redirect {
-        port        = "443"
-        protocol    = "HTTPS"
-        status_code = "HTTP_301"
+    dynamic "fixed_response" {
+      for_each = each.value.default_action.fixed_response == null ? [] : [each.value.default_action.fixed_response]
+      content {
+        content_type = fixed_response.value.content_type
+        message_body = fixed_response.value.message_body
+        status_code  = fixed_response.value.status_code
       }
     }
   }
 
-  dynamic "default_action" {
-    for_each = !each.value.redirect && each.value.target == null ? [1] : []
-    content {
-      type = "fixed-response"
-      fixed_response {
-        content_type = "text/plain"
-        message_body = "Not found"
-        status_code  = "404"
-      }
-    }
-  }
-
-  tags = { Name = "${var.name}-${each.key}" }
+  tags = { Name = "${local.name_prefix}${local.short_name}-${each.key}" }
 }
 
 resource "aws_lb_listener_rule" "rules" {
-  for_each = var.rules
+  for_each = var.listener_rules
 
-  listener_arn = aws_lb_listener.listeners[each.value.listener].arn
+  listener_arn = try(aws_lb_listener.listeners[each.value.listener_arn].arn, each.value.listener_arn)
   priority     = each.value.priority
 
+  action {
+    type             = each.value.action.type
+    target_group_arn = each.value.action.target_group_arn == null ? null : try(aws_lb_target_group.targets[each.value.action.target_group_arn].arn, each.value.action.target_group_arn)
+
+    dynamic "redirect" {
+      for_each = each.value.action.redirect == null ? [] : [each.value.action.redirect]
+      content {
+        host        = redirect.value.host
+        path        = redirect.value.path
+        port        = redirect.value.port
+        protocol    = redirect.value.protocol
+        query       = redirect.value.query
+        status_code = redirect.value.status_code
+      }
+    }
+
+    dynamic "fixed_response" {
+      for_each = each.value.action.fixed_response == null ? [] : [each.value.action.fixed_response]
+      content {
+        content_type = fixed_response.value.content_type
+        message_body = fixed_response.value.message_body
+        status_code  = fixed_response.value.status_code
+      }
+    }
+  }
+
   dynamic "condition" {
-    for_each = length(each.value.hosts) > 0 ? [each.value.hosts] : []
+    for_each = each.value.condition.host_header == null ? [] : [each.value.condition.host_header]
     content {
       host_header {
-        values = condition.value
+        values = condition.value.values
       }
     }
   }
 
   dynamic "condition" {
-    for_each = length(each.value.paths) > 0 ? [each.value.paths] : []
+    for_each = each.value.condition.path_pattern == null ? [] : [each.value.condition.path_pattern]
     content {
       path_pattern {
-        values = condition.value
+        values = condition.value.values
       }
     }
   }
 
-  dynamic "action" {
-    for_each = each.value.target == null ? [] : [each.value.target]
-    content {
-      type             = "forward"
-      target_group_arn = aws_lb_target_group.targets[action.value].arn
-    }
-  }
+  tags = { Name = "${local.name_prefix}${local.short_name}-${each.key}" }
+}
 
-  dynamic "action" {
-    for_each = each.value.redirect == null ? [] : [each.value.redirect]
-    content {
-      type = "redirect"
-      redirect {
-        host        = action.value.host
-        path        = action.value.path
-        query       = action.value.query
-        port        = "443"
-        protocol    = "HTTPS"
-        status_code = action.value.status_code
-      }
-    }
-  }
+resource "aws_lb_listener_certificate" "additional" {
+  for_each = var.listener_certificates
 
-  dynamic "action" {
-    for_each = each.value.fixed_response == null ? [] : [each.value.fixed_response]
-    content {
-      type = "fixed-response"
-      fixed_response {
-        status_code  = action.value.status_code
-        content_type = action.value.content_type
-        message_body = action.value.body
-      }
-    }
-  }
-
-  tags = { Name = "${var.name}-${each.key}" }
+  listener_arn    = aws_lb_listener.listeners[each.value.listener_arn].arn
+  certificate_arn = each.value.certificate_arn
 }

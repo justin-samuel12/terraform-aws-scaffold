@@ -1,0 +1,24 @@
+policy:
+  statement:
+    - actions:
+        - sns:Publish
+      principals:
+        - type: Service
+          identifiers:
+            - cloudwatch.amazonaws.com
+      resources:
+        - orders
+      condition:
+        - test: StringEquals
+          variable: aws:SourceAccount
+          values:
+            - production
+sns_topic_subscription:
+  - protocol: sqs
+    endpoint: orders
+    raw_message_delivery: true
+  - protocol: email
+    endpoint: orders-team@example.com
+    filter_policy:
+      status:
+        - failed

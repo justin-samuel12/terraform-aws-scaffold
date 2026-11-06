@@ -6,13 +6,17 @@ override_data {
 }
 
 variables {
-  name                  = "vpc-01"
   cidr_block            = "10.62.0.0/16"
   availability_zone_ids = ["usw2-az1", "usw2-az2", "usw2-az3"]
 }
 
 run "spoke" {
   command = plan
+
+  override_data {
+    target = data.aws_default_tags.current
+    values = { tags = { Environment = "staging" } }
+  }
 
   variables {
     subnets = {
@@ -54,8 +58,13 @@ run "spoke" {
   }
 
   assert {
-    condition     = aws_subnet.subnets["data-usw2-az2"].tags.Name == "vpc-01-data-usw2-az2" && aws_subnet.subnets["data-usw2-az2"].tags.Subnet == "data-az2" && aws_subnet.subnets["data-usw2-az2"].tags.Tier == "data"
-    error_message = "Subnet names follow <vpc>-<tier>-<zone letter>."
+    condition     = aws_subnet.subnets["data-usw2-az2"].tags.Name == "Staging - Data Subnet AZ2" && aws_subnet.subnets["data-usw2-az2"].tags.Subnet == "data-az2" && aws_subnet.subnets["data-usw2-az2"].tags.Tier == "data"
+    error_message = "A subnet's Name tag is the environment, its tier and its zone; its Subnet tag is what stacks find it by."
+  }
+
+  assert {
+    condition     = aws_vpc.vpc.tags.Name == "Staging - VPC" && aws_route_table.route_tables["private-usw2-az1"].tags.Name == "Staging - Private Route Table AZ1" && aws_route_table.route_tables["private-usw2-az1"].tags.Subnet == "private-az1"
+    error_message = "The VPC and its route tables are named for the console, with the environment first."
   }
 }
 
@@ -109,6 +118,11 @@ run "egress" {
     condition     = length(aws_route.transit_routes) == 3
     error_message = "Each public route table sends the internal range back to the Transit Gateway."
   }
+
+  assert {
+    condition     = aws_nat_gateway.nat_gateways["usw2-az2"].tags.Name == "NAT Gateway AZ2" && aws_eip.eips["usw2-az2"].tags.Name == "NAT Gateway AZ2 Address" && aws_subnet.subnets["public-usw2-az1"].tags.Name == "Public Subnet AZ1"
+    error_message = "Without an Environment default tag, a Name is only what the thing is."
+  }
 }
 
 run "rejects_nat_without_nat_gateway_subnets" {
@@ -145,17 +159,6 @@ run "rejects_wrong_cidr_count" {
   }
 
   expect_failures = [var.subnets]
-}
-
-run "rejects_non_generic_name" {
-  command = plan
-
-  variables {
-    name    = "production-vpc"
-    subnets = {}
-  }
-
-  expect_failures = [var.name]
 }
 
 run "security_defaults" {
@@ -204,7 +207,6 @@ run "rejects_unsupported_retention" {
 run "rejects_zone_not_in_region" {
   command = plan
 
-  # A zone ID from another region, or a typo, fails the plan before anything is built.
   variables {
     availability_zone_ids = ["usw2-az1", "use2-az9"]
     subnets = {
@@ -228,4 +230,100 @@ run "reserved_addresses" {
     condition     = length(aws_ec2_subnet_cidr_reservation.chosen_addresses) == 3 && aws_ec2_subnet_cidr_reservation.chosen_addresses["ops-usw2-az1"].reservation_type == "explicit"
     error_message = "Each subnet keeps its reserved block for chosen addresses."
   }
+}
+
+run "peered" {
+  command = plan
+
+  variables {
+    cidr_block = "10.63.0.0/16"
+    subnets = {
+      public  = { cidrs = ["10.63.216.0/23", "10.63.218.0/23", "10.63.220.0/23"], default_route = "none" }
+      private = { cidrs = ["10.63.0.0/19", "10.63.32.0/19", "10.63.64.0/19"], default_route = "none" }
+      data    = { cidrs = ["10.63.192.0/22", "10.63.196.0/22", "10.63.200.0/22"], default_route = "none" }
+    }
+    nat_gateway_subnets = "public"
+    routes = {
+      public-internet  = { tier = "public", destination_cidr_block = "0.0.0.0/0", gateway_id = "own" }
+      private-internet = { tier = "private", destination_cidr_block = "0.0.0.0/0", nat_gateway_id = "own" }
+      private-ops      = { tier = "private", destination_cidr_block = "10.42.0.0/16", vpc_peering_connection_id = "pcx-0123456789abcdef0" }
+      data-ops         = { tier = "data", destination_cidr_block = "10.42.0.0/16", vpc_peering_connection_id = "pcx-0123456789abcdef0" }
+    }
+    network_acls = {
+      data = {
+        ingress = [
+          { rule_no = 100, action = "allow", protocol = "-1", cidr_block = "10.0.0.0/8" },
+          { rule_no = 200, action = "deny", protocol = "-1", cidr_block = "0.0.0.0/0" },
+        ]
+        egress = [
+          { rule_no = 100, action = "allow", protocol = "-1", cidr_block = "10.0.0.0/8" },
+        ]
+      }
+    }
+  }
+
+  assert {
+    condition     = length(aws_internet_gateway.internet_gateway) == 1 && length(aws_nat_gateway.nat_gateways) == 3 && length(aws_ec2_transit_gateway_vpc_attachment.transit_gateway_vpc_attachment) == 0
+    error_message = "A VPC off the hub has its own internet gateway and a NAT gateway per zone, and no attachment."
+  }
+
+  assert {
+    condition     = length(aws_route.routes) == 12 && aws_route.routes["private-usw2-az2-10.42.0.0/16"].vpc_peering_connection_id == "pcx-0123456789abcdef0" && length(aws_route.default_routes) == 0 && length(aws_route.transit_routes) == 0
+    error_message = "Each route goes in every route table of its tier, and only the routes written are made."
+  }
+
+  assert {
+    condition     = toset(keys(aws_network_acl.network_acls)) == toset(["data"]) && aws_network_acl.network_acls["data"].tags.Tier == "data"
+    error_message = "A network ACL covers every subnet of its tier, with the rules written; other tiers keep the default."
+  }
+}
+
+run "rejects_a_route_with_two_targets" {
+  command = plan
+
+  variables {
+    subnets = {
+      private = { cidrs = ["10.62.0.0/19", "10.62.32.0/19", "10.62.64.0/19"], default_route = "none" }
+    }
+    routes = {
+      both = { tier = "private", destination_cidr_block = "10.42.0.0/16", vpc_peering_connection_id = "pcx-1", transit_gateway_id = "tgw-1" }
+    }
+  }
+
+  expect_failures = [var.routes]
+}
+
+run "rejects_nat_without_nat_gateways" {
+  command = plan
+
+  variables {
+    subnets = {
+      private = { cidrs = ["10.62.0.0/19", "10.62.32.0/19", "10.62.64.0/19"], default_route = "none" }
+    }
+    routes = {
+      out = { tier = "private", destination_cidr_block = "0.0.0.0/0", nat_gateway_id = "own" }
+    }
+  }
+
+  expect_failures = [var.nat_gateway_subnets]
+}
+
+run "rejects_a_repeated_rule_number" {
+  command = plan
+
+  variables {
+    subnets = {
+      data = { cidrs = ["10.62.192.0/22", "10.62.196.0/22", "10.62.200.0/22"], default_route = "none" }
+    }
+    network_acls = {
+      data = {
+        ingress = [
+          { rule_no = 100, action = "allow", protocol = "-1", cidr_block = "10.0.0.0/8" },
+          { rule_no = 100, action = "deny", protocol = "-1", cidr_block = "0.0.0.0/0" },
+        ]
+      }
+    }
+  }
+
+  expect_failures = [var.network_acls]
 }

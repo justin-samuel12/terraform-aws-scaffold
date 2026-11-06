@@ -1,7 +1,5 @@
-# Terraform working files and state
 .terraform/
 .terraform.d/
-# Modules don't pin providers; only stacks commit a lock file.
 modules/**/.terraform.lock.hcl
 templates/**/.terraform.lock.hcl
 *.tfstate
@@ -11,8 +9,7 @@ tfplan
 crash.log
 crash.*.log
 .terraform.tfstate.lock.info
-
-# Local settings and secrets
+CLAUDE*
 *.tfvars
 *.tfvars.json
 .env
@@ -22,12 +19,10 @@ override.tf.json
 *_override.tf
 *_override.tf.json
 
-# Editors and OS
 .DS_Store
 .idea/
 .vscode/
 
-# Python bytecode (Lambda sources)
 __pycache__/
 *.pyc
 

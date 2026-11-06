@@ -1,0 +1,6 @@
+zone_id: internal.example.com
+name: runner.internal.example.com
+type: A
+ttl: 300
+records:
+  - runner-01

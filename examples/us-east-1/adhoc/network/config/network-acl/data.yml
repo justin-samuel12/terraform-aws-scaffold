@@ -1,0 +1,10 @@
+ingress:
+  - rule_no: 100
+    action: allow
+    protocol: "-1"
+    cidr_block: 10.0.0.0/8
+egress:
+  - rule_no: 100
+    action: allow
+    protocol: "-1"
+    cidr_block: 10.0.0.0/8

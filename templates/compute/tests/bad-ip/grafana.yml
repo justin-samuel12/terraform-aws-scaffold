@@ -4,5 +4,5 @@ ami: ami-0123456789abcdef0
 iam_instance_profile: grafana
 members:
   grafana-01:
-    subnet: ops-az1
-    ip: 31
+    subnet_id: ops-az1
+    private_ip: "31"

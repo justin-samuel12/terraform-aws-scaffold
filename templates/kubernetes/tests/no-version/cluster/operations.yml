@@ -1,0 +1,6 @@
+deletion_protection: true
+vpc_config:
+  subnet_ids:
+    - private-az1
+    - private-az2
+  endpoint_public_access: false

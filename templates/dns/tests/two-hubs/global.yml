@@ -1,4 +1,3 @@
-# The test world: tests run against this copy, never against config/, so your own config cannot break them.
 account_id: ""
 state:
   bucket: ""
@@ -40,10 +39,11 @@ subnets:
     dns:
       size: 28
       start: 14
-hq:
-  ip_address:
-  bgp_asn: 65010
-  cidrs: []
+sites:
+  office:
+    ip_address:
+    bgp_asn: 65010
+    cidrs: []
 prefix_lists:
 dns:
   inbound: false

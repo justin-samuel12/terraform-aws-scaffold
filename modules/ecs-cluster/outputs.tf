@@ -7,7 +7,6 @@ output "name" {
   description = "The cluster's name: the environment's."
   value       = aws_ecs_cluster.cluster.name
 
-  # A service asking for a capacity provider needs it on the cluster first.
   depends_on = [aws_ecs_cluster_capacity_providers.cluster]
 }
 

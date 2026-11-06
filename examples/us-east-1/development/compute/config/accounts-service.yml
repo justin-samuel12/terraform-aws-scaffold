@@ -1,0 +1,9 @@
+blueprint: backend-service/v1
+listener_rule:
+  listener_arn: services/443
+  priority: 1200
+  condition:
+    path_pattern:
+      values:
+        - /accounts-service/*
+count: 2

@@ -1,51 +1,67 @@
 resource "aws_ssm_patch_baseline" "baselines" {
-  for_each = local.baselines
+  for_each = var.patch_baselines
 
   name             = "${var.environment}-${each.key}"
-  description      = "${var.environment}: security and critical patches, approved after ${var.approve_after_days} days"
+  description      = each.value.description
   operating_system = each.value.operating_system
+  approved_patches = each.value.approved_patches
+  rejected_patches = each.value.rejected_patches
 
-  approval_rule {
-    approve_after_days = var.approve_after_days
+  dynamic "approval_rule" {
+    for_each = each.value.approval_rule
+    content {
+      approve_after_days  = approval_rule.value.approve_after_days
+      compliance_level    = approval_rule.value.compliance_level
+      enable_non_security = approval_rule.value.enable_non_security
 
-    dynamic "patch_filter" {
-      for_each = each.value.filters
-      content {
-        key    = patch_filter.key
-        values = patch_filter.value
+      dynamic "patch_filter" {
+        for_each = approval_rule.value.patch_filter
+        content {
+          key    = patch_filter.value.key
+          values = patch_filter.value.values
+        }
       }
     }
   }
 
-  tags = { Name = "${var.environment}-${each.key}" }
+  tags = merge(each.value.tags, { Name = "${local.name_prefix}${each.key}" })
 }
 
 resource "aws_ssm_patch_group" "baselines" {
-  for_each = local.baselines
+  for_each = var.patch_baselines
 
   baseline_id = aws_ssm_patch_baseline.baselines[each.key].id
   patch_group = var.environment
 }
 
 resource "aws_cloudwatch_log_group" "patching" {
+  count = length(var.maintenance_windows) > 0 ? 1 : 0
+
   name              = "/ssm/patching/${var.environment}"
   retention_in_days = 365
 
-  tags = { Name = "patching-${var.environment}" }
+  tags = { Name = "${local.name_prefix}patching" }
 }
 
-resource "aws_ssm_maintenance_window" "patching" {
-  name                       = "patching-${var.environment}"
-  schedule                   = var.schedule
-  duration                   = var.duration_hours
-  cutoff                     = 1
+resource "aws_ssm_maintenance_window" "windows" {
+  for_each = var.maintenance_windows
+
+  name                       = "${var.environment}-${each.key}"
+  description                = each.value.description
+  schedule                   = each.value.schedule
+  schedule_timezone          = each.value.schedule_timezone
+  duration                   = each.value.duration
+  cutoff                     = each.value.cutoff
+  enabled                    = each.value.enabled
   allow_unassociated_targets = false
 
-  tags = { Name = "patching-${var.environment}" }
+  tags = merge(each.value.tags, { Name = "${local.name_prefix}${each.key}" })
 }
 
 resource "aws_ssm_maintenance_window_target" "instances" {
-  window_id     = aws_ssm_maintenance_window.patching.id
+  for_each = var.maintenance_windows
+
+  window_id     = aws_ssm_maintenance_window.windows[each.key].id
   name          = "patch-group-${var.environment}"
   resource_type = "INSTANCE"
 
@@ -55,9 +71,10 @@ resource "aws_ssm_maintenance_window_target" "instances" {
   }
 }
 
-# A quarter of the instances at a time, stopping if more than one in ten fail; a reboot only when a patch needs one.
 resource "aws_ssm_maintenance_window_task" "install" {
-  window_id       = aws_ssm_maintenance_window.patching.id
+  for_each = var.maintenance_windows
+
+  window_id       = aws_ssm_maintenance_window.windows[each.key].id
   name            = "install-patches"
   task_type       = "RUN_COMMAND"
   task_arn        = "AWS-RunPatchBaseline"
@@ -67,7 +84,7 @@ resource "aws_ssm_maintenance_window_task" "install" {
 
   targets {
     key    = "WindowTargetIds"
-    values = [aws_ssm_maintenance_window_target.instances.id]
+    values = [aws_ssm_maintenance_window_target.instances[each.key].id]
   }
 
   task_invocation_parameters {
@@ -85,7 +102,7 @@ resource "aws_ssm_maintenance_window_task" "install" {
       }
 
       cloudwatch_config {
-        cloudwatch_log_group_name = aws_cloudwatch_log_group.patching.name
+        cloudwatch_log_group_name = aws_cloudwatch_log_group.patching[0].name
         cloudwatch_output_enabled = true
       }
     }

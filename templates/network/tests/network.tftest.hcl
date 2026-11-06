@@ -1,4 +1,3 @@
-# Wiring checks against a mocked AWS -- docs/network.md.
 mock_provider "aws" {}
 
 mock_provider "aws" {
@@ -15,7 +14,7 @@ override_data {
 }
 
 override_data {
-  target = data.aws_ec2_transit_gateway.transit_gateway
+  target = data.aws_ec2_transit_gateway.transit_gateway[0]
   values = { id = "tgw-ohio" }
 }
 
@@ -139,7 +138,6 @@ run "single_account" {
 run "another_account" {
   command = plan
 
-  # Production takes the global account (444...); the hub has its own (111...).
   variables {
     environment = "production"
     region      = "us-east-2"
@@ -160,4 +158,163 @@ run "another_account" {
     condition     = aws_ec2_transit_gateway_vpc_attachment_accepter.network[0].transit_gateway_default_route_table_association == false
     error_message = "The hub's owner sets the default route table settings when it accepts; the attachment leaves them to it, so plans stay quiet."
   }
+}
+
+run "only_the_command_center_resolves_every_private_name" {
+  command = plan
+
+  variables {
+    environment = "operations"
+    region      = "us-east-2"
+    config_path = "../../tests/config-resolve-all"
+  }
+
+  assert {
+    condition     = length(aws_route53_resolver_rule_association.private) == 1
+    error_message = "operations, listed in resolve_all_private, attaches the hub's rule for the private domain."
+  }
+}
+
+run "other_environments_do_not" {
+  command = plan
+
+  variables {
+    environment = "production"
+    region      = "us-east-2"
+    config_path = "../../tests/config-resolve-all"
+  }
+
+  assert {
+    condition     = length(aws_route53_resolver_rule_association.private) == 0
+    error_message = "production is not listed, so it resolves only its own private names."
+  }
+}
+
+run "peered" {
+  command = plan
+
+  variables {
+    environment = "adhoc"
+    region      = "us-east-2"
+    config_path = "../../templates/network/tests/peering-config"
+    config_dir  = "tests/adhoc"
+  }
+
+  override_data {
+    target = data.aws_vpc.peers["operations"]
+    values = { id = "vpc-operations" }
+  }
+
+  assert {
+    condition     = local.peered && length(data.aws_ec2_transit_gateway.transit_gateway) == 0 && length(aws_ec2_transit_gateway_route_table_association.network) == 0 && length(aws_route53_resolver_rule_association.hub) == 0
+    error_message = "A VPC with connectivity: peering has nothing to do with the hub."
+  }
+
+  assert {
+    condition     = toset(keys(local.module_routes)) == toset(["public 0.0.0.0/0", "private 0.0.0.0/0", "private 10.42.0.0/16", "data 10.42.0.0/16"]) && local.module_routes["private 0.0.0.0/0"].nat_gateway_id == "own" && local.uses_nat
+    error_message = "Its routes are the files' routes, and nothing else: the internet through its own gateways, operations through the peering."
+  }
+
+  assert {
+    condition     = aws_vpc_peering_connection.peerings["operations"].peer_vpc_id == "vpc-operations" && aws_vpc_peering_connection.peerings["operations"].auto_accept && length(aws_vpc_peering_connection_accepter.peerings) == 0 && aws_vpc_peering_connection.peerings["operations"].tags.Name == "Adhoc - Peering to operations"
+    error_message = "A peering in the same region and account is requested and accepted here, to the peer found by name."
+  }
+
+  assert {
+    condition     = toset(keys(local.network_acls)) == toset(["data"]) && local.network_acls.data.ingress[0].protocol == "-1" && local.network_acls.data.ingress[0].rule_no == 100
+    error_message = "A network ACL is written for the tier its file names, and no other."
+  }
+}
+
+run "the_peer_routes_back" {
+  command = plan
+
+  variables {
+    environment = "operations"
+    region      = "us-east-2"
+    config_path = "../../templates/network/tests/peering-config"
+    config_dir  = "tests/operations-back"
+  }
+
+  assert {
+    condition     = !local.peered && local.requester_cidrs["adhoc"] == "10.43.0.0/16" && toset(keys(local.module_routes)) == toset(["private 10.43.0.0/16"]) && toset(keys(data.aws_vpc_peering_connection.requested)) == toset(["adhoc"])
+    error_message = "A VPC on the hub adds a route back to the environment that peered with it, finding the peering by that environment's range."
+  }
+}
+
+run "refuses" {
+  command = plan
+
+  variables {
+    environment = "operations"
+    region      = "us-east-2"
+    config_path = "../../templates/network/tests/peering-config"
+    config_dir  = "tests/broken"
+  }
+
+  assert {
+    condition = alltrue([
+      contains(local.problems, "route-table/attic.yml: attic is not a tier of this VPC (data, ops, private, transit)"),
+      contains(local.problems, "route-table/private.yml: nat_gateway_id own is for a VPC with connectivity: peering; one on the hub goes out through the hub"),
+      contains(local.problems, "route-table/private.yml: 0.0.0.0/0 is already routed for the private tier by config/global.yml"),
+      contains(local.problems, "route-table/private.yml: a route takes destination_cidr_block, gateway_id, nat_gateway_id, vpc_peering_connection_id, transit_gateway_id, with destination_cidr_block and exactly one target"),
+      contains(local.problems, "vpc_peering_connection_id nobody: not a file in config/peering/, a pcx- id, or an environment in config/ that peers with this one"),
+      contains(local.problems, "peering/elsewhere.yml: elsewhere is in another account; peering across accounts needs that account to accept, which is not built yet"),
+    ])
+    error_message = "Each mistake in a route, a peering and a file's place is named."
+  }
+
+  expect_failures = [output.vpc_id]
+}
+
+run "refuses_a_file_out_of_place" {
+  command = plan
+
+  variables {
+    environment = "operations"
+    region      = "us-east-2"
+    config_path = "../../templates/network/tests/peering-config"
+    config_dir  = "tests/misplaced"
+  }
+
+  assert {
+    condition     = contains(local.problems, "config/odd/thing.yml: files go in config/route-table/<tier>.yml, config/peering/<name>.yml or config/network-acl/<tier>.yml")
+    error_message = "A file outside the three folders is refused."
+  }
+
+  expect_failures = [output.vpc_id]
+}
+
+run "hub_is_this_regions_transit_gateway" {
+  command = plan
+
+  variables {
+    environment = "operations"
+    region      = "us-east-2"
+    config_path = "../../templates/network/tests/peering-config"
+    config_dir  = "tests/hub-route"
+  }
+
+  assert {
+    condition     = length(local.problems) == 0 && local.module_routes["data 0.0.0.0/0"].transit_gateway_id == "tgw-ohio"
+    error_message = "transit_gateway_id: hub is the region's hub, found by its tags, never the word itself."
+  }
+}
+
+run "refuses_a_name_that_looks_like_an_id" {
+  command = plan
+
+  variables {
+    environment = "operations"
+    region      = "us-east-2"
+    config_path = "../../templates/network/tests/peering-config"
+    config_dir  = "tests/fake-tgw"
+  }
+
+  assert {
+    condition     = contains(local.problems, "route-table/data.yml: transit_gateway_id is hub, this region's hub, or a Transit Gateway id (tgw- and 17 hex digits)")
+    error_message = "tgw-01 is neither the word hub nor a real id, so it is refused rather than written into the route."
+  }
+
+  expect_failures = [output.vpc_id]
 }

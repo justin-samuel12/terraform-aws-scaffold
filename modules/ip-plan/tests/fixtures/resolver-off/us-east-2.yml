@@ -1,0 +1,24 @@
+zones:
+  - use2-az1
+  - use2-az2
+  - use2-az3
+hub:
+  account_id: ""
+  team:
+  cidr: 10.40.0.0/20
+  amazon_side_asn: 64512
+  primary: true
+  security_group_referencing: false
+vpcs:
+  operations:
+    account_id: ""
+    team:
+    cidr: 10.42.0.0/16
+    segment: shared
+    public: false
+  production:
+    account_id: ""
+    team:
+    cidr: 10.41.0.0/16
+    segment: restricted
+    public: true

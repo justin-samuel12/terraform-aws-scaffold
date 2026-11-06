@@ -1,0 +1,9 @@
+service_name: com.amazonaws.us-east-2.ec2messages
+vpc_endpoint_type: Interface
+subnet_ids:
+  - private-az1
+  - private-az2
+  - private-az3
+security_group_ids:
+  - endpoints
+private_dns_enabled: true

@@ -1,13 +1,3 @@
-variable "name" {
-  description = "Name tag of the peering, for example tgw-peering-01."
-  type        = string
-
-  validation {
-    condition     = can(regex("^tgw-peering-[0-9]{2}$", var.name))
-    error_message = "name must be tgw-peering-NN, for example tgw-peering-01 (docs/conventions.md)."
-  }
-}
-
 variable "requester" {
   description = "The side that requests the peering: its region, Transit Gateway, the route table the peering is associated with, and per route table (by name) its ID and the CIDRs it sends across."
   type = object({

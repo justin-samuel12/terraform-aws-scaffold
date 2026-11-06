@@ -1,0 +1,10 @@
+keep_images: 20
+repository_policy:
+  policy:
+    Version: "2012-10-17"
+    Statement:
+      - Effect: Allow
+        Principal:
+          AWS: staging
+        Action:
+          - ecr:BatchGetImage

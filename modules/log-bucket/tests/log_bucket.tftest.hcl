@@ -1,4 +1,3 @@
-# What the module builds and refuses, against a mocked AWS -- docs/global.md.
 mock_provider "aws" {}
 
 override_data {
@@ -30,9 +29,38 @@ run "load_balancer_logs" {
   }
 
   assert {
-    condition     = aws_s3_bucket_lifecycle_configuration.logs.rule[0].expiration[0].days == 365
-    error_message = "Logs are kept a year unless told otherwise."
+    condition     = length(aws_s3_bucket_lifecycle_configuration.logs) == 0
+    error_message = "Without rules, no lifecycle: nothing expires that a file does not say."
   }
+}
+
+run "lifecycle_rules" {
+  command = plan
+
+  variables {
+    rule = [{
+      id                                = "retention"
+      status                            = "Enabled"
+      expiration                        = { days = 400 }
+      noncurrent_version_expiration     = { noncurrent_days = 30 }
+      abort_incomplete_multipart_upload = { days_after_initiation = 7 }
+    }]
+  }
+
+  assert {
+    condition     = aws_s3_bucket_lifecycle_configuration.logs[0].rule[0].expiration[0].days == 400 && aws_s3_bucket_lifecycle_configuration.logs[0].rule[0].noncurrent_version_expiration[0].noncurrent_days == 30
+    error_message = "The rules are the ones given."
+  }
+}
+
+run "rejects_an_unknown_status" {
+  command = plan
+
+  variables {
+    rule = [{ id = "retention", status = "On", expiration = { days = 400 } }]
+  }
+
+  expect_failures = [var.rule]
 }
 
 run "waf_logs" {

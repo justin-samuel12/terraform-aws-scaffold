@@ -1,10 +1,9 @@
-# Every command run through ECS Exec, and its output, is kept here.
 resource "aws_cloudwatch_log_group" "exec" {
   name              = "/ecs/${var.environment}/exec"
   retention_in_days = var.log_retention_days
   kms_key_id        = var.log_kms_key_arn
 
-  tags = { Name = "${var.environment}-ecs-exec" }
+  tags = { Name = "${local.name_prefix}ECS Exec Logs" }
 }
 
 resource "aws_ecs_cluster" "cluster" {
@@ -27,10 +26,9 @@ resource "aws_ecs_cluster" "cluster" {
     }
   }
 
-  tags = { Name = var.environment }
+  tags = { Name = "${local.name_prefix}ECS Cluster" }
 }
 
-# Fargate by default; a service may ask for Fargate Spot for some or all of its tasks.
 resource "aws_ecs_cluster_capacity_providers" "cluster" {
   cluster_name       = aws_ecs_cluster.cluster.name
   capacity_providers = ["FARGATE", "FARGATE_SPOT"]

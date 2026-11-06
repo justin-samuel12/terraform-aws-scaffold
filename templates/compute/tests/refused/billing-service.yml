@@ -1,4 +1,10 @@
 blueprint: backend-service/v1
-priority: 1300
+listener_rule:
+  listener_arn: internal/443
+  priority: 1300
+  condition:
+    path_pattern:
+      values:
+        - /billing-service/*
 tier: data
 instance_type: m7i.24xlarge

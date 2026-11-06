@@ -6,5 +6,5 @@ resource "aws_ssm_document" "documents" {
   document_format = "YAML"
   content         = yamlencode(each.value.content)
 
-  tags = { Name = each.key }
+  tags = { Name = "${local.name_prefix}${trimprefix(each.key, "${local.environment_tag}-")}" }
 }

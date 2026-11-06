@@ -1,0 +1,74 @@
+description: What a server joined to the domain needs from the domain controllers, and nothing else
+tags:
+  Kind: server
+egress:
+  - description: DNS to the domain controllers
+    ip_protocol: udp
+    from_port: 53
+    to_port: 53
+    cidr_ipv4: 192.168.10.0/28
+  - description: DNS over TCP to the domain controllers
+    ip_protocol: tcp
+    from_port: 53
+    to_port: 53
+    cidr_ipv4: 192.168.10.0/28
+  - description: Kerberos
+    ip_protocol: tcp
+    from_port: 88
+    to_port: 88
+    cidr_ipv4: 192.168.10.0/28
+  - description: Kerberos over UDP
+    ip_protocol: udp
+    from_port: 88
+    to_port: 88
+    cidr_ipv4: 192.168.10.0/28
+  - description: Time from the domain controllers, which Kerberos needs within five minutes
+    ip_protocol: udp
+    from_port: 123
+    to_port: 123
+    cidr_ipv4: 192.168.10.0/28
+  - description: RPC endpoint mapper
+    ip_protocol: tcp
+    from_port: 135
+    to_port: 135
+    cidr_ipv4: 192.168.10.0/28
+  - description: LDAP
+    ip_protocol: tcp
+    from_port: 389
+    to_port: 389
+    cidr_ipv4: 192.168.10.0/28
+  - description: LDAP over UDP, for finding a domain controller
+    ip_protocol: udp
+    from_port: 389
+    to_port: 389
+    cidr_ipv4: 192.168.10.0/28
+  - description: SMB, for Group Policy and the join
+    ip_protocol: tcp
+    from_port: 445
+    to_port: 445
+    cidr_ipv4: 192.168.10.0/28
+  - description: Kerberos password changes
+    ip_protocol: tcp
+    from_port: 464
+    to_port: 464
+    cidr_ipv4: 192.168.10.0/28
+  - description: Kerberos password changes over UDP
+    ip_protocol: udp
+    from_port: 464
+    to_port: 464
+    cidr_ipv4: 192.168.10.0/28
+  - description: LDAPS
+    ip_protocol: tcp
+    from_port: 636
+    to_port: 636
+    cidr_ipv4: 192.168.10.0/28
+  - description: Global catalog
+    ip_protocol: tcp
+    from_port: 3268
+    to_port: 3269
+    cidr_ipv4: 192.168.10.0/28
+  - description: RPC dynamic ports
+    ip_protocol: tcp
+    from_port: 49152
+    to_port: 65535
+    cidr_ipv4: 192.168.10.0/28

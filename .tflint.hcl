@@ -1,4 +1,3 @@
-# Lint rules -- docs/conventions.md.
 config {
   call_module_type = "local"
 }

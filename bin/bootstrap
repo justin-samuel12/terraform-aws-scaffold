@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# The Terraform state bucket: create it, resume a run that stopped, or use one that already exists -- docs/configuration.md.
-# The only stack that starts on local state: nothing else can exist before the bucket does. Everything it creates is shown as
-# a plan and asked for first; using an existing bucket creates nothing.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
 cd "${REPO_ROOT}"
@@ -26,8 +23,6 @@ KEY_FORMAT="$(yq -r '.state.key // "{region}/{environment}/{component}"' "${GLOB
 PROFILE="$(profile_for shared)"
 [[ -n "${PROFILE}" ]] && export AWS_PROFILE="${PROFILE}"
 
-# Each account other than the bucket's may reach only its own environments' keys: the key format with region and environment
-# filled in, and everything from the component on matched by a wildcard.
 pattern_for() { # pattern_for <region or global> <environment> <account>
     local k="${KEY_FORMAT//\{region\}/$1}"
     k="${k//\{environment\}/$2}"; k="${k//\{account_id\}/$3}"
@@ -62,7 +57,6 @@ write_config() {
 migrate() {
     say "Moving this stack's own state into the bucket."
     cat > "${DIR}/backend.tf" <<BACKEND
-# Written by make bootstrap once the bucket existed; do not edit.
 terraform {
   backend "s3" {
     bucket       = "${BUCKET}"
@@ -93,7 +87,6 @@ if [[ "${CHECK}" == 1 ]]; then
     exit 0
 fi
 
-# 1. Already bootstrapped: plan any change from the state in the bucket.
 if [[ -f "${DIR}/backend.tf" ]]; then
     say "Already bootstrapped; its state is in the bucket. Planning any change (apply asks first)."
     terraform -chdir="${DIR}" init -input=false >/dev/null
@@ -105,14 +98,12 @@ local_state=0
 
 if aws s3api head-bucket --bucket "${BUCKET}" --region "${REGION}" >/dev/null 2>&1; then
     if [[ "${local_state}" == 1 ]]; then
-        # 2. A previous run created the bucket and stopped: finish it from its own local state.
         say "A previous run created ${BUCKET} and stopped before the end; finishing it (apply asks first)."
         terraform -chdir="${DIR}" init -input=false >/dev/null
         terraform -chdir="${DIR}" apply
         migrate
         write_config
     else
-        # 3. Someone else's bucket: use it if it is safe, create nothing.
         s3() { aws s3api "$@" --bucket "${BUCKET}" --region "${REGION}" 2>/dev/null; }
         problems=""
         [[ "$(s3 get-bucket-versioning --query Status --output text)" == Enabled ]] || problems+="not versioned (an overwritten state could not be recovered); "
@@ -125,7 +116,6 @@ if aws s3api head-bucket --bucket "${BUCKET}" --region "${REGION}" >/dev/null 2>
         write_config
     fi
 else
-    # 4. No bucket: create it, then move this stack's state into it.
     say "Creating the bucket, on local state for now. Review the plan; apply asks first."
     terraform -chdir="${DIR}" init -input=false >/dev/null
     terraform -chdir="${DIR}" apply

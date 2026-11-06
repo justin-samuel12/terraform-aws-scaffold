@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "${REPO_ROOT}"
+OFF=".github/workflows-off"
+
+target_of() {
+    case "$1" in
+        dependabot.yml) echo .github/dependabot.yml ;;
+        CODEOWNERS) echo .github/CODEOWNERS ;;
+        *) echo ".github/workflows/$1" ;;
+    esac
+}
+
+uncomment() { sed -E 's/^# ?//' "$1"; }
+
+check_yaml() {
+    local name="$1" file="$2"
+    [[ "${name}" == CODEOWNERS ]] && return 0
+    yq -e '.' "${file}" >/dev/null || { echo "bin/workflows: ${name} is not valid YAML" >&2; exit 1; }
+}
+
+cmd_check() {
+    local work f name
+    work="$(mktemp -d)"
+    trap 'rm -rf "${work}"' RETURN
+    for f in "${OFF}"/*; do
+        name="$(basename "${f}")"
+        if grep -qvE '^(#|$)' "${f}"; then echo "bin/workflows: ${name} has a live line; every line must stay commented" >&2; exit 1; fi
+        uncomment "${f}" >"${work}/${name}"
+        check_yaml "${name}" "${work}/${name}"
+        echo "ok    ${name}"
+    done
+    if command -v actionlint >/dev/null; then
+        mkdir -p "${work}/.github/workflows"
+        for f in "${work}"/*.yml; do
+            if [[ "$(basename "${f}")" != dependabot.yml ]]; then cp "${f}" "${work}/.github/workflows/"; fi
+        done
+        (cd "${work}" && actionlint -config-file /dev/null .github/workflows/*.yml)
+    else
+        echo "note  actionlint is not installed; the workflows' YAML was checked, their expressions were not"
+    fi
+}
+
+cmd_on() {
+    local f name target
+    mkdir -p .github/workflows
+    for f in "${OFF}"/*; do
+        name="$(basename "${f}")"; target="$(target_of "${name}")"
+        uncomment "${f}" >"${target}"
+        echo "on    ${target}"
+    done
+}
+
+cmd_off() {
+    local f target
+    for f in "${OFF}"/*; do
+        target="$(target_of "$(basename "${f}")")"
+        rm -f "${target}"
+        echo "off   ${target}"
+    done
+}
+
+case "${1:-}" in
+    check) cmd_check ;;
+    on) cmd_on ;;
+    off) cmd_off ;;
+    *) echo "usage: bin/workflows check | on | off" >&2; exit 2 ;;
+esac

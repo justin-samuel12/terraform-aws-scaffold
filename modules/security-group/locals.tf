@@ -1,15 +1,13 @@
 locals {
-  default_egress = [
-    { description = "Internal traffic, through the hub", protocol = "-1", from_port = null, to_port = null, group = null, cidr = var.internal_cidr, prefix_list = null, remote_group = null, remote_group_id = null },
-    { description = "HTTPS out, through the hub's egress", protocol = "tcp", from_port = 443, to_port = 443, group = null, cidr = "0.0.0.0/0", prefix_list = null, remote_group = null, remote_group_id = null },
-    { description = "HTTP out, through the hub's egress: package mirrors and Windows Update", protocol = "tcp", from_port = 80, to_port = 80, group = null, cidr = "0.0.0.0/0", prefix_list = null, remote_group = null, remote_group_id = null },
-  ]
+  environment_tag = try(data.aws_default_tags.current.tags["Environment"], "")
+  name_prefix     = local.environment_tag == "" ? "" : "${title(local.environment_tag)} - "
 
-  # One entry per rule, keyed by what it allows rather than its position, so reordering a file changes nothing.
+
   rules = merge([
-    for name, g in var.groups : merge(
-      { for r in g.ingress : "${name}/ingress/${r.protocol}/${coalesce(r.from_port, 0)}-${coalesce(r.to_port, 0)}/${coalesce(r.group, r.cidr, r.prefix_list, r.remote_group)}" => merge(r, { owner = name, direction = "ingress" }) },
-      { for r in coalesce(g.egress, local.default_egress) : "${name}/egress/${r.protocol}/${coalesce(r.from_port, 0)}-${coalesce(r.to_port, 0)}/${coalesce(r.group, r.cidr, r.prefix_list, r.remote_group)}" => merge(r, { owner = name, direction = "egress" }) },
-    )
+    for name, g in var.groups : merge([
+      for direction in ["ingress", "egress"] : {
+        for r in g[direction] : "${name}/${direction}/${r.ip_protocol}/${coalesce(r.from_port, 0)}-${coalesce(r.to_port, 0)}/${coalesce(r.cidr_ipv4, r.cidr_ipv6, r.prefix_list_id, r.referenced_security_group_id)}" => merge(r, { owner = name, direction = direction })
+      }
+    ]...)
   ]...)
 }

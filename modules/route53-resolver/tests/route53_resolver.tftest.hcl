@@ -1,4 +1,3 @@
-# What the module builds and refuses, against a mocked AWS -- docs/network.md.
 mock_provider "aws" {}
 
 variables {
@@ -51,4 +50,29 @@ run "rejects_one_zone" {
   }
 
   expect_failures = [var.subnet_ids]
+}
+
+run "private_names_through_the_inbound_endpoint" {
+  command = plan
+
+  variables {
+    forward         = {}
+    inbound_domains = ["corp.internal"]
+  }
+
+  assert {
+    condition     = length(aws_route53_resolver_endpoint.outbound) == 1 && aws_route53_resolver_rule.inbound["corp.internal"].domain_name == "corp.internal" && aws_route53_resolver_rule.inbound["corp.internal"].name == "dns-01-corp-internal"
+    error_message = "A domain forwarded to the hub's own inbound endpoint, through an outbound endpoint, under the name environments find it by."
+  }
+}
+
+run "refuses_private_names_without_inbound" {
+  command = plan
+
+  variables {
+    inbound         = false
+    inbound_domains = ["corp.internal"]
+  }
+
+  expect_failures = [var.inbound_domains]
 }

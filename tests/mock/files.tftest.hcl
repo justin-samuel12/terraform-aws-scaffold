@@ -1,5 +1,3 @@
-# Plans a stack's own files against a mocked AWS that answers like the real one: make check-files.
-# bin/check-files sets the region and zones below to the stack's own before each run.
 mock_provider "aws" {
   mock_data "aws_iam_policy" {
     defaults = { arn = "arn:aws:iam::111111111111:policy/shared" }
@@ -15,7 +13,7 @@ mock_provider "aws" {
     defaults = { region = "us-east-1", name = "us-east-1" }
   }
   mock_data "aws_ami" {
-    defaults = { root_device_name = "/dev/xvda" }
+    defaults = { id = "ami-0aaaaaaaaaaaaaaaa", root_device_name = "/dev/xvda" }
   }
   mock_data "aws_availability_zones" {
     defaults = { zone_ids = ["use1-az1", "use1-az2", "use1-az4"], names = ["zone-a", "zone-b", "zone-c"] }
@@ -91,6 +89,14 @@ mock_provider "aws" {
 }
 
 mock_provider "aws" {
+  alias = "dns"
+
+  mock_data "aws_route53_zone" {
+    defaults = { zone_id = "Z0000000000000000000", name = "example.com" }
+  }
+}
+
+mock_provider "aws" {
   alias = "us_east_1"
 
   mock_data "aws_acm_certificate" {
@@ -106,7 +112,6 @@ mock_provider "aws" {
 
 mock_provider "archive" {}
 
-# The ownership check of a shared CodeDeploy application runs the AWS CLI; here it never runs.
 mock_provider "external" {}
 
 variables {

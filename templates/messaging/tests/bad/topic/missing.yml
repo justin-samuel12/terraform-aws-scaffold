@@ -1,0 +1,7 @@
+publishers:
+  - cloudwatch
+sns_topic_subscription:
+  - protocol: sqs
+    endpoint: nowhere
+  - protocol: lambda
+    endpoint: audit

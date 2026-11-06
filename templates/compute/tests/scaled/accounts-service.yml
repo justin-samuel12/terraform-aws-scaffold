@@ -2,21 +2,25 @@ instance_type: m6i.large
 ami: ami-0123456789abcdef0
 tier: ops
 iam_instance_profile: accounts-service
-autoscaling:
+autoscaling_group:
   min_size: 2
   max_size: 6
   desired_capacity: 2
+autoscaling_policy:
   target_tracking_configuration:
-    predefined_metric_type: ASGAverageCPUUtilization
+    predefined_metric_specification:
+      predefined_metric_type: ASGAverageCPUUtilization
     target_value: 50
 target_group:
   port: 8080
   health_check:
     path: /health
-listener_rules:
-  - load_balancer: internal
+listener_rule:
+  listener_arn: internal/443
+  priority: 1100
+  condition:
     host_header:
-      - accounts.example.com
-    priority: 1100
+      values:
+        - accounts.example.com
 tags:
   CodeDeploy: "['accounts-service']"

@@ -1,5 +1,11 @@
 runtime: python3.12
 handler: app.handler
+memory_size: 512
+timeout: 60
+cloudwatch_log_group:
+  retention_in_days: 30
 event_source_mapping:
-  event_source_arn: queue:orders
+  event_source_arn: orders
   batch_size: 5
+  function_response_types:
+    - ReportBatchItemFailures

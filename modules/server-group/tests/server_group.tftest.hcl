@@ -1,6 +1,5 @@
-# What the module builds, with and without CodeDeploy, against a mocked AWS -- docs/compute.md.
 mock_provider "aws" {
-  alias = "hub"
+  alias = "dns"
 }
 
 mock_provider "aws" {
@@ -26,15 +25,15 @@ variables {
   port   = 3000
   health = "/api/health"
   routes = [{ listener_arn = "arn:aws:elasticloadbalancing:us-east-2:111111111111:listener/app/internal/abc/def", hosts = ["grafana.example.com"], priority = 1010 }]
-  names  = [{ zone_id = "Z0PRIVATE", name = "grafana.example.com", lb_dns_name = "internal-123.us-east-2.elb.amazonaws.com", lb_zone_id = "Z3AADJGX6KTTL2" }]
+  names  = [{ zone_id = "Z0PRIVATE", name = "grafana.example.com", type = "A", lb_dns_name = "internal-123.us-east-2.elb.amazonaws.com", lb_zone_id = "Z3AADJGX6KTTL2", evaluate_target_health = true }]
 }
 
 run "routed" {
   command = plan
 
   assert {
-    condition     = aws_lb_target_group.group[0].port == 3000 && startswith(aws_lb_target_group.group[0].name, "operations-grafana-") && length(aws_lb_target_group.group[0].name) == 27 && !aws_lb_target_group.group[0].stickiness[0].enabled && aws_lb_target_group.group[0].health_check[0].path == "/api/health" && length(aws_lb_listener_rule.routes) == 1
-    error_message = "A target group on its port and health check, and its rule on the shared listener."
+    condition     = aws_lb_target_group.group[0].port == 3000 && startswith(aws_lb_target_group.group[0].name, "operations-grafana-") && length(aws_lb_target_group.group[0].name) == 27 && length(aws_lb_target_group.group[0].stickiness) == 0 && aws_lb_target_group.group[0].health_check[0].path == "/api/health" && length(aws_lb_listener_rule.routes) == 1
+    error_message = "A target group on its port and health check, with no stickiness block it was not given, and its rule on the shared listener."
   }
 
   assert {
@@ -61,12 +60,12 @@ run "joins_a_network_load_balancer_too" {
   command = plan
 
   variables {
-    target  = { protocol = "HTTPS", stickiness = 3600 }
+    target  = { protocol = "HTTPS", stickiness = { enabled = true, type = "lb_cookie", cookie_duration = 3600 } }
     targets = { "internal-nlb/syslog" = { arn = "arn:aws:elasticloadbalancing:us-east-2:111111111111:targetgroup/internal-nlb-syslog-ab12/1", name = "internal-nlb-syslog-ab12", port = 514 } }
   }
 
   assert {
-    condition     = aws_lb_target_group.group[0].protocol == "HTTPS" && aws_lb_target_group.group[0].stickiness[0].cookie_duration == 3600
+    condition     = aws_lb_target_group.group[0].protocol == "HTTPS" && aws_lb_target_group.group[0].stickiness[0].cookie_duration == 3600 && aws_lb_target_group.group[0].stickiness[0].enabled
     error_message = "Its own group speaks HTTPS to it, with sticky sessions."
   }
 
@@ -74,6 +73,16 @@ run "joins_a_network_load_balancer_too" {
     condition     = length(output.target_group_names) == 2 && contains(output.target_group_names, "internal-nlb-syslog-ab12")
     error_message = "Every group its servers are in, its own and the network load balancer's, so a deployment takes each server out of all of them."
   }
+}
+
+run "rejects_stickiness_of_another_type" {
+  command = plan
+
+  variables {
+    target = { stickiness = { type = "source_ip" } }
+  }
+
+  expect_failures = [var.target]
 }
 
 run "rejects_low_priority" {

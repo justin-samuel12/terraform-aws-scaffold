@@ -1,5 +1,5 @@
 variable "name" {
-  description = "Name tag of the Transit Gateway, for example tgw-01. Route tables are named from it."
+  description = "The Transit Gateway's description in AWS, for example tgw-01; its Name tag is the environment and \"Transit Gateway\"."
   type        = string
 
   validation {

@@ -4,4 +4,5 @@ ami: ami-0123456789abcdef0
 tier: ops
 iam_instance_profile: zabbix-proxy
 target_group_attachments:
-  internal-nlb/zabbix: 10051
+  - target_group_arn: internal-nlb-zabbix
+    port: 10051

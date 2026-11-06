@@ -1,8 +1,0 @@
-description: Every backend service's servers (blueprint backend-service), reached only by the internal load balancer
-ingress:
-  - description: HTTPS, from the internal load balancer
-    ip_protocol: tcp
-    from_port: 443
-    to_port: 443
-    source:
-      - dashboards-lb

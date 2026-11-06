@@ -1,4 +1,3 @@
-# The account every environment and hub uses, unless its entry in config/<region>.yml names its own. Quote it.
 account_id: ""
 state:
   bucket: ""
@@ -40,11 +39,15 @@ subnets:
     dns:
       size: 28
       start: 14
-hq:
-  ip_address: null
-  bgp_asn: 65010
-  cidrs: []
-prefix_lists: null
+sites:
+  office:
+    ip_address: null
+    bgp_asn: 65010
+    cidrs: []
+prefix_lists:
+  staff-team:
+    - cidr: 192.168.20.0/24
+      description: Staff VPN
 dns:
   inbound: false
   forward: null

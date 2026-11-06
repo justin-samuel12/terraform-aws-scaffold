@@ -1,0 +1,6 @@
+route:
+  - destination_cidr_block: 0.0.0.0/0
+    nat_gateway_id: own
+  - destination_cidr_block: 10.42.0.0/16
+    vpc_peering_connection_id: nobody
+    transit_gateway_id: hub
