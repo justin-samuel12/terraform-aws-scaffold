@@ -112,13 +112,13 @@ if [[ "${COMMAND}" == plan ]]; then
     done <<<"$(bin/order --unapplied "${NAME}" 2>/dev/null || true)"
 
     if ! passed_before "preflight:${NAME}" "${FP}"; then
-        dirs="$(module_closure "${REL}")"
-        for d in ${dirs}; do terraform fmt -check -list=true "${d}" >/dev/null || stop "${d} is not formatted: make fmt"; done
+        closure="$(module_closure "${REL}")"
+        for d in ${closure}; do terraform fmt -check -list=true "${d}" >/dev/null || stop "${d} is not formatted: make fmt"; done
         terraform -chdir="${STACK}" validate -no-color >/dev/null || { terraform -chdir="${STACK}" validate -no-color >&2 || true; stop "the stack is not valid."; }
         if command -v tflint >/dev/null; then
             tflint --init --config="${REPO_ROOT}/.tflint.hcl" >/dev/null 2>&1 \
                 || stop "tflint could not install its plugins (it needs the internet once): run make lint to see why."
-            for d in ${dirs}; do
+            for d in ${closure}; do
                 [[ "${d}" == live/* ]] && continue
                 rc=0; out="$(tflint --chdir="${d}" --config="${REPO_ROOT}/.tflint.hcl" --format compact 2>&1)" || rc=$?
                 case "${rc}" in

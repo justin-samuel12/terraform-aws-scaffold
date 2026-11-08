@@ -1,5 +1,13 @@
 data "aws_default_tags" "current" {}
 
+data "aws_ec2_transit_gateway" "parent" {
+  count = local.parent ? 1 : 0
+
+  id = local.network.transit_gateway.id
+
+  depends_on = [aws_ram_resource_share_accepter.parent]
+}
+
 data "aws_ec2_transit_gateway" "peers" {
   for_each = toset(local.peer_regions)
 

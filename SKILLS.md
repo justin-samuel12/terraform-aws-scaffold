@@ -105,7 +105,8 @@ rather than a shortcut:
   identically from each tier's `size`, `start` and `reserved`; files name the
   resulting subnets (`private-az1`) or, in compute, a tier.
 - **Two server tags act.** `DNS` gives a server its internal A record and
-  `CodeDeploy` puts it in its app's deployment groups. No other tag does anything.
+  `CodeDeploy` puts it in its app's deployment groups. No other tag does
+  anything.
 - **Compute places servers.** `count`, `server_name`, `tier` and `members` name
   the servers and spread them across zones. Under `members`, every key is
   `aws_instance`'s: `subnet_id`, `private_ip`, `secondary_private_ips`. An address

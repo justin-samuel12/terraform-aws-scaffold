@@ -3,6 +3,14 @@ mock_provider "aws" {
     defaults = { arn = "arn:aws:iam::111111111111:policy/shared" }
   }
 
+  mock_data "aws_iam_policy_document" {
+    defaults = { json = "{\"Version\":\"2012-10-17\",\"Statement\":[]}" }
+  }
+
+  mock_data "aws_iam_openid_connect_provider" {
+    defaults = { arn = "arn:aws:iam::111111111111:oidc-provider/token.actions.githubusercontent.com" }
+  }
+
   mock_data "aws_partition" {
     defaults = { partition = "aws", dns_suffix = "amazonaws.com" }
   }
@@ -13,7 +21,10 @@ mock_provider "aws" {
     defaults = { region = "us-east-1", name = "us-east-1" }
   }
   mock_data "aws_ami" {
-    defaults = { id = "ami-0aaaaaaaaaaaaaaaa", root_device_name = "/dev/xvda" }
+    defaults = { id = "ami-0aaaaaaaaaaaaaaaa", root_device_name = "/dev/xvda", architecture = "x86_64" }
+  }
+  mock_data "aws_ec2_instance_type" {
+    defaults = { supported_architectures = ["x86_64"] }
   }
   mock_data "aws_availability_zones" {
     defaults = { zone_ids = ["use1-az1", "use1-az2", "use1-az4"], names = ["zone-a", "zone-b", "zone-c"] }

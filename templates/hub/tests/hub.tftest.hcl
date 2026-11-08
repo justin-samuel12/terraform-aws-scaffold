@@ -22,7 +22,7 @@ run "ohio_hub" {
   }
 
   assert {
-    condition     = toset(keys(module.transit_gateway.route_table_ids)) == toset(["restricted", "standard", "shared"])
+    condition     = toset(keys(module.transit_gateway[0].route_table_ids)) == toset(["restricted", "standard", "shared"])
     error_message = "The hub has one route table per segment."
   }
 
@@ -167,5 +167,67 @@ run "no_directory_in_another_hub" {
   assert {
     condition     = length(module.managed_directory) == 0
     error_message = "The directory is only ever in the primary hub."
+  }
+}
+
+run "a_parent_runs_the_transit_gateway" {
+  command = plan
+
+  override_data {
+    target = module.vpc.data.aws_availability_zones.available
+    values = { zone_ids = ["use2-az1", "use2-az2", "use2-az3"] }
+  }
+
+  override_data {
+    target = data.aws_ec2_transit_gateway.parent[0]
+    values = { id = "tgw-0123456789abcdef0" }
+  }
+
+  variables {
+    region      = "us-east-2"
+    config_path = "../../tests/config-parent"
+  }
+
+  assert {
+    condition     = length(module.transit_gateway) == 0 && length(module.vpn) == 0 && length(module.peering) == 0
+    error_message = "Where a parent organization runs the Transit Gateway, the hub builds no gateway, route tables, VPN or peering of its own."
+  }
+
+  assert {
+    condition     = output.transit_gateway_id == "tgw-0123456789abcdef0" && output.route_table_ids == {}
+    error_message = "The hub's VPC attaches to the parent's gateway, and leaves its route tables to the parent."
+  }
+
+  assert {
+    condition     = length(aws_ram_resource_share_accepter.parent) == 1 && aws_ram_resource_share_accepter.parent[0].share_arn == "arn:aws:ram:us-east-2:999999999999:resource-share/parent-network"
+    error_message = "The hub accepts the parent's share of its gateway."
+  }
+
+  assert {
+    condition     = !contains(keys(local.share_resources), "transit-gateway")
+    error_message = "It never shares on a gateway it does not own."
+  }
+}
+
+run "peering_carries_only_what_each_segment_may_reach" {
+  command = plan
+
+  override_data {
+    target = module.vpc.data.aws_availability_zones.available
+    values = { zone_ids = ["use2-az1", "use2-az2", "use2-az3"] }
+  }
+
+  variables {
+    region = "us-east-2"
+  }
+
+  assert {
+    condition     = !contains(local.reach["standard"], "restricted") && !contains(local.reach["restricted"], "standard")
+    error_message = "A standard network's table holds no route to a restricted one across the peering, and the other way round."
+  }
+
+  assert {
+    condition     = toset(local.reach["shared"]) == toset(local.tables)
+    error_message = "Only the shared segment reaches every segment."
   }
 }

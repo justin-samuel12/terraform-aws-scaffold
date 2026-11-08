@@ -18,7 +18,7 @@ locals {
   connectivity = ["transit_gateway", "peering"]
   allowed_keys = {
     file   = ["zones", "hub", "vpcs"]
-    egress = ["account_id", "team", "cidr", "amazon_side_asn", "primary", "security_group_referencing", "resolver"]
+    egress = ["account_id", "team", "cidr", "amazon_side_asn", "primary", "security_group_referencing", "resolver", "transit_gateway"]
     spoke  = ["account_id", "team", "cidr", "segment", "public", "connectivity"]
   }
 
@@ -186,8 +186,26 @@ locals {
     ]),
   )
 
+  transit_gateways = {
+    for region, d in local.region_files : region => {
+      owner     = try(tostring(d.hub.transit_gateway.owner), "self")
+      id        = try(tostring(d.hub.transit_gateway.id), null)
+      share_arn = try(tostring(d.hub.transit_gateway.share_arn), null)
+    }
+  }
+  transit_gateway_problems = flatten([
+    for region, d in local.region_files : concat(
+      try(d.hub.transit_gateway, null) == null ? [] : (can(keys(d.hub.transit_gateway)) && alltrue([for k in try(keys(d.hub.transit_gateway), []) : contains(["owner", "id", "share_arn"], k)]) ? [] : ["hub.transit_gateway in config/${region}.yml takes owner, id and share_arn"]),
+      contains(["self", "parent"], local.transit_gateways[region].owner) ? [] : ["hub.transit_gateway.owner in config/${region}.yml is self (this repository builds the region's Transit Gateway) or parent (another organization runs it and shares it)"],
+      local.transit_gateways[region].owner == "parent" && !can(regex("^tgw-[0-9a-f]{8,17}$", coalesce(local.transit_gateways[region].id, "?"))) ? ["hub.transit_gateway.id in config/${region}.yml is the parent's Transit Gateway, tgw-..., shared to these accounts"] : [],
+      local.transit_gateways[region].owner == "self" && local.transit_gateways[region].id != null ? ["hub.transit_gateway.id in config/${region}.yml is only for a parent's Transit Gateway; this repository finds its own"] : [],
+      local.transit_gateways[region].share_arn != null && !can(regex("^arn:aws[a-z-]*:ram:[a-z0-9-]+:[0-9]{12}:resource-share/.+$", coalesce(local.transit_gateways[region].share_arn, "?"))) ? ["hub.transit_gateway.share_arn in config/${region}.yml is the parent's RAM share of it, arn:aws:ram:..."] : [],
+    )
+  ])
+
   networks = {
     for key, vpc in local.vpcs : key => {
+      transit_gateway            = local.transit_gateways[split("/", key)[1]]
       cidr                       = vpc.cidr
       purpose                    = vpc.purpose
       connectivity               = vpc.connectivity

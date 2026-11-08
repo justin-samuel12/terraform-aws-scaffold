@@ -2,6 +2,8 @@ resource "aws_iam_role" "roles" {
   for_each = var.roles
 
   name                 = each.key
+  path                 = try(var.role_boundary.path, "/")
+  permissions_boundary = try(var.role_boundary.permissions_boundary, null)
   description          = each.value.description
   max_session_duration = 3600
 
@@ -28,6 +30,7 @@ resource "aws_iam_policy" "policies" {
   for_each = var.policies
 
   name        = each.key
+  path        = try(var.role_boundary.path, "/")
   description = each.value.description
   policy = jsonencode({
     Version = "2012-10-17"
@@ -70,6 +73,7 @@ resource "aws_iam_instance_profile" "profiles" {
   for_each = var.instance_profiles != null ? var.instance_profiles : { for name, r in var.roles : name => name if contains(r.services, "ec2") }
 
   name = each.key
+  path = try(var.role_boundary.path, "/")
   role = aws_iam_role.roles[each.value].name
 
   tags = { Name = "${local.name_prefix}${trimprefix(each.key, "${local.environment_tag}-")}" }

@@ -1,6 +1,6 @@
 data "aws_ec2_transit_gateway" "transit_gateway" {
   provider = aws.hub
-  count    = local.peered ? 0 : 1
+  count    = local.ours ? 1 : 0
 
   filter {
     name   = "tag:Component"
@@ -12,9 +12,17 @@ data "aws_ec2_transit_gateway" "transit_gateway" {
   }
 }
 
+data "aws_ec2_transit_gateway" "parent" {
+  count = local.parent ? 1 : 0
+
+  id = local.network.transit_gateway.id
+
+  depends_on = [aws_ram_resource_share_accepter.parent]
+}
+
 data "aws_ec2_transit_gateway_route_table" "route_tables" {
   provider = aws.hub
-  for_each = local.peered ? toset([]) : toset(["restricted", "standard", "shared"])
+  for_each = local.ours ? toset(["restricted", "standard", "shared"]) : toset([])
 
   filter {
     name   = "transit-gateway-id"

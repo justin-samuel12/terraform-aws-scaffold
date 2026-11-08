@@ -51,26 +51,66 @@ terraform {
 HCL
 }
 
+render_stack() {
+    local location environment component
+    location="$(cut -d/ -f2 <<<"$1")"
+    environment="$(cut -d/ -f3 <<<"$1")"
+    component="$(cut -d/ -f4 <<<"$1")"
+    cat <<HCL
+locals {
+  stack = {
+    location    = "${location}"
+    environment = "${environment}"
+    component   = "${component}"
+  }
+}
+HCL
+}
+
+SHARED="context.tf providers.tf versions.tf"
+
+render_file() {
+    case "$2" in
+        backend.tf) render "$1" ;;
+        stack.tf) render_stack "$1" ;;
+        *) cat "live/common/$2" ;;
+    esac
+}
+
+find_stacks() {
+    find live -mindepth 4 -maxdepth 4 \( -name context.tf -o -name main.tf \) -not -path 'live/common/*' -exec dirname {} \; | sort -u
+}
+
 if [[ $# -gt 0 ]]; then
     stacks="$*"
 else
-    stacks="$(find live -mindepth 4 -maxdepth 4 -name context.tf -not -path 'live/common/*' -exec dirname {} \; | sort)"
+    stacks="$(find_stacks)"
 fi
 
-all_stacks="$(find live -mindepth 4 -maxdepth 4 -name context.tf -not -path 'live/common/*' -exec dirname {} \; | sort)"
+all_stacks="$(find_stacks)"
 duplicates="$(for stack in ${all_stacks}; do key_for "${stack}"; done | sort | uniq -d)"
 [[ -z "${duplicates}" ]] || { echo "bin/backends: state.key gives two stacks the same state: ${duplicates}" >&2; exit 1; }
 
 stale=0
 for stack in ${stacks}; do
-    if [[ "${check}" == 1 ]]; then
-        if ! diff -q <(render "${stack}") "${stack}/backend.tf" >/dev/null 2>&1; then
-            echo "${stack}/backend.tf is missing or does not match config/global.yml: run make backends and stage it." >&2
-            stale=1
+    stack="${stack%/}"
+    for name in backend.tf stack.tf ${SHARED}; do
+        file="${stack}/${name}"
+        if [[ "${check}" == 1 ]]; then
+            if [[ -L "${file}" ]] || ! diff -q <(render_file "${stack}" "${name}") "${file}" >/dev/null 2>&1; then
+                case "${name}" in
+                    backend.tf) why="does not match config/global.yml" ;;
+                    stack.tf) why="does not name ${stack#live/}, the folder it is in" ;;
+                    *) why="differs from live/common/${name}, its source" ;;
+                esac
+                echo "${file} is missing or ${why}: run make backends and stage it." >&2
+                stale=1
+            fi
+        else
+            rm -f "${file}"
+            render_file "${stack}" "${name}" > "${file}"
         fi
-    else
-        render "${stack}" > "${stack}/backend.tf"
-        echo "wrote ${stack}/backend.tf"
-    fi
+    done
+    [[ "${check}" == 1 ]] || echo "wrote ${stack}: backend.tf, stack.tf, ${SHARED// /, }"
 done
 exit "${stale}"

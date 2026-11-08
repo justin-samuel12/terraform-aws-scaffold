@@ -118,3 +118,9 @@ data "aws_ami" "images" {
     }
   }
 }
+
+data "aws_ec2_instance_type" "types" {
+  for_each = local.usable ? toset(flatten(values(local.named_image_types))) : toset([])
+
+  instance_type = each.value
+}

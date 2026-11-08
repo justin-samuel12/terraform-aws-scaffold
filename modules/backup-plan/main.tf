@@ -66,7 +66,9 @@ resource "aws_backup_plan" "plans" {
 resource "aws_iam_role" "backup" {
   count = length(var.backup_plans) > 0 ? 1 : 0
 
-  name = "backup-${var.environment}"
+  name                 = "backup-${var.environment}"
+  path                 = try(var.role_boundary.path, "/")
+  permissions_boundary = try(var.role_boundary.permissions_boundary, null)
 
   assume_role_policy = jsonencode({
     Version   = "2012-10-17"

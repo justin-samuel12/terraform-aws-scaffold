@@ -11,13 +11,13 @@ variable "config_dir" {
 }
 
 locals {
+  location        = local.stack.location
+  environment     = local.stack.environment
+  component       = local.stack.component
+  declared_stack  = "${local.location}/${local.environment}/${local.component}"
   path_parts      = split("/", abspath(path.root))
-  live_index      = length(local.path_parts) - 4
-  location        = local.path_parts[local.live_index + 1]
-  environment     = local.path_parts[local.live_index + 2]
-  component       = local.path_parts[local.live_index + 3]
-  repository_dir  = local.path_parts[local.live_index - 1]
-  repository_root = join("/", slice(local.path_parts, 0, local.live_index))
+  path_stack      = join("/", slice(local.path_parts, length(local.path_parts) - 3, length(local.path_parts)))
+  repository_root = abspath("${path.root}/../../../..")
 
   config_dir               = abspath(coalesce(var.config_dir, "${local.repository_root}/config"))
   primary_region           = one([for name in fileset(local.config_dir, "*.yml") : trimsuffix(name, ".yml") if try(yamldecode(file("${local.config_dir}/${name}")).hub.primary, false) == true])
@@ -30,7 +30,7 @@ locals {
     for key in ["account_id", "team"] : key => try(tostring(local.environment == "shared" ? local.region_config.hub[key] : yamldecode(file(local.settings_file)).vpcs[local.environment][key]), null)
   }
   global_config  = try(yamldecode(file("${local.config_dir}/global.yml")), {})
-  repository     = try(tostring(local.global_config.repository), local.repository_dir)
+  repository     = try(tostring(local.global_config.repository), null)
   own_account    = local.settings.account_id == null ? "" : local.settings.account_id
   account_id     = local.own_account != "" ? local.own_account : try(tostring(local.global_config.account_id), "")
   account_source = local.own_account != "" ? local.settings_file : "${local.config_dir}/global.yml"
@@ -48,4 +48,5 @@ locals {
   machine_config = yamldecode(local.machine_set ? local.machine_text : "{}")
   profile        = try(local.machine_config.profiles[local.environment], null)
   hub_profile    = try(local.machine_config.profiles["shared"], local.profile)
+  dns_role       = try(tobool(local.machine_config.dns_read_only), false) ? "terraform-dns-read-${local.environment}" : "deployed/dns-${local.environment}"
 }

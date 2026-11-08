@@ -220,3 +220,143 @@ run "refuses_a_nested_addition_not_a_list" {
     error_message = "A nested addition that is not a list is named."
   }
 }
+
+run "a_released_version_never_changes" {
+  command = plan
+
+  variables {
+    dir   = "tests/versions-changed"
+    files = { shop = { blueprint = "web/v1", listener_rule = { listener_arn = "public/443", priority = 1100, condition = { host_header = { values = ["shop.example.com"] } } }, image = "shop:1" } }
+  }
+
+  assert {
+    condition     = anytrue([for p in output.problems : startswith(p, "blueprints/test/web/v1.yml changed after it was released") && strcontains(p, "put the change in web/v2.yml and release that")])
+    error_message = "Editing a released version is refused, and the message names the next version to put the change in: ${jsonencode(output.problems)}."
+  }
+}
+
+run "an_unreleased_version_is_refused" {
+  command = plan
+
+  variables {
+    dir   = "tests/versions-unreleased"
+    files = { shop = { blueprint = "web/v1", listener_rule = { listener_arn = "public/443", priority = 1100, condition = { host_header = { values = ["shop.example.com"] } } }, image = "shop:1" } }
+  }
+
+  assert {
+    condition     = anytrue([for p in output.problems : startswith(p, "shop.yml: blueprint web/v1 is not released.") && strcontains(p, "sha256: ")])
+    error_message = "An app cannot use a version nobody released; the message gives the line to release it with."
+  }
+}
+
+run "a_deprecated_version_still_works_and_warns" {
+  command = plan
+
+  variables {
+    dir   = "tests/versions-deprecated"
+    files = { shop = { blueprint = "web/v1", listener_rule = { listener_arn = "public/443", priority = 1100, condition = { host_header = { values = ["shop.example.com"] } } }, image = "shop:1" } }
+  }
+
+  assert {
+    condition     = length(output.problems) == 0 && output.files.shop.memory == 1024
+    error_message = "An app on a deprecated version keeps working exactly as before."
+  }
+
+  assert {
+    condition     = output.warnings == ["shop.yml: blueprint web/v1 is deprecated; move the app to web/v2 (docs/blueprints.md#moving-an-app-to-a-new-version): v2 doubles the memory; set memory to keep the old size"]
+    error_message = "It is told where to move, and what changes when it does."
+  }
+}
+
+run "moving_to_the_new_version" {
+  command = plan
+
+  variables {
+    dir   = "tests/versions-deprecated"
+    files = { shop = { blueprint = "web/v2", listener_rule = { listener_arn = "public/443", priority = 1100, condition = { host_header = { values = ["shop.example.com"] } } }, image = "shop:1", memory = 1024 } }
+  }
+
+  assert {
+    condition     = length(output.problems) == 0 && length(output.warnings) == 0 && output.files.shop.memory == 1024
+    error_message = "Moving names the new version and, where the app wants the old behavior, sets it: here the memory it had."
+  }
+}
+
+run "a_retired_version_is_refused" {
+  command = plan
+
+  variables {
+    dir   = "tests/versions-retired"
+    files = { shop = { blueprint = "web/v1", listener_rule = { listener_arn = "public/443", priority = 1100, condition = { host_header = { values = ["shop.example.com"] } } }, image = "shop:1" } }
+  }
+
+  assert {
+    condition     = contains(output.problems, "shop.yml: blueprint web/v1 is retired; move the app to web/v2 (docs/blueprints.md#moving-an-app-to-a-new-version)")
+    error_message = "A retired version can no longer be planned, and the message says where to go."
+  }
+}
+
+run "platform_tags_cannot_be_set_in_a_file" {
+  command = plan
+
+  variables {
+    files = { shop = { blueprint = "web/v1", listener_rule = { listener_arn = "public/443", priority = 1100, condition = { host_header = { values = ["shop.example.com"] } } }, image = "shop:1", tags = { Environment = "production", Owner = "shop-team" } } }
+  }
+
+  assert {
+    condition     = contains(output.problems, "shop.yml: tags.Environment is set by the platform from where the stack is, never in a file: the pipeline's permissions and every lookup rely on it")
+    error_message = "A file cannot retag its resources into another environment."
+  }
+
+  assert {
+    condition     = length(output.problems) == 1
+    error_message = "Other tags stay the app's own: ${jsonencode(output.problems)}."
+  }
+}
+
+run "every_released_compute_blueprint_is_intact" {
+  command = plan
+
+  variables {
+    dir   = "../../blueprints/compute"
+    label = "blueprints/compute"
+    body  = "group"
+    files = {}
+  }
+
+  assert {
+    condition     = length(output.problems) == 0
+    error_message = "Every version in blueprints/compute/versions.yml is exactly the file that was released: ${jsonencode(output.problems)}."
+  }
+}
+
+run "every_released_containers_blueprint_is_intact" {
+  command = plan
+
+  variables {
+    dir   = "../../blueprints/containers"
+    label = "blueprints/containers"
+    files = {}
+  }
+
+  assert {
+    condition     = length(output.problems) == 0
+    error_message = "Every version in blueprints/containers/versions.yml is exactly the file that was released: ${jsonencode(output.problems)}."
+  }
+}
+
+run "every_released_databases_blueprint_is_intact" {
+  command = plan
+
+  variables {
+    dir   = "../../blueprints/databases"
+    label = "blueprints/databases"
+    body  = "database"
+    files = {}
+  }
+
+  assert {
+    condition     = length(output.problems) == 0
+    error_message = "Every version in blueprints/databases/versions.yml is exactly the file that was released: ${jsonencode(output.problems)}."
+  }
+}

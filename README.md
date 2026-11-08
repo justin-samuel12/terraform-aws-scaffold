@@ -173,6 +173,9 @@ tests/             the configs tests run against
 | [docs/architecture.md](docs/architecture.md) | layout, stacks and how they depend on each other |
 | [docs/configuration.md](docs/configuration.md) | `config/`, your profiles, running Terraform |
 | [docs/ci-cd.md](docs/ci-cd.md) | the pipeline: written, switched off, and how to turn it on |
+| [docs/accounts.md](docs/accounts.md) | who owns what, the pipeline's duties and roles, one account or many |
+| [docs/threat-model.md](docs/threat-model.md) | the pipeline, the hub and the accounts: each threat, what stops it, how far it is proven |
+| [docs/operations.md](docs/operations.md) | failed applies, locks, state recovery and moves, imports, upgrades, routing, break-glass, disaster recovery |
 | [docs/network.md](docs/network.md) | hubs, VPCs, subnets, routing, DNS |
 | [docs/security-groups.md](docs/security-groups.md) | groups, rules and sources |
 | [docs/endpoints.md](docs/endpoints.md) | VPC endpoints |

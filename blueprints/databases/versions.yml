@@ -1,0 +1,6 @@
+aurora-postgres/v1:
+  status: current
+  sha256: 3ef3bc89c9dd918c9b386527700dca95eea8d193fec4886c944134f3424e386a
+sqlserver/v1:
+  status: current
+  sha256: 07a9404fdc5dc26dfc70320818dbc4c967e43aa54d1f7706e1f3110b8a96cd2a

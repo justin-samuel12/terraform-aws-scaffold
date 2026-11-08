@@ -1,5 +1,5 @@
 output "networks" {
-  description = "\"<environment>/<region>\" -> CIDR, purpose, connectivity, segment, propagation, zones, public tier, hub ASN, whether it is the primary hub, where its region's hub has resolver endpoints (inbound, outbound) and which domains it forwards (domains), subnet CIDRs per tier, and each network tier's route."
+  description = "\"<environment>/<region>\" -> who runs the region's Transit Gateway (transit_gateway: owner self or parent, and a parent's id and share), CIDR, purpose, connectivity, segment, propagation, zones, public tier, hub ASN, whether it is the primary hub, where its region's hub has resolver endpoints (inbound, outbound) and which domains it forwards (domains), subnet CIDRs per tier, and each network tier's route."
   value       = local.networks
 
   precondition {
@@ -53,6 +53,10 @@ output "networks" {
   precondition {
     condition     = length(local.layout_problems) == 0
     error_message = "The subnet layout is not usable: ${join("; ", local.layout_problems)}."
+  }
+  precondition {
+    condition     = length(local.transit_gateway_problems) == 0
+    error_message = "The Transit Gateway settings are not usable: ${join("; ", local.transit_gateway_problems)}."
   }
   precondition {
     condition     = length(local.problems.shape) == 0

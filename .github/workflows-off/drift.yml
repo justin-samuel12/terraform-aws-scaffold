@@ -19,6 +19,7 @@
 #   drift:
 #     name: Plan every stack
 #     if: vars.PLAN_ENABLED == 'true' && github.ref == 'refs/heads/master'
+#     environment: plan
 #     runs-on:
 #       - self-hosted
 #       - linux
@@ -26,12 +27,16 @@
 #     timeout-minutes: 180
 #     permissions:
 #       contents: read
+#       id-token: write
 #     steps:
 #       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 #         with:
 #           persist-credentials: false
 #       - run: bin/ci doctor
+#       - run: bin/ci credentials plan "$RUNNER_TEMP/aws" >>"$GITHUB_ENV"
 #       - run: bin/ci drift "$RUNNER_TEMP/drift"
+#       - name: Check every hub attachment against config/
+#         run: bin/ci hub-audit "$RUNNER_TEMP/drift/hub-audit.txt"
 #       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
 #         if: always()
 #         with:
@@ -47,7 +52,7 @@
 #     runs-on:
 #       - self-hosted
 #       - linux
-#       - terraform-check
+#       - terraform-trusted
 #     timeout-minutes: 5
 #     permissions:
 #       issues: write

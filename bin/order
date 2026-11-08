@@ -74,7 +74,7 @@ graph="$(yq -o=json '.' "${NEEDS}" | jq -c --arg stacks "${stacks}" --arg region
     | ([($n.needs // [])[], (if $loc == $primary then ($n.when_primary // [])[] else empty end)] | map(expand(.; $region; $env)) | map(resolve(.))) as $required
     | ([($n.when_present // [])[] | expand(.; $region; $env) | resolve(.)] | map(select(startswith("?") | not))) as $optional
     | {($s): {
-        needs: ([$required[], $optional[]] | map(select(startswith("?") | not and . != $s)) | unique),
+        needs: ([$required[], $optional[]] | map(select((startswith("?") | not) and . != $s)) | unique),
         missing: ($required | map(select(startswith("?")) | ltrimstr("?")) | unique)
       }}
   ] | add // {}' | jq -c --argjson extra "${peerings:-{\}}" 'keys as $all | with_entries(($extra[.key] // []) as $e | .value.needs = ((.value.needs + [$e[] | select(IN($all[]))]) | unique) | .value.missing = ((.value.missing + [$e[] | select(IN($all[]) | not)]) | unique))')"

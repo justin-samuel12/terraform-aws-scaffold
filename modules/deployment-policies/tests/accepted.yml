@@ -1,0 +1,19 @@
+- issue: RESOURCE_STAR
+  files: "-(hub|network|services|workload)\\.json$"
+  why: A duty's own policy allows its services on every resource on purpose; its limits, environment and ownership policies then deny what it may not touch, by tag and by name, which a reviewer reads in one place instead of a resource list per service.
+- issue: RESOURCE_STAR
+  files: "-(read|network-role|dns-read-role)\\.json$"
+  why: Plans read the configuration of whatever a stack looks up, Describe, Get and List across the services the stacks use, so these reads are on every resource; the state bucket is left out by NotResource, and secret values and application data are denied to pull requests separately.
+- issue: MISMATCHED_TYPE_BUT_USABLE
+  files: "\\.json$"
+  why: iam:PermissionsBoundary is a String condition key in the IAM reference, and AWS's own examples compare it with StringEquals; parliament types it as an ARN.
+- issue: RESOURCE_MISMATCH
+  files: "-network-role\\.json$"
+  why: Associating and announcing name two resources, the attachment and the route table. IAM authorizes each against the statements that cover it, so one statement limits the route table by its Segment tag and another the attachment by its Environment tag; parliament expects both in one statement.
+- issue: RESOURCE_MISMATCH
+  files: "-(read|services|workload)\\.json$"
+  why: These statements use NotResource to leave out the state bucket, which parliament does not model; every other resource, of every type, is covered.
+- issue: UNKNOWN_CONDITION_FOR_ACTION
+  files: "\\.json$"
+  detail: "Unknown condition (s3:if-none-match for action s3:PutObject|iam:PermissionsBoundary for action iam:(DeleteRole|UpdateRole|UpdateRoleDescription|UpdateAssumeRolePolicy))"
+  why: AWS's current Service Authorization Reference lists these keys on these actions; parliament's bundled data predates them. The simulator's check against AWS's published data confirms each pair.

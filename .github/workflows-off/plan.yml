@@ -1,7 +1,9 @@
 # name: Plan
 #
+# # Runs from the protected branch, never from the pull request: a pull request cannot change these steps.
+# # Only configuration files are taken from the pull request, and read as data; no code from it runs here.
 # on:
-#   pull_request:
+#   pull_request_target:
 #     branches:
 #       - master
 #     types:
@@ -9,13 +11,6 @@
 #       - synchronize
 #       - reopened
 #       - ready_for_review
-#     paths:
-#       - blueprints/**
-#       - config/**
-#       - live/**
-#       - modules/**
-#       - scripts/**
-#       - templates/**
 #
 # permissions: {}
 #
@@ -28,9 +23,36 @@
 #     shell: bash
 #
 # jobs:
-#   plan:
-#     name: Plan
+#   classify:
+#     name: Is this only configuration
 #     if: vars.PLAN_ENABLED == 'true' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository
+#     runs-on:
+#       - self-hosted
+#       - linux
+#       - terraform-trusted
+#     timeout-minutes: 5
+#     permissions:
+#       contents: read
+#       pull-requests: read
+#     outputs:
+#       data_only: ${{ steps.classify.outputs.data_only }}
+#     env:
+#       PR: ${{ github.event.pull_request.number }}
+#     steps:
+#       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+#         with:
+#           ref: ${{ github.event.pull_request.base.sha }}
+#           persist-credentials: false
+#       - id: classify
+#         env:
+#           GH_TOKEN: ${{ github.token }}
+#         run: bin/ci classify "$PR" "$RUNNER_TEMP/pr" >>"$GITHUB_OUTPUT"
+#
+#   plan:
+#     name: Plan the configuration against AWS
+#     needs: classify
+#     if: needs.classify.outputs.data_only == 'true'
+#     environment: plan
 #     runs-on:
 #       - self-hosted
 #       - linux
@@ -38,24 +60,36 @@
 #     timeout-minutes: 60
 #     permissions:
 #       contents: read
+#       id-token: write
+#       pull-requests: read
 #     env:
-#       BASE_SHA: ${{ github.event.pull_request.base.sha }}
+#       PR: ${{ github.event.pull_request.number }}
 #     steps:
 #       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 #         with:
+#           ref: ${{ github.event.pull_request.base.sha }}
 #           fetch-depth: 0
 #           persist-credentials: false
+#       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+#         with:
+#           ref: ${{ github.event.pull_request.head.sha }}
+#           path: .pull-request-head
+#           persist-credentials: false
 #       - run: bin/ci doctor
-#       - name: Find the stacks this pull request affects
-#         run: bin/ci changed "$BASE_SHA" | tee "$RUNNER_TEMP/stacks"
+#       - run: bin/ci credentials plan "$RUNNER_TEMP/aws" >>"$GITHUB_ENV"
+#       - name: Take only configuration files from the pull request
+#         env:
+#           GH_TOKEN: ${{ github.token }}
+#         run: |
+#           bin/ci overlay "$PR" .pull-request-head "$RUNNER_TEMP/pr"
+#           rm -rf .pull-request-head
+#       - name: Find the stacks this configuration affects
+#         run: bin/ci changed --files "$RUNNER_TEMP/pr/changed" | tee "$RUNNER_TEMP/stacks"
 #       - name: Plan them, read-only and without the state lock
 #         run: |
 #           stacks=()
 #           while read -r stack; do stacks+=("$stack"); done <"$RUNNER_TEMP/stacks"
 #           bin/ci plan "$RUNNER_TEMP/plan" "${stacks[@]+"${stacks[@]}"}"
-#       - name: Show the plan on this run
-#         if: always()
-#         run: cat "$RUNNER_TEMP/plan/report.md" >>"$GITHUB_STEP_SUMMARY"
 #       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
 #         if: always()
 #         with:
@@ -66,12 +100,14 @@
 #
 #   report:
 #     name: Report
-#     needs: plan
-#     if: always() && needs.plan.result != 'skipped' && needs.plan.result != 'cancelled'
+#     needs:
+#       - classify
+#       - plan
+#     if: always() && needs.classify.result == 'success' && needs.plan.result != 'cancelled'
 #     runs-on:
 #       - self-hosted
 #       - linux
-#       - terraform-check
+#       - terraform-trusted
 #     timeout-minutes: 5
 #     permissions:
 #       pull-requests: write
@@ -79,14 +115,20 @@
 #       GH_TOKEN: ${{ github.token }}
 #       GH_REPO: ${{ github.repository }}
 #       PR: ${{ github.event.pull_request.number }}
+#       DATA_ONLY: ${{ needs.classify.outputs.data_only }}
 #     steps:
 #       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+#         if: needs.classify.outputs.data_only == 'true'
 #         with:
 #           name: plan-report
 #           path: ${{ runner.temp }}/report
 #       - name: Post the plan, updating its earlier comment
 #         run: |
 #           body="$RUNNER_TEMP/report/report.md"
+#           if [[ "$DATA_ONLY" != true ]]; then
+#             mkdir -p "$RUNNER_TEMP/report"
+#             printf '%s\n\n%s\n' '<!-- terraform-plan -->' 'This pull request changes code, so it is not planned with AWS access until it is reviewed and merged. Its checks ran against a mocked AWS. After merge, Apply proposes the real plan for review.' >"$body"
+#           fi
 #           existing="$(gh api --paginate "repos/$GH_REPO/issues/$PR/comments" \
 #             --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- terraform-plan -->"))) | .id' | head -1)"
 #           if [[ -n "$existing" ]]; then

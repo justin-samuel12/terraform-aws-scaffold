@@ -1,0 +1,12 @@
+bare/v1:
+  status: current
+  sha256: 60e47d938e85cc2b5ae2ac30dfc942af8919194772ae4ec82ba5ea0c0b28605a
+database/v1:
+  status: current
+  sha256: 2194090f8c4d7ea548c88e78adac203c136e0bd4370c818247c3779c5d4b54bd
+task/v1:
+  status: current
+  sha256: 7d8e5ed78bc175887c47a26a81fe443ce8779a47aa94d1f8319f55f6ccd0a901
+web/v1:
+  status: current
+  sha256: 887f736b7f1f7dd053e6433f7a683bc1c72ed11ddd9f0cd24300fe8ac648bff4

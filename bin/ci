@@ -4,11 +4,15 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
 source bin/lib/units.sh
+source bin/lib/common.sh
 
 export TF_IN_AUTOMATION=1
 BIN_TF="${BIN_TF:-bin/tf}"
 BIN_ORDER="${BIN_ORDER:-bin/order}"
-TOOLS="terraform tflint yq jq aws git gh gitleaks shellcheck actionlint make"
+TOOLS="terraform tflint yq jq aws git gh gitleaks shellcheck actionlint make curl unzip"
+REVIEWED_ENVIRONMENTS="${REVIEWED_ENVIRONMENTS:-production shared}"
+DIGEST_FORM='^[0-9a-f]{64}$'
+MAX_AGE_MINUTES="${PLAN_MAX_AGE_MINUTES:-240}"
 REPORT_LIMIT=60000
 STACK_FORM='^(global|[a-z]{2}-[a-z]+-[0-9])/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*$'
 
@@ -18,7 +22,15 @@ usage: bin/ci doctor
        bin/ci changed <base commit> | --files <file listing paths>
        bin/ci plan <report folder> [stack...]
        bin/ci drift <report folder>
-       bin/ci apply <stack> "<the plan's summary line>"
+       bin/ci credentials <plan|propose> <folder>
+       bin/ci credentials apply <folder> <stack>
+       bin/ci propose <stack> <report folder>
+       bin/ci apply <stack> <digest>
+       bin/ci show <stack> <digest>
+       bin/ci describe <stack> <digest> <folder>
+       bin/ci classify <pull request> <folder>
+       bin/ci overlay <pull request> <head checkout> <folder>
+       bin/ci hub-audit <report file>
 TEXT
     exit 2
 }
@@ -39,7 +51,25 @@ summary_of() {
     terraform -chdir="live/$1" show -no-color .terraform/plan.tfplan | grep -E '^(Plan:|No changes)' | head -1 || true
 }
 
-discard_plan() { rm -f "live/$1/.terraform/plan.tfplan" "live/$1/.terraform/plan.fingerprint"; }
+changes_of() {
+    terraform -chdir="live/$1" show -json .terraform/plan.tfplan | jq -r '
+        [.resource_changes[]? | select(.change.actions != ["no-op"] and .change.actions != ["read"])] as $changes
+        | if ($changes | length) == 0 then "No resource changes." else
+          ($changes[] | (.change.before // {}) as $b | (.change.after // {}) as $a | (.change.after_unknown // {}) as $u
+            | "\(.change.actions | join("/") | ascii_upcase)  \(.address)"
+              + (if .change.actions == ["update"] then
+                   "  changes: " + ([($b | keys[]), ($a | keys[])] | unique | map(select($b[.] != $a[.] or (($u[.] // false) != false))) | join(", "))
+                 else "" end))
+          end'
+}
+
+duty_of() {
+    local component
+    component="$(cut -d/ -f3 <<<"$1")"
+    yq -r "to_entries[] | select(.value.components[] == \"${component}\") | .key" templates/duties.yml | head -1
+}
+
+discard_plan() { rm -f "live/$1/.terraform/plan.tfplan" "live/$1/.terraform/plan.fingerprint" "live/$1/.terraform/proposal.json"; }
 
 cmd_doctor() {
     local missing=0 tool
@@ -71,16 +101,19 @@ plan_stack() {
     log="${folder}/$(tr '/' '_' <<<"${stack}").txt"
     STATUS=failed; SUMMARY=""
     blockers="$(blockers_of "${stack}")"
+    refresh_token
     if [[ -n "${blockers}" ]]; then
         STATUS=blocked; SUMMARY="needs ${blockers}"
         return 0
     fi
-    if ! { make -s init STACK="${stack}" && make -s plan STACK="${stack}" ARGS="-lock=false -no-color"; } >"${log}" 2>&1; then
+    if ! { make -s init STACK="${stack}" >"${log}" 2>&1 && make -s plan STACK="${stack}" ARGS="-lock=false -no-color" >/dev/null 2>>"${log}"; }; then
         SUMMARY="see the log"
+        scrub <"${log}" >"${log}.scrubbed"
+        mv "${log}.scrubbed" "${log}"
         return 0
     fi
     SUMMARY="$(summary_of "${stack}")"
-    terraform -chdir="live/${stack}" show -no-color .terraform/plan.tfplan >"${log}" 2>&1 || true
+    changes_of "${stack}" >"${log}" 2>&1 || true
     discard_plan "${stack}"
     if [[ "${SUMMARY}" == "No changes"* ]]; then STATUS=clean; else STATUS=changes; fi
 }
@@ -88,6 +121,8 @@ plan_stack() {
 start_report() {
     { echo "$1"; echo; echo "$2"; echo; echo '| Stack | Result | Summary |'; echo '|---|---|---|'; } >"$3"
 }
+
+scrub() { grep -E '^[[:space:]]*([│|][[:space:]]*)?(Error: |on [^ ]+ line [0-9]+|bin/[a-z-]+: )' || echo "The plan failed; the error is in the job's own log, which is not posted."; }
 
 add_details() {
     local report="$1" stack="$2" log="$3" room
@@ -135,25 +170,356 @@ cmd_drift() {
     [[ "${failed}" == 0 ]]
 }
 
-cmd_apply() {
+sha256_of() {
+    if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1
+}
+
+actor() { echo "${GITHUB_TRIGGERING_ACTOR:-${GITHUB_ACTOR:-$(id -un)}}"; }
+
+plan_file() { echo "live/$1/.terraform/plan.tfplan"; }
+
+stored() { echo "s3://$(yq -r '.state.bucket // ""' config/global.yml)/plans/$1/$2"; }
+
+s3() {
+    local stack="$1" profile; shift
+    profile="$(profile_for "$(cut -d/ -f2 <<<"${stack}")")"
+    aws s3 "$@" --only-show-errors --region "$(yq -r '.state.region // ""' config/global.yml)" ${profile:+--profile "${profile}"}
+}
+
+refresh_token() {
+    [[ -n "${PIPELINE_TOKEN_FILE:-}" ]] || return 0
+    [[ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" && -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]] \
+        || { echo "bin/ci: no GitHub OIDC token available: the job needs permissions: id-token: write." >&2; exit 1; }
+    curl -fsS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" \
+        | jq -er .value >"${PIPELINE_TOKEN_FILE}.new" || { rm -f "${PIPELINE_TOKEN_FILE}.new"; echo "bin/ci: GitHub did not issue an OIDC token." >&2; exit 1; }
+    mv "${PIPELINE_TOKEN_FILE}.new" "${PIPELINE_TOKEN_FILE}"
+}
+
+profile_block() {
+    printf '[profile %s]\nrole_arn = %s\n' "$1" "$2"
+    if [[ -n "${3:-}" ]]; then printf 'source_profile = %s\n' "$3"; else printf 'web_identity_token_file = %s/token\n' "${CREDENTIALS_FOLDER}"; fi
+    printf 'role_session_name = %s\n\n' "${SESSION}"
+}
+
+keep_token_fresh() {
+    [[ -n "${PIPELINE_TOKEN_FILE:-}" ]] || return 0
+    while sleep 240; do refresh_token || true; done
+}
+
+cmd_credentials() {
+    [[ ( $# == 2 && ( "$1" == plan || "$1" == propose ) ) || ( $# == 3 && "$1" == apply ) ]] || usage
+    local mode="$1" folder="$2" stack="${3:-}" env account hub duty target
+    mkdir -p "${folder}"
+    CREDENTIALS_FOLDER="$(cd "${folder}" && pwd)"
+    SESSION="github-${GITHUB_RUN_ID:-local}"
+    folder="${CREDENTIALS_FOLDER}"
+    : >"${folder}/aws-config"
+    { [[ "${mode}" == apply ]] || echo "dns_read_only: true"; echo "profiles:"; } >"${folder}/machine.config"
+    if [[ "${mode}" == apply ]]; then
+        is_stack "${stack}" || { echo "bin/ci: ${stack} is not a stack" >&2; exit 2; }
+        target="$(cut -d/ -f2 <<<"${stack}")"
+        duty="$(duty_of "${stack}")"
+        [[ -n "${duty}" && "${duty}" != pipeline ]] || { echo "bin/ci: ${stack} is a ${duty:-unknown} stack: templates/duties.yml gives the pipeline no role for it, so a person applies it." >&2; exit 1; }
+        account="$(account_for "${target}")"
+        hub="$(account_for shared)"
+        [[ "${account}" =~ ^[0-9]{12}$ && "${hub}" =~ ^[0-9]{12}$ ]] || { echo "bin/ci: no 12-digit account for ${target} or the hub in config/." >&2; exit 1; }
+        profile_block "pipeline-${target}" "arn:aws:iam::${account}:role/terraform-apply-${target}-${duty}" >>"${folder}/aws-config"
+        echo "  ${target}: pipeline-${target}" >>"${folder}/machine.config"
+        if [[ "${duty}" == network && "${target}" != shared ]]; then
+            profile_block "pipeline-hub" "arn:aws:iam::${hub}:role/terraform-network-${target}" "pipeline-${target}" >>"${folder}/aws-config"
+            echo "  shared: pipeline-hub" >>"${folder}/machine.config"
+        fi
+    else
+        for env in $(environments); do
+            account="$(account_for "${env}")"
+            [[ "${account}" =~ ^[0-9]{12}$ ]] || { echo "bin/ci: no 12-digit account for ${env} in config/." >&2; exit 1; }
+            profile_block "pipeline-${env}" "arn:aws:iam::${account}:role/terraform-${mode}-${env}" >>"${folder}/aws-config"
+            echo "  ${env}: pipeline-${env}" >>"${folder}/machine.config"
+        done
+    fi
+    PIPELINE_TOKEN_FILE="${folder}/token" refresh_token
+    printf 'AWS_CONFIG_FILE=%s\nINFRA_CONFIG=%s\nPIPELINE_TOKEN_FILE=%s\n' "${folder}/aws-config" "${folder}/machine.config" "${folder}/token"
+}
+
+region_of() {
+    local location
+    location="$(cut -d/ -f1 <<<"$1")"
+    if [[ "${location}" == global ]]; then primary_region; else echo "${location}"; fi
+}
+
+put_new() {
+    local stack="$1" name="$2" body="$3" profile
+    profile="$(profile_for "$(cut -d/ -f2 <<<"${stack}")")"
+    aws s3api put-object --bucket "$(yq -r '.state.bucket // ""' config/global.yml)" --key "${name}" --body "${body}" \
+        --server-side-encryption AES256 --if-none-match '*' --region "$(yq -r '.state.region // ""' config/global.yml)" \
+        ${profile:+--profile "${profile}"} >/dev/null 2>&1
+}
+
+cmd_propose() {
     [[ $# == 2 ]] || usage
-    local stack="$1" expected actual
-    expected="$(xargs <<<"$2")"
+    local stack="$1" folder="$2" plan digest summary commit env now fingerprint
     is_stack "${stack}" || { echo "bin/ci: ${stack} is not a stack" >&2; exit 2; }
+    mkdir -p "${folder}"
+    refresh_token
     make -s init STACK="${stack}"
-    make -s plan STACK="${stack}" ARGS="-no-color"
-    actual="$(summary_of "${stack}" | xargs)"
-    if [[ "${actual}" == "No changes"* ]]; then
+    make -s plan STACK="${stack}" ARGS="-no-color" >/dev/null
+    plan="$(plan_file "${stack}")"
+    summary="$(summary_of "${stack}")"
+    commit="$(git rev-parse HEAD)"
+    changes_of "${stack}" >"${folder}/plan.txt"
+    {
+        echo "### Plan for \`${stack}\`"
+        echo
+        echo "Commit \`${commit}\`, proposed by $(actor)."
+        echo
+    } >"${folder}/report.md"
+    if [[ "${summary}" == "No changes"* ]]; then
         discard_plan "${stack}"
-        echo "bin/ci: ${stack} has no changes; nothing applied."
+        echo "No changes: nothing to apply." >>"${folder}/report.md"
+        echo "bin/ci: ${stack} has no changes."
         return 0
     fi
-    if [[ -z "${actual}" || "${actual}" != "${expected}" ]]; then
-        discard_plan "${stack}"
-        echo "bin/ci: refusing: the plan says '${actual}', and the run was told to expect '${expected}'." >&2
+    digest="$(sha256_of "${plan}")"
+    env="$(cut -d/ -f2 <<<"${stack}")"
+    now="$(date +%s)"
+    fingerprint="$(sha256_of "live/${stack}/.terraform/plan.fingerprint")"
+    jq -n --arg stack "${stack}" --arg account "$(account_for "${env}")" --arg region "$(region_of "${stack}")" --arg environment "${env}" \
+        --arg duty "$(duty_of "${stack}")" --arg commit "${commit}" --arg proposer "$(actor)" --arg digest "${digest}" \
+        --arg fingerprint "${fingerprint}" --arg run "${GITHUB_RUN_ID:-local}" --argjson created "${now}" --argjson expires "$(( now + MAX_AGE_MINUTES * 60 ))" \
+        '{stack: $stack, account: $account, region: $region, environment: $environment, duty: $duty, commit: $commit, digest: $digest,
+          fingerprint: $fingerprint, proposer: $proposer, run: $run, created_at: $created, expires_at: $expires}' >"${folder}/proposal.json"
+    refresh_token
+    for part in "tfplan:${plan}" "fingerprint:live/${stack}/.terraform/plan.fingerprint" "json:${folder}/proposal.json"; do
+        put_new "${stack}" "plans/${stack}/${digest}.${part%%:*}" "${part#*:}" \
+            || { echo "bin/ci: a proposal with this digest is already stored, or it could not be written." >&2; exit 1; }
+    done
+    discard_plan "${stack}"
+    echo "${digest}" >"${folder}/digest"
+    mkdir -p "${folder}/public"
+    cp "${folder}/proposal.json" "${folder}/public/proposal.json"
+    cp "${folder}/plan.txt" "${folder}/public/changes.txt"
+    {
+        echo "**${summary}**"
+        echo
+        echo "To apply exactly this plan, start Apply with stack \`${stack}\` and digest \`${digest}\`."
+        echo "The list below names what changes and never a value. To read the whole plan, run \`bin/ci show ${stack} ${digest}\` with your own credentials."
+        echo
+        echo "<details><summary>What changes</summary>"
+        echo
+        echo '``````text'
+        head -c "${REPORT_LIMIT}" "${folder}/plan.txt"
+        echo
+        echo '``````'
+        echo
+        echo '</details>'
+    } >>"${folder}/report.md"
+    echo "bin/ci: ${stack}: ${summary}"
+    echo "bin/ci: digest ${digest}"
+}
+
+cmd_describe() {
+    [[ $# == 3 ]] || usage
+    local stack="$1" digest="$2" folder="$3" repo branch artifact run details
+    is_stack "${stack}" || { echo "bin/ci: ${stack} is not a stack" >&2; exit 2; }
+    [[ "${digest}" =~ ${DIGEST_FORM} ]] || { echo "bin/ci: the digest is the 64-character SHA-256 the proposing run printed." >&2; exit 2; }
+    repo="${GITHUB_REPOSITORY:?}"
+    branch="$(yq -r '.pipeline.branch // ""' config/global.yml)"
+    mkdir -p "${folder}"
+    artifact="$(gh api "repos/${repo}/actions/artifacts?name=proposal-${digest}" --jq '.artifacts | map(select(.expired == false)) | sort_by(.created_at) | .[0] // empty')"
+    [[ -n "${artifact}" ]] || { echo "bin/ci: no proposal with that digest: start Apply without a digest first." >&2; exit 1; }
+    run="$(jq -r .workflow_run.id <<<"${artifact}")"
+    details="$(gh api "repos/${repo}/actions/runs/${run}")"
+    if [[ "$(jq -r .path <<<"${details}")" != .github/workflows/apply.yml || "$(jq -r .head_branch <<<"${details}")" != "${branch}" || "$(jq -r .event <<<"${details}")" != workflow_dispatch ]] \
+        || ! [[ "$(gh api "repos/${repo}/compare/$(jq -r .head_sha <<<"${details}")...${branch}" --jq .status 2>/dev/null)" =~ ^(identical|ahead)$ ]]; then
+        echo "bin/ci: refusing: that proposal did not come from the Apply workflow on ${branch}." >&2
         exit 1
     fi
-    APPLY_CONFIRMED=yes make -s apply STACK="${stack}" </dev/null
+    gh api "repos/${repo}/actions/artifacts/$(jq -r .id <<<"${artifact}")/zip" >"${folder}/proposal.zip"
+    (cd "${folder}" && unzip -qo proposal.zip proposal.json changes.txt)
+    [[ "$(jq -r .digest "${folder}/proposal.json")" == "${digest}" && "$(jq -r .stack "${folder}/proposal.json")" == "${stack}" ]] \
+        || { echo "bin/ci: refusing: that proposal is for another stack or digest." >&2; exit 1; }
+    (( "$(date +%s)" <= "$(jq -r .expires_at "${folder}/proposal.json")" )) || { echo "bin/ci: refusing: that proposal has expired; propose again." >&2; exit 1; }
+    {
+        echo "### You are approving exactly this"
+        echo
+        echo '| | |'
+        echo '|---|---|'
+        jq -r 'to_entries[] | select(.key | IN("stack","account","region","environment","duty","commit","digest","proposer")) | "| \(.key) | `\(.value)` |"' "${folder}/proposal.json"
+        echo "| proposing run | ${GITHUB_SERVER_URL:-https://github.com}/${repo}/actions/runs/${run} |"
+        echo
+        echo '``````text'
+        head -c "${REPORT_LIMIT}" "${folder}/changes.txt"
+        echo
+        echo '``````'
+    } >"${folder}/report.md"
+}
+
+approvers_of() {
+    local env="$1"
+    gh api "repos/${GITHUB_REPOSITORY:?}/actions/runs/${GITHUB_RUN_ID:?}/approvals" \
+        --jq "[.[] | select(.state == \"approved\" and (.environments | map(.name) | index(\"${env}\"))) | .user.login] | unique | join(\",\")"
+}
+
+cmd_apply() {
+    [[ $# == 2 ]] || usage
+    local stack="$1" digest="$2" plan env record proposer status=0 approvers="" caller receipt
+    is_stack "${stack}" || { echo "bin/ci: ${stack} is not a stack" >&2; exit 2; }
+    [[ "${digest}" =~ ${DIGEST_FORM} ]] || { echo "bin/ci: the digest is the 64-character SHA-256 the proposing run printed." >&2; exit 2; }
+    plan="$(plan_file "${stack}")"
+    refresh_token
+    make -s init STACK="${stack}"
+    discard_plan "${stack}"
+    mkdir -p "live/${stack}/.terraform"
+    record="live/${stack}/.terraform/proposal.json"
+    s3 "${stack}" cp "$(stored "${stack}" "${digest}.tfplan")" "${plan}" \
+        || { echo "bin/ci: no stored plan for ${stack} with that digest: it was applied, expired, or never proposed." >&2; exit 1; }
+    s3 "${stack}" cp "$(stored "${stack}" "${digest}.fingerprint")" "live/${stack}/.terraform/plan.fingerprint"
+    s3 "${stack}" cp "$(stored "${stack}" "${digest}.json")" "${record}"
+    env="$(cut -d/ -f2 <<<"${stack}")"
+    refuse() { discard_plan "${stack}"; echo "bin/ci: refusing: $1" >&2; exit 1; }
+    [[ "$(sha256_of "${plan}")" == "${digest}" ]] || refuse "the stored plan does not match the digest that was approved."
+    [[ "$(jq -r .digest "${record}")" == "${digest}" ]] || refuse "the proposal record names another digest."
+    [[ "$(sha256_of "live/${stack}/.terraform/plan.fingerprint")" == "$(jq -r .fingerprint "${record}")" ]] || refuse "the stored fingerprint is not the one proposed."
+    [[ "$(jq -r .stack "${record}")" == "${stack}" ]] || refuse "that plan was proposed for another stack."
+    [[ "$(jq -r .environment "${record}")" == "${env}" ]] || refuse "that plan was proposed for another environment."
+    [[ "$(jq -r .region "${record}")" == "$(region_of "${stack}")" ]] || refuse "that plan was proposed for another region."
+    [[ "$(jq -r .duty "${record}")" == "$(duty_of "${stack}")" ]] || refuse "that plan was proposed for another duty."
+    [[ "$(jq -r .account "${record}")" == "$(account_for "${env}")" ]] || refuse "that plan was proposed for another account."
+    caller="$(aws sts get-caller-identity --query Account --output text --profile "$(profile_for "${env}")" 2>/dev/null || true)"
+    [[ -z "$(account_for "${env}")" || "${caller}" == "$(account_for "${env}")" ]] || refuse "these credentials are for account ${caller:-unknown}, not ${env}'s."
+    (( "$(date +%s)" <= "$(jq -r .expires_at "${record}")" )) || refuse "the proposal has expired; propose again."
+    [[ -z "${DEPLOY_ENVIRONMENT:-}" || "${DEPLOY_ENVIRONMENT}" == "${env}" ]] || refuse "this job was approved in the ${DEPLOY_ENVIRONMENT} environment, and ${stack} is in ${env}."
+    git merge-base --is-ancestor "$(jq -r .commit "${record}")" HEAD 2>/dev/null || refuse "the plan was proposed from a commit that is not on this branch."
+    proposer="$(jq -r .proposer "${record}")"
+    if [[ " ${REVIEWED_ENVIRONMENTS} " == *" ${env} "* && "${proposer}" == "$(actor)" ]]; then
+        refuse "${env} needs a second person; ${proposer} proposed this plan and cannot also apply it."
+    fi
+    if [[ "${GITHUB_ACTIONS:-}" == true ]]; then
+        approvers="$(approvers_of "${env}")" || refuse "GitHub would not say who approved this run."
+        [[ -n "${approvers}" ]] || refuse "no reviewer approved this run in the ${env} environment."
+        if [[ " ${REVIEWED_ENVIRONMENTS} " == *" ${env} "* && ",${approvers}," == *",${proposer},"* && "${approvers}" != *,* ]]; then
+            refuse "the only approver of this ${env} run is the person who proposed the plan."
+        fi
+    fi
+    unset GH_TOKEN
+    receipt="live/${stack}/.terraform/receipt.json"
+    jq --arg approvers "${approvers}" --arg actor "$(actor)" --arg apply_run "${GITHUB_RUN_ID:-local}" --argjson at "$(date +%s)" \
+        '. + {approvers: ($approvers | split(",")), applied_by: $actor, apply_run: $apply_run, claimed_at: $at}' "${record}" >"${receipt}"
+    put_new "${stack}" "applied/${stack}/${digest}.json" "${receipt}" \
+        || refuse "this plan was already claimed by another apply; a plan applies once."
+    keep_token_fresh &
+    local refresher=$!
+    APPLY_CONFIRMED=yes make -s apply STACK="${stack}" </dev/null || status=$?
+    kill "${refresher}" 2>/dev/null || true
+    wait "${refresher}" 2>/dev/null || true
+    refresh_token
+    jq -n --argjson status "${status}" --arg run "${GITHUB_RUN_ID:-local}" --argjson at "$(date +%s)" '{exit_status: $status, apply_run: $run, finished_at: $at}' >"${receipt}"
+    put_new "${stack}" "applied/${stack}/${digest}.result.json" "${receipt}" || echo "bin/ci: warning: the result of this apply could not be recorded." >&2
+    s3 "${stack}" rm "$(stored "${stack}" "${digest}.tfplan")" || true
+    s3 "${stack}" rm "$(stored "${stack}" "${digest}.fingerprint")" || true
+    s3 "${stack}" rm "$(stored "${stack}" "${digest}.json")" || true
+    rm -f "${receipt}"
+    discard_plan "${stack}"
+    return "${status}"
+}
+
+DATA_PATH='^(config/[A-Za-z0-9._/-]+\.yml|live/[a-z0-9-]+/[a-z0-9-]+/[a-z0-9-]+/config/[A-Za-z0-9._/-]+\.yml|blueprints/[a-z0-9-]+/versions\.yml|blueprints/[a-z0-9-]+/[a-z0-9-]+/v[0-9]+\.yml)$'
+
+is_data_path() { [[ "$1" =~ ${DATA_PATH} && "$1" != *..* ]]; }
+
+pull_request_files() { gh api --paginate "repos/${GITHUB_REPOSITORY:?}/pulls/$1/files" --jq '.[] | [.status, .filename, (.previous_filename // "")] | @tsv'; }
+
+cmd_classify() {
+    [[ $# == 2 ]] || usage
+    local pr="$1" folder="$2" status file previous only=true
+    mkdir -p "${folder}"
+    pull_request_files "${pr}" >"${folder}/files.tsv"
+    while IFS=$'\t' read -r status file previous; do
+        is_data_path "${file}" || only=false
+        [[ -z "${previous}" ]] || is_data_path "${previous}" || only=false
+    done <"${folder}/files.tsv"
+    [[ -s "${folder}/files.tsv" ]] || only=false
+    echo "data_only=${only}"
+}
+
+cmd_overlay() {
+    [[ $# == 3 ]] || usage
+    local pr="$1" head="$2" folder="$3" status file previous source real root keys
+    mkdir -p "${folder}"
+    root="$(cd "${head}" && pwd -P)"
+    pull_request_files "${pr}" >"${folder}/files.tsv"
+    : >"${folder}/changed"
+    while IFS=$'\t' read -r status file previous; do
+        is_data_path "${file}" || { echo "bin/ci: refusing: ${file} is not configuration, so this pull request is not planned with AWS access." >&2; exit 1; }
+        if [[ -n "${previous}" ]]; then
+            is_data_path "${previous}" || { echo "bin/ci: refusing: ${previous} is not configuration." >&2; exit 1; }
+            rm -f "${previous}"
+            echo "${previous}" >>"${folder}/changed"
+        fi
+        echo "${file}" >>"${folder}/changed"
+        if [[ "${status}" == removed ]]; then rm -f "${file}"; continue; fi
+        source="${head}/${file}"
+        [[ -f "${source}" && ! -L "${source}" ]] || { echo "bin/ci: refusing: ${file} is not a regular file." >&2; exit 1; }
+        real="$(cd "$(dirname "${source}")" && pwd -P)"
+        [[ "${real}/" == "${root}/"* ]] || { echo "bin/ci: refusing: ${file} is outside the pull request." >&2; exit 1; }
+        (( "$(wc -c <"${source}")" <= 1048576 )) || { echo "bin/ci: refusing: ${file} is larger than 1 MiB." >&2; exit 1; }
+        keys="$(yq -r '.. | select(tag == "!!map") | keys | .[]' "${source}" 2>/dev/null)" || { echo "bin/ci: refusing: ${file} is not valid YAML." >&2; exit 1; }
+        if grep -q "[][\"'\`\$|();\\\\]" <<<"${keys}"; then echo "bin/ci: refusing: ${file} has a key with characters no setting uses." >&2; exit 1; fi
+        mkdir -p "$(dirname "${file}")"
+        cp "${source}" "${file}"
+    done <"${folder}/files.tsv"
+}
+
+cmd_hub_audit() {
+    [[ $# == 1 ]] || usage
+    local report="$1" region profile tgw owner att env segment table status=0 want
+    profile="$(profile_for shared)"
+    : >"${report}"
+    say_problem() { echo "$1" | tee -a "${report}" >&2; status=1; }
+    for region in $(region_files); do
+        [[ "$(yq -r '.hub.transit_gateway.owner // "self"' "${CONFIG_DIR}/${region}.yml")" == self ]] || continue
+        aws_read() { aws "$@" --region "${region}" --output json ${profile:+--profile "${profile}"}; }
+        tgw="$(aws_read ec2 describe-transit-gateways --filters Name=tag:Component,Values=hub Name=state,Values=available | jq -r '.TransitGateways[0].TransitGatewayId // empty')"
+        [[ -n "${tgw}" ]] || continue
+        aws_read ec2 describe-transit-gateway-route-tables --filters "Name=transit-gateway-id,Values=${tgw}" >"${report}.tables"
+        while IFS=$'\t' read -r att owner env table; do
+            if [[ "${env}" == shared ]]; then continue; fi
+            if [[ -z "${env}" ]]; then say_problem "${region}: ${att} from account ${owner} carries no Environment tag: nothing here claimed it."; continue; fi
+            want="$(account_for "${env}")"
+            [[ "${owner}" == "${want}" ]] || say_problem "${region}: ${att} is tagged ${env}, whose account is ${want:-unset}, but belongs to account ${owner}."
+            segment="$(ENVIRONMENT_NAME="${env}" yq -r '.vpcs[strenv(ENVIRONMENT_NAME)].segment // ""' "${CONFIG_DIR}/${region}.yml")"
+            local actual
+            actual="$(jq -r --arg t "${table}" '.TransitGatewayRouteTables[] | select(.TransitGatewayRouteTableId == $t) | (.Tags // [] | map(select(.Key == "Segment")) | .[0].Value // "")' "${report}.tables")"
+            [[ "${actual}" == "${segment}" ]] || say_problem "${region}: ${att} (${env}) is associated with segment '${actual}'; config/ says '${segment}'."
+            while read -r propagated; do
+                [[ -n "${propagated}" ]] || continue
+                case "${segment}:${propagated}" in
+                    restricted:restricted|restricted:shared|standard:standard|standard:shared|shared:*) ;;
+                    *) say_problem "${region}: ${att} (${env}, ${segment}) announces into '${propagated}', which it may not." ;;
+                esac
+            done < <(aws_read ec2 get-transit-gateway-attachment-propagations --transit-gateway-attachment-id "${att}" \
+                | jq -r --slurpfile tables "${report}.tables" '.TransitGatewayAttachmentPropagations[] | .TransitGatewayRouteTableId as $id | ($tables[0].TransitGatewayRouteTables[] | select(.TransitGatewayRouteTableId == $id) | (.Tags // [] | map(select(.Key == "Segment")) | .[0].Value // "unknown"))')
+        done < <(aws_read ec2 describe-transit-gateway-attachments --filters "Name=transit-gateway-id,Values=${tgw}" Name=resource-type,Values=vpc Name=state,Values=available \
+            | jq -r '.TransitGatewayAttachments[] | [.TransitGatewayAttachmentId, .ResourceOwnerId, ((.Tags // []) | map(select(.Key == "Environment")) | .[0].Value // ""), (.Association.TransitGatewayRouteTableId // "")] | @tsv')
+    done
+    rm -f "${report}.tables"
+    [[ "${status}" == 0 ]] && echo "bin/ci: every attachment on the hubs belongs to its environment's account, segment and announcements."
+    return "${status}"
+}
+
+cmd_show() {
+    [[ $# == 2 ]] || usage
+    local stack="$1" digest="$2" plan
+    is_stack "${stack}" || { echo "bin/ci: ${stack} is not a stack" >&2; exit 2; }
+    [[ "${digest}" =~ ${DIGEST_FORM} ]] || { echo "bin/ci: the digest is the 64-character SHA-256 the proposing run printed." >&2; exit 2; }
+    plan="$(plan_file "${stack}")"
+    make -s init STACK="${stack}" >/dev/null
+    mkdir -p "live/${stack}/.terraform"
+    s3 "${stack}" cp "$(stored "${stack}" "${digest}.tfplan")" "${plan}.review" \
+        || { echo "bin/ci: no stored plan for ${stack} with that digest." >&2; exit 1; }
+    [[ "$(sha256_of "${plan}.review")" == "${digest}" ]] || { rm -f "${plan}.review"; echo "bin/ci: the stored plan does not match that digest." >&2; exit 1; }
+    terraform -chdir="live/${stack}" show "${PWD}/${plan}.review"
+    rm -f "${plan}.review"
 }
 
 [[ $# -ge 1 ]] || usage
@@ -163,6 +529,14 @@ case "${command}" in
     changed) cmd_changed "$@" ;;
     plan) cmd_plan "$@" ;;
     drift) cmd_drift "$@" ;;
+    credentials) cmd_credentials "$@" ;;
+    propose) cmd_propose "$@" ;;
     apply) cmd_apply "$@" ;;
+    show) cmd_show "$@" ;;
+    describe) cmd_describe "$@" ;;
+    classify) cmd_classify "$@" ;;
+    overlay) cmd_overlay "$@" ;;
+    hub-audit) cmd_hub_audit "$@" ;;
+    _environments) environments ;;
     *) usage ;;
 esac

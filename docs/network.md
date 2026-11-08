@@ -74,7 +74,7 @@ to keep in step.
 
 Each template has tests under `tests/` for its wiring (which route table a
 network joins, which tiers it gets), run against a mocked AWS. A stack's own test
-checks only what the stack adds: its identity from its path.
+checks only what the stack adds: its identity from `stack.tf`.
 
 | Template | Builds | Finds |
 |---|---|---|
@@ -116,6 +116,7 @@ vpcs:
 | `amazon_side_asn` | not allowed | the Transit Gateway's BGP ASN, 64512 to 65534, different for each hub |
 | `primary` | not allowed | `true` on exactly one hub. The primary is built after the other hubs, requests the peering, is the sites' preferred VPN path, and is where `global` stacks run. Moving it is a one-line change |
 | `security_group_referencing` | not allowed: every VPC follows its region's hub | `false` by default. `true` lets security groups in VPCs attached to this hub reference each other's groups (`group:<environment>/<group>`, [security groups](security-groups.md#groups-in-other-environments)). Same region only: never across the peering |
+| `transit_gateway` | not allowed: every VPC attaches to its region's | `owner: self` by default: the hub builds its own. `owner: parent`, with the gateway's `id` and the parent's RAM `share_arn`, attaches the hub and every spoke in the region to another organization's gateway instead ([accounts](accounts.md#a-parent-organizations-network)) |
 | `resolver` | not allowed: every VPC uses its region's hub | `inbound` and `outbound`, where this hub has [resolver endpoints](#dns-with-the-sites). By default only the primary hub has an inbound one, and every hub has an outbound one while a site forwards anything. Set `outbound: false` for a region whose servers never need a site's names |
 
 Adding an environment is one entry under `vpcs` and one `make stack`. The
@@ -240,6 +241,30 @@ Today's layout, for Ohio production (`10.41.0.0/16`):
 About half of each /16 is unallocated, so a tier can be added later without
 renumbering. An
 egress VPC (/20) has `public` (/24 ×3) and `transit` (/28 ×3).
+
+## Who changes the hub
+
+The hub and each spoke are separate stacks, applied separately, and neither
+needs the other's state: a network finds its hub by tags, the hub never looks a
+spoke up. Each change has one owner:
+
+| Change | Owner | How |
+|---|---|---|
+| The Transit Gateway, its three route tables, its routes and blackholes | The hub stack (`live/<region>/shared/hub`) | `terraform-apply-shared-hub` |
+| VPN to each site, and its propagation | The hub stack | The same |
+| Peering between hubs, and the routes across it | The primary hub stack | The same |
+| The resolver, its rules, and the zones every VPC attaches to | The hub and `global/shared/dns` | The same |
+| Sharing the gateway, prefix lists and resolver rules with other accounts | The hub stack, through RAM | The same |
+| A spoke's attachment, in its own account | The network stack | `terraform-apply-<environment>-network` |
+| Accepting that attachment, associating it with its segment's table, announcing it to the tables that may reach it, authorizing its private zones | The network stack, in the hub's account | `terraform-network-<environment>`, which can do only that, for that environment's attachments and segments |
+| The VPC's own routes toward the hub | The network stack | `terraform-apply-<environment>-network` |
+
+No workload, service or IAM role can change any of it, and the network role
+can change the hub's side only through its narrow role. Which table a spoke
+joins is `segment` in `config/`, and the role is built from the same file, so a
+spoke asking for another segment is refused by AWS, not just by review. With a
+[parent's gateway](accounts.md#a-parent-organizations-network), every row above
+the attachment is the parent's.
 
 ## Routing
 

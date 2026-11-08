@@ -11,7 +11,14 @@ module "lambda_function" {
   environment         = { for k, v in try(each.value.environment.variables, {}) : k => tostring(v) }
   statements          = local.statements[each.key]
   schedule_expression = try(tostring(each.value.cloudwatch_event_rule.schedule_expression), null)
-  retention_in_days   = tonumber(each.value.cloudwatch_log_group.retention_in_days)
+  event_pattern       = lookup(local.event_patterns, each.key, null)
+  architectures       = try([for a in concat(each.value.architectures, []) : tostring(a)], null)
+  layers              = try([for l in concat(each.value.layers, []) : tostring(l)], [])
+  vpc_config = contains(keys(local.vpc_configs), each.key) ? {
+    subnet_ids         = [for s in local.vpc_configs[each.key].subnet_ids : startswith(s, "subnet-") ? s : data.aws_subnet.subnets[s].id]
+    security_group_ids = [for g in local.vpc_configs[each.key].security_group_ids : startswith(g, "sg-") ? g : data.aws_security_group.groups[g].id]
+  } : null
+  retention_in_days = tonumber(each.value.cloudwatch_log_group.retention_in_days)
   event_source_mapping = can(each.value.event_source_mapping) ? {
     event_source_arn                   = contains(keys(local.queue_names), each.key) ? data.aws_sqs_queue.queues[each.key].arn : tostring(each.value.event_source_mapping.event_source_arn)
     batch_size                         = try(tonumber(each.value.event_source_mapping.batch_size), null)
@@ -25,4 +32,12 @@ module "lambda_function" {
       filter_policy_scope = s.filter_policy_scope
     }
   }
+
+  role_boundary = module.role_boundary.role_boundary
+}
+
+module "role_boundary" {
+  source = "../../modules/role-boundary"
+
+  duties_file = "${path.module}/../duties.yml"
 }

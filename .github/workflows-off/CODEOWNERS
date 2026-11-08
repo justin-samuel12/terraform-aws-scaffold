@@ -1,5 +1,32 @@
-# *                       @your-team
-# /.github/               @your-team
-# /bin/                   @your-team
-# /config/                @your-team
-# /live/*/production/     @your-team
+# # The last pattern that matches a file decides its owners. Replace these with
+# # the people or teams who own each area before turning the pipeline on.
+#
+# *                    @your-team
+#
+# # Workload configuration: an environment's own settings, owned by the teams
+# # whose applications they are. Production's stays with the platform, below.
+# /docs/               @your-team
+# /examples/           @your-team
+# /live/*/*/*/config/  @your-team
+#
+# # The platform: the pipeline, what decides permissions and boundaries, the
+# # code every stack runs, and the shared, global and production stacks.
+# /.github/            @your-team
+# /.gitattributes      @your-team
+# /.gitleaks.toml      @your-team
+# /.tflint.hcl         @your-team
+# /.trivyignore.yml    @your-team
+# /Makefile            @your-team
+# /bin/                @your-team
+# /bootstrap/          @your-team
+# /blueprints/         @your-team
+# /config/             @your-team
+# /modules/            @your-team
+# /scripts/            @your-team
+# /templates/          @your-team
+# /tests/              @your-team
+# /live/common/        @your-team
+# /live/global/        @your-team
+# /live/*/shared/      @your-team
+# /live/*/production/  @your-team
+# /live/*/*/pipeline/  @your-team

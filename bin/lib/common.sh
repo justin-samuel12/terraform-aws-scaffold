@@ -21,17 +21,17 @@ ask_yes() { [[ "$(ask "$1 (y/n)" "$2")" =~ ^[Yy] ]]; }
 region_files()   { local f; for f in "${CONFIG_DIR}"/*-*-[0-9].yml; do [[ -f "${f}" ]] && basename "${f}" .yml; done; }
 primary_region() { local r; for r in $(region_files); do [[ "$(yq -r '.hub.primary // false' "${CONFIG_DIR}/${r}.yml")" == true ]] && { echo "${r}"; return; }; done; }
 global_account() { yq -r '.account_id // ""' "${CONFIG_DIR}/global.yml" 2>/dev/null; }
-environments() { local r; { echo shared; for r in $(region_files); do yq -r '.vpcs // {} | keys | .[]' "${CONFIG_DIR}/${r}.yml"; done; } | awk '!seen[$0]++'; }
+environments() { local r; { echo shared; for r in $(region_files); do yq -r '.vpcs // {} | keys | .[]' "${CONFIG_DIR}/${r}.yml"; done; } | grep -E '^[a-z][a-z0-9-]*$' | awk '!seen[$0]++'; }
 account_for() {
     local env="$1" r a path
-    [[ "${env}" == shared ]] && path='.hub.account_id' || path=".vpcs[\"${env}\"].account_id"
+    [[ "${env}" == shared ]] && path='.hub.account_id' || path='.vpcs[strenv(ENVIRONMENT_NAME)].account_id'
     for r in $(region_files); do
-        a="$(yq -r "${path} // \"\"" "${CONFIG_DIR}/${r}.yml")"
+        a="$(ENVIRONMENT_NAME="${env}" yq -r "${path} // \"\"" "${CONFIG_DIR}/${r}.yml")"
         [[ -n "${a}" ]] && { echo "${a}"; return; }
     done
     global_account
 }
-profile_for() { [[ -f "${MACHINE_CONFIG}" ]] && yq -r ".profiles[\"$1\"] // \"\"" "${MACHINE_CONFIG}" 2>/dev/null || true; }
+profile_for() { [[ -f "${MACHINE_CONFIG}" ]] && ENVIRONMENT_NAME="$1" yq -r '.profiles[strenv(ENVIRONMENT_NAME)] // ""' "${MACHINE_CONFIG}" 2>/dev/null || true; }
 caller_account() { aws sts get-caller-identity ${1:+--profile "$1"} --query Account --output text 2>/dev/null || true; }
 
 ip_plan_problems() {

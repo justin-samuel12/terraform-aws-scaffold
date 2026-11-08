@@ -1,6 +1,10 @@
 locals {
   network = module.ip_plan.networks["${var.environment}/${var.region}"]
   peered  = local.network.connectivity == "peering"
+  parent  = !local.peered && local.network.transit_gateway.owner == "parent"
+  ours    = !local.peered && !local.parent
+
+  transit_gateway_id = local.peered ? null : (local.parent ? data.aws_ec2_transit_gateway.parent[0].id : data.aws_ec2_transit_gateway.transit_gateway[0].id)
 
   hub_account   = try(module.ip_plan.networks["shared/${var.region}"].account_id, "")
   cross_account = !local.peered && local.network.account_id != "" && local.hub_account != "" && local.network.account_id != local.hub_account
@@ -86,7 +90,7 @@ locals {
         contains(keys(local.peerings), r.vpc_peering_connection_id) ? aws_vpc_peering_connection.peerings[r.vpc_peering_connection_id].id :
         try(data.aws_vpc_peering_connection.requested[r.vpc_peering_connection_id].id, null)
       )
-      transit_gateway_id = r.transit_gateway_id == null ? null : r.transit_gateway_id == "hub" ? try(data.aws_ec2_transit_gateway.transit_gateway[0].id, null) : r.transit_gateway_id
+      transit_gateway_id = r.transit_gateway_id == null ? null : r.transit_gateway_id == "hub" ? local.transit_gateway_id : r.transit_gateway_id
     }
   }
 

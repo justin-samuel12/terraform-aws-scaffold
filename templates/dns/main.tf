@@ -23,12 +23,14 @@ resource "aws_iam_role" "dns_writer" {
   for_each = local.writers
 
   name                 = "dns-${each.key}"
+  path                 = try(module.role_boundary.role_boundary.path, "/")
+  permissions_boundary = try(module.role_boundary.role_boundary.permissions_boundary, null)
   description          = "${each.key} writing its own names in ${join(", ", local.domains)}"
   max_session_duration = 3600
 
   assume_role_policy = jsonencode({
     Version   = "2012-10-17"
-    Statement = [{ Effect = "Allow", Action = "sts:AssumeRole", Principal = { AWS = "arn:${data.aws_partition.current.partition}:iam::${each.value.account}:root" } }]
+    Statement = [{ Effect = "Allow", Action = "sts:AssumeRole", Principal = { AWS = "arn:${data.aws_partition.current.partition}:iam::${each.value.account}:root" }, Condition = { ArnNotLike = { "aws:PrincipalArn" = "arn:${data.aws_partition.current.partition}:iam::${each.value.account}:role/deployed/*" } } }]
   })
 
   tags = { Name = "${local.name_prefix}dns-${each.key}" }
@@ -55,4 +57,10 @@ resource "aws_iam_role_policy" "dns_writer" {
       },
     ]
   })
+}
+
+module "role_boundary" {
+  source = "../../modules/role-boundary"
+
+  duties_file = "${path.module}/../duties.yml"
 }

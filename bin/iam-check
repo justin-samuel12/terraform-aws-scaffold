@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "${REPO_ROOT}"
+
+PARLIAMENT_VERSION="1.6.3"
+IAM_SIMULATE_VERSION="0.1.173"
+IAM_DATA_VERSION="0.22.202611071"
+TOOLS="${INFRA_TOOLS:-${XDG_CACHE_HOME:-$HOME/.cache}/infra-tools}"
+RENDER="modules/deployment-policies/tests/render"
+ACCEPTED="modules/deployment-policies/tests/accepted.yml"
+REQUESTS="modules/deployment-policies/tests/requests.yml"
+
+usage() {
+    cat >&2 <<'TEXT'
+usage: bin/iam-check [--aws] [folder]
+  Renders every pipeline policy, for the hub's account and a spoke's, into folder (a temporary one if left out),
+  and lints them with parliament. Findings not listed, with a reason, in modules/deployment-policies/tests/accepted.yml fail it.
+  Then an independent simulator (@cloud-copilot/iam-simulate, using AWS's published action data) decides every request in
+  modules/deployment-policies/tests/requests.yml, with boundaries intersected with an administrator's identity policy, and
+  every condition key on a named action is checked against that data.
+  --aws  also asks AWS: IAM Access Analyzer validates each policy, and the IAM policy simulator decides every request in
+         modules/deployment-policies/tests/requests.yml. Both are read-only, and need credentials for any account (AWS_PROFILE).
+TEXT
+    exit 2
+}
+
+aws_too=0
+if [[ "${1:-}" == --aws ]]; then aws_too=1; shift; fi
+[[ "${1:-}" != -* ]] || usage
+out="${1:-$(mktemp -d)}"
+mkdir -p "${out}"
+
+render() {
+    local env="$1" entry name
+    terraform -chdir="${RENDER}" init -backend=false -input=false >/dev/null
+    echo 'jsonencode(module.policies.policies)' | terraform -chdir="${RENDER}" console -var "environment=${env}" \
+        | jq -r 'fromjson | to_entries[] | @base64' | while read -r entry; do
+            name="$(base64 --decode <<<"${entry}" | jq -r .key)"
+            base64 --decode <<<"${entry}" | jq -r .value | jq . >"${out}/${env}-${name}.json"
+        done
+}
+
+parliament() {
+    local venv="${TOOLS}/parliament-${PARLIAMENT_VERSION}"
+    if [[ ! -x "${venv}/bin/parliament" ]]; then
+        command -v python3 >/dev/null || { echo "bin/iam-check: python3 is needed to install parliament ${PARLIAMENT_VERSION}." >&2; exit 1; }
+        python3 -m venv "${venv}"
+        "${venv}/bin/pip" install --quiet --disable-pip-version-check -r modules/deployment-policies/tests/tools/requirements.txt
+    fi
+    local status=0
+    (cd "${out}" && "${venv}/bin/parliament" --directory . --json) || status=$?
+    [[ "${status}" -le 1 ]] || { echo "bin/iam-check: parliament crashed (exit ${status}); nothing was checked." >&2; exit 1; }
+}
+
+render staging
+render shared
+count="$(find "${out}" -name '*.json' | wc -l | xargs)"
+echo "rendered ${count} policies into ${out}"
+
+findings="$(parliament | jq -s -c '.')"
+accepted="$(yq -o=json '.' "${ACCEPTED}")"
+left="$(jq -c --argjson accepted "${accepted}" '[.[] | . as $f | select(any($accepted[]; . as $a | $a.issue == $f.issue and ($f.location.filepath | test($a.files)) and (($f.detail | tostring) | test($a.detail // "."))) | not)]' <<<"${findings}")"
+echo "parliament ${PARLIAMENT_VERSION}: $(jq length <<<"${findings}") findings, $(jq length <<<"${left}") not accepted"
+if [[ "$(jq length <<<"${left}")" != 0 ]]; then
+    jq -r '.[] | "  \(.severity) \(.issue) \(.location.filepath // ""): \(.title) \(.detail | tostring | .[0:300])"' <<<"${left}" >&2
+    exit 1
+fi
+
+simulator="${TOOLS}/iam-simulate-${IAM_SIMULATE_VERSION}-${IAM_DATA_VERSION}"
+if [[ ! -d "${simulator}/node_modules/@cloud-copilot/iam-simulate" ]]; then
+    command -v npm >/dev/null || { echo "bin/iam-check: npm is needed to install the simulator; no decision was checked." >&2; exit 1; }
+    mkdir -p "${simulator}"
+    cp modules/deployment-policies/tests/tools/package.json modules/deployment-policies/tests/tools/package-lock.json "${simulator}/"
+    (cd "${simulator}" && npm ci --ignore-scripts --no-audit --no-fund --silent)
+fi
+cp modules/deployment-policies/tests/simulate.mjs "${simulator}/simulate.mjs"
+yq -o=json '.' "${REQUESTS}" >"${simulator}/requests.json"
+yq -o=json '.' "${REQUESTS%.yml}-shared.yml" >"${simulator}/requests-shared.json"
+node "${simulator}/simulate.mjs" "${out}" "${simulator}/requests.json" "${simulator}/requests-shared.json"
+
+[[ "${aws_too}" == 1 ]] || exit 0
+
+status=0
+for f in "${out}"/*.json; do
+    # shellcheck disable=SC2016
+    problems="$(aws accessanalyzer validate-policy --policy-type IDENTITY_POLICY --policy-document "file://${f}" \
+        --query 'findings[?findingType==`ERROR` || findingType==`SECURITY_WARNING`].[findingType,issueCode]' --output text)"
+    if [[ -n "${problems}" ]]; then echo "FAIL  Access Analyzer, $(basename "${f}"): ${problems}" >&2; status=1; fi
+done
+[[ "${status}" == 0 ]] && echo "ok    IAM Access Analyzer found no error or security warning in ${count} policies"
+
+for group in refused allowed; do
+    for name in $(yq -r ".${group} | keys | .[]" "${REQUESTS}"); do
+        args=()
+        for p in $(yq -r ".${group}.${name}.policies[]" "${REQUESTS}"); do args+=("file://${out}/staging-${p}.json"); done
+        context=()
+        while IFS=$'\t' read -r key value; do
+            [[ -n "${key}" ]] && type=string; [[ "${key}" != aws:TagKeys ]] || type=stringList
+            context+=("ContextKeyName=${key},ContextKeyValues=${value},ContextKeyType=${type}")
+        done < <(yq -r ".${group}.${name}.context // {} | to_entries[] | [.key, (.value | join(\",\"))] | @tsv" "${REQUESTS}")
+        decision="$(aws iam simulate-custom-policy --policy-input-list "${args[@]}" \
+            --action-names "$(yq -r ".${group}.${name}.action" "${REQUESTS}")" \
+            --resource-arns "$(yq -r ".${group}.${name}.resource" "${REQUESTS}")" \
+            ${context[@]+--context-entries "${context[@]}"} --query 'EvaluationResults[0].EvalDecision' --output text)"
+        if [[ "${group}" == allowed && "${decision}" != allowed ]] || [[ "${group}" == refused && "${decision}" == allowed ]]; then
+            echo "FAIL  simulator, ${group} ${name}: ${decision}" >&2; status=1
+        fi
+    done
+done
+[[ "${status}" == 0 ]] && echo "ok    the IAM policy simulator agrees with every request in ${REQUESTS}"
+exit "${status}"

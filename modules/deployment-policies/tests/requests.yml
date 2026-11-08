@@ -1,0 +1,1404 @@
+refused:
+  workload_routes_the_hub:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "ec2:CreateTransitGatewayRoute"
+    resource: "arn:aws:ec2:us-west-2:222222222222:transit-gateway-route-table/tgw-rtb-1"
+  network_routes_the_hub:
+    policies:
+      - read
+      - network
+      - network-state
+      - network-limits
+      - network-environment
+      - network-ownership
+    action: "ec2:CreateTransitGatewayRoute"
+    resource: "arn:aws:ec2:us-west-2:222222222222:transit-gateway-route-table/tgw-rtb-1"
+  network_joins_a_segment_directly:
+    policies:
+      - read
+      - network
+      - network-state
+      - network-limits
+      - network-environment
+      - network-ownership
+    action: "ec2:AssociateTransitGatewayRouteTable"
+    resource: "arn:aws:ec2:us-west-2:222222222222:transit-gateway-route-table/tgw-rtb-1"
+  network_announces_directly:
+    policies:
+      - read
+      - network
+      - network-state
+      - network-limits
+      - network-environment
+      - network-ownership
+    action: "ec2:EnableTransitGatewayRouteTablePropagation"
+    resource: "arn:aws:ec2:us-west-2:222222222222:transit-gateway-route-table/tgw-rtb-1"
+  network_changes_the_transit_gateway:
+    policies:
+      - read
+      - network
+      - network-state
+      - network-limits
+      - network-environment
+      - network-ownership
+    action: "ec2:ModifyTransitGateway"
+    resource: "arn:aws:ec2:us-west-2:222222222222:transit-gateway/tgw-1"
+  workload_changes_the_vpc_routes:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "ec2:CreateRoute"
+    resource: "arn:aws:ec2:us-west-2:222222222222:route-table/rtb-1"
+  workload_stops_a_production_server:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "ec2:TerminateInstances"
+    resource: "arn:aws:ec2:us-west-2:222222222222:instance/i-1"
+    context:
+      "aws:ResourceTag/Environment":
+        - "production"
+      "aws:ResourceTag/Component":
+        - "compute"
+  workload_decrypts_with_a_production_key:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "kms:Decrypt"
+    resource: "arn:aws:kms:us-west-2:222222222222:key/k-1"
+    context:
+      "aws:ResourceTag/Environment":
+        - "production"
+      "aws:ResourceTag/Component":
+        - "keys"
+  workload_creates_a_production_server:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "ec2:RunInstances"
+    resource: "arn:aws:ec2:us-west-2:222222222222:instance/*"
+    context:
+      "aws:RequestTag/Environment":
+        - "production"
+      "aws:RequestTag/Component":
+        - "compute"
+  workload_deletes_a_shared_repository:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "ecr:DeleteRepository"
+    resource: "arn:aws:ecr:us-west-2:222222222222:repository/app"
+    context:
+      "aws:ResourceTag/Environment":
+        - "shared"
+      "aws:ResourceTag/Component":
+        - "ecr"
+  workload_deletes_the_vpc:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "ec2:DeleteSubnet"
+    resource: "arn:aws:ec2:us-west-2:222222222222:subnet/subnet-1"
+    context:
+      "aws:ResourceTag/Environment":
+        - "staging"
+      "aws:ResourceTag/Component":
+        - "network"
+  workload_changes_its_own_role:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "iam:PutRolePolicy"
+    resource: "arn:aws:iam::222222222222:role/terraform-apply-staging-workload"
+    context:
+      "iam:PermissionsBoundary":
+        - "arn:aws:iam::222222222222:policy/terraform-boundary-staging-workload"
+  workload_attaches_admin_to_its_own_role:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "iam:AttachRolePolicy"
+    resource: "arn:aws:iam::222222222222:role/terraform-apply-staging-workload"
+  workload_widens_its_own_trust:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "iam:UpdateAssumeRolePolicy"
+    resource: "arn:aws:iam::222222222222:role/terraform-apply-staging-workload"
+  workload_changes_the_pipeline_roles:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "iam:DeleteRole"
+    resource: "arn:aws:iam::222222222222:role/terraform-apply-production-workload"
+  workload_changes_the_oidc_provider:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "iam:AddClientIDToOpenIDConnectProvider"
+    resource: "arn:aws:iam::222222222222:oidc-provider/token.actions.githubusercontent.com"
+  workload_rewrites_its_boundary:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "iam:CreatePolicyVersion"
+    resource: "arn:aws:iam::222222222222:policy/terraform-boundary-staging-workload"
+  workload_removes_a_boundary:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "iam:DeleteRolePermissionsBoundary"
+    resource: "arn:aws:iam::222222222222:role/deployed/app"
+  workload_creates_a_role_without_the_boundary:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "iam:CreateRole"
+    resource: "arn:aws:iam::222222222222:role/deployed/app"
+  workload_creates_a_role_with_another_dutys_boundary:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "iam:CreateRole"
+    resource: "arn:aws:iam::222222222222:role/deployed/app"
+    context:
+      "iam:PermissionsBoundary":
+        - "arn:aws:iam::222222222222:policy/terraform-boundary-staging-network"
+  workload_creates_a_role_outside_the_deployed_path:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "iam:CreateRole"
+    resource: "arn:aws:iam::222222222222:role/admin"
+    context:
+      "iam:PermissionsBoundary":
+        - "arn:aws:iam::222222222222:policy/terraform-boundary-staging-workload"
+  workload_passes_an_administrator_role:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "iam:PassRole"
+    resource: "arn:aws:iam::222222222222:role/OrganizationAccountAccessRole"
+  workload_assumes_the_network_role:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "sts:AssumeRole"
+    resource: "arn:aws:iam::222222222222:role/terraform-apply-staging-network"
+  workload_assumes_the_hub_network_role:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "sts:AssumeRole"
+    resource: "arn:aws:iam::111111111111:role/terraform-network-staging"
+  workload_loosens_the_state_bucket:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "s3:PutBucketPolicy"
+    resource: "arn:aws:s3:::example-terraform-state"
+  workload_turns_off_state_versioning:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "s3:PutBucketVersioning"
+    resource: "arn:aws:s3:::example-terraform-state"
+  workload_deletes_state_history:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "s3:DeleteObjectVersion"
+    resource: "arn:aws:s3:::example-terraform-state/us-west-2/staging/compute/terraform.tfstate"
+  workload_writes_network_state:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "s3:PutObject"
+    resource: "arn:aws:s3:::example-terraform-state/us-west-2/staging/network/terraform.tfstate"
+  workload_reads_production_state:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "s3:GetObject"
+    resource: "arn:aws:s3:::example-terraform-state/us-east-2/production/databases/terraform.tfstate"
+  workload_stores_a_plan:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "s3:PutObject"
+    resource: "arn:aws:s3:::example-terraform-state/plans/us-west-2/staging/compute/abc.tfplan"
+  workload_leaves_the_organization:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "organizations:LeaveOrganization"
+    resource: "*"
+  workload_stops_the_trail:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "cloudtrail:StopLogging"
+    resource: "arn:aws:cloudtrail:us-west-2:222222222222:trail/organization"
+  workload_makes_an_access_key:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "iam:CreateAccessKey"
+    resource: "arn:aws:iam::222222222222:user/anyone"
+  iam_changes_the_pipeline_roles:
+    policies:
+      - read
+      - iam
+      - iam-state
+      - iam-limits
+      - iam-environment
+      - iam-ownership
+    action: "iam:AttachRolePolicy"
+    resource: "arn:aws:iam::222222222222:role/terraform-apply-staging-workload"
+    context:
+      "iam:PermissionsBoundary":
+        - "arn:aws:iam::222222222222:policy/terraform-boundary-staging-iam"
+  services_changes_the_vpc:
+    policies:
+      - read
+      - services
+      - services-state
+      - services-limits
+      - services-environment
+      - services-ownership
+    action: "ec2:DeleteVpc"
+    resource: "arn:aws:ec2:us-west-2:222222222222:vpc/vpc-1"
+  a_deployed_role_routes_the_hub:
+    policies:
+      - boundary-workload
+    action: "ec2:CreateTransitGatewayRoute"
+    resource: "arn:aws:ec2:us-west-2:222222222222:transit-gateway-route-table/tgw-rtb-1"
+  a_deployed_role_changes_the_vpc:
+    policies:
+      - boundary-workload
+    action: "ec2:ReplaceRoute"
+    resource: "arn:aws:ec2:us-west-2:222222222222:route-table/rtb-1"
+  a_deployed_role_reads_the_state:
+    policies:
+      - boundary-workload
+    action: "s3:GetObject"
+    resource: "arn:aws:s3:::example-terraform-state/us-west-2/staging/compute/terraform.tfstate"
+  a_deployed_role_makes_an_unbounded_role:
+    policies:
+      - boundary-workload
+    action: "iam:CreateRole"
+    resource: "arn:aws:iam::222222222222:role/deployed/escape"
+  a_deployed_role_assumes_the_pipeline:
+    policies:
+      - boundary-workload
+    action: "sts:AssumeRole"
+    resource: "arn:aws:iam::222222222222:role/terraform-apply-staging-workload"
+  a_deployed_role_uses_a_production_key:
+    policies:
+      - boundary-workload
+    action: "kms:Decrypt"
+    resource: "arn:aws:kms:us-west-2:222222222222:key/k-1"
+    context:
+      "aws:ResourceTag/Environment":
+        - "production"
+  a_pull_request_reads_production_state:
+    policies:
+      - read
+      - plan
+    action: "s3:GetObject"
+    resource: "arn:aws:s3:::example-terraform-state/us-east-2/production/databases/terraform.tfstate"
+  a_pull_request_reads_a_stored_plan:
+    policies:
+      - read
+      - plan
+    action: "s3:GetObject"
+    resource: "arn:aws:s3:::example-terraform-state/plans/us-west-2/staging/compute/abc.tfplan"
+  a_pull_request_reads_a_secret:
+    policies:
+      - read
+      - plan
+    action: "secretsmanager:GetSecretValue"
+    resource: "arn:aws:secretsmanager:us-west-2:222222222222:secret:db"
+  a_pull_request_reads_application_data:
+    policies:
+      - read
+      - plan
+    action: "s3:GetObject"
+    resource: "arn:aws:s3:::staging-uploads/report.csv"
+  a_pull_request_takes_the_lock:
+    policies:
+      - read
+      - plan
+    action: "s3:PutObject"
+    resource: "arn:aws:s3:::example-terraform-state/us-west-2/staging/compute/terraform.tfstate.tflock"
+  a_proposal_writes_the_state:
+    policies:
+      - read
+      - propose
+    action: "s3:PutObject"
+    resource: "arn:aws:s3:::example-terraform-state/us-west-2/staging/compute/terraform.tfstate"
+  a_proposal_reads_a_stored_plan:
+    policies:
+      - read
+      - propose
+    action: "s3:GetObject"
+    resource: "arn:aws:s3:::example-terraform-state/plans/us-west-2/staging/compute/abc.tfplan"
+  the_hub_role_joins_another_segment:
+    policies:
+      - network-role
+    action: "ec2:AssociateTransitGatewayRouteTable"
+    resource: "arn:aws:ec2:us-west-2:111111111111:transit-gateway-route-table/tgw-rtb-restricted"
+    context:
+      "aws:ResourceTag/Segment":
+        - "restricted"
+  the_hub_role_announces_to_restricted:
+    policies:
+      - network-role
+    action: "ec2:EnableTransitGatewayRouteTablePropagation"
+    resource: "arn:aws:ec2:us-west-2:111111111111:transit-gateway-route-table/tgw-rtb-restricted"
+    context:
+      "aws:ResourceTag/Segment":
+        - "restricted"
+  the_hub_role_announces_production:
+    policies:
+      - network-role
+    action: "ec2:EnableTransitGatewayRouteTablePropagation"
+    resource: "arn:aws:ec2:us-west-2:111111111111:transit-gateway-attachment/tgw-attach-production"
+    context:
+      "aws:ResourceTag/Environment":
+        - "production"
+  the_hub_role_claims_production:
+    policies:
+      - network-role
+    action: "ec2:CreateTags"
+    resource: "arn:aws:ec2:us-west-2:111111111111:transit-gateway-attachment/tgw-attach-production"
+    context:
+      "aws:ResourceTag/Environment":
+        - "production"
+      "aws:RequestTag/Environment":
+        - "staging"
+  the_hub_role_adds_a_route:
+    policies:
+      - network-role
+    action: "ec2:CreateTransitGatewayRoute"
+    resource: "arn:aws:ec2:us-west-2:111111111111:transit-gateway-route-table/tgw-rtb-standard"
+    context:
+      "aws:ResourceTag/Segment":
+        - "standard"
+  the_hub_role_changes_the_vpn:
+    policies:
+      - network-role
+    action: "ec2:ModifyVpnConnection"
+    resource: "arn:aws:ec2:us-west-2:111111111111:vpn-connection/vpn-1"
+  the_hub_role_works_in_another_region:
+    policies:
+      - network-role
+    action: "ec2:AssociateTransitGatewayRouteTable"
+    resource: "arn:aws:ec2:us-east-2:111111111111:transit-gateway-route-table/tgw-rtb-standard"
+    context:
+      "aws:ResourceTag/Segment":
+        - "standard"
+  workload_peers_with_operations:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "ec2:CreateVpcPeeringConnection"
+    resource: "arn:aws:ec2:us-west-2:222222222222:vpc/vpc-operations"
+    context:
+      "aws:ResourceTag/Environment":
+        - "operations"
+      "aws:ResourceTag/Component":
+        - "network"
+  network_changes_another_environments_vpc:
+    policies:
+      - read
+      - network
+      - network-state
+      - network-limits
+      - network-environment
+      - network-ownership
+    action: "ec2:DeleteSubnet"
+    resource: "arn:aws:ec2:us-west-2:222222222222:subnet/subnet-operations"
+    context:
+      "aws:ResourceTag/Environment":
+        - "operations"
+      "aws:ResourceTag/Component":
+        - "network"
+  a_deployed_role_changes_an_administrators_trust:
+    policies:
+      - boundary-workload
+    action: "iam:UpdateAssumeRolePolicy"
+    resource: "arn:aws:iam::222222222222:role/OrganizationAccountAccessRole"
+  a_deployed_role_gives_an_administrator_more:
+    policies:
+      - boundary-workload
+    action: "iam:AttachRolePolicy"
+    resource: "arn:aws:iam::222222222222:role/OrganizationAccountAccessRole"
+  a_deployed_role_passes_an_administrator:
+    policies:
+      - boundary-workload
+    action: "iam:PassRole"
+    resource: "arn:aws:iam::222222222222:role/OrganizationAccountAccessRole"
+  a_deployed_role_assumes_an_administrator:
+    policies:
+      - boundary-workload
+    action: "sts:AssumeRole"
+    resource: "arn:aws:iam::222222222222:role/OrganizationAccountAccessRole"
+  a_deployed_role_rewrites_another_deployed_role:
+    policies:
+      - boundary-workload
+    action: "iam:PutRolePolicy"
+    resource: "arn:aws:iam::222222222222:role/deployed/other"
+    context:
+      "iam:PermissionsBoundary":
+        - "arn:aws:iam::222222222222:policy/terraform-boundary-staging-workload"
+  a_deployed_role_changes_a_shared_repository:
+    policies:
+      - boundary-workload
+    action: "ecr:DeleteRepository"
+    resource: "arn:aws:ecr:us-west-2:222222222222:repository/app"
+    context:
+      "aws:ResourceTag/Environment":
+        - "shared"
+  a_deployed_role_reads_a_production_secret:
+    policies:
+      - boundary-workload
+    action: "secretsmanager:GetSecretValue"
+    resource: "arn:aws:secretsmanager:us-west-2:222222222222:secret:db"
+    context:
+      "aws:ResourceTag/Environment":
+        - "production"
+  a_deployed_role_empties_a_production_bucket:
+    policies:
+      - boundary-workload
+    action: "s3:DeleteObject"
+    resource: "arn:aws:s3:::production-uploads-222222222222-us-west-2/file"
+  workload_attaches_administrator_to_a_deployed_role:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "iam:AttachRolePolicy"
+    resource: "arn:aws:iam::222222222222:role/deployed/app"
+    context:
+      "iam:PermissionsBoundary":
+        - "arn:aws:iam::222222222222:policy/terraform-boundary-staging-workload"
+      "iam:PolicyARN":
+        - "arn:aws:iam::aws:policy/AdministratorAccess"
+      "aws:ResourceTag/Environment":
+        - "staging"
+      "aws:ResourceTag/Component":
+        - "compute"
+  workload_attaches_a_boundary_as_a_permission:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "iam:AttachRolePolicy"
+    resource: "arn:aws:iam::222222222222:role/deployed/app"
+    context:
+      "iam:PermissionsBoundary":
+        - "arn:aws:iam::222222222222:policy/terraform-boundary-staging-workload"
+      "iam:PolicyARN":
+        - "arn:aws:iam::222222222222:policy/terraform-boundary-staging-workload"
+  workload_changes_the_trust_of_a_role_with_another_boundary:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "iam:UpdateAssumeRolePolicy"
+    resource: "arn:aws:iam::222222222222:role/deployed/flow-logs"
+    context:
+      "iam:PermissionsBoundary":
+        - "arn:aws:iam::222222222222:policy/terraform-boundary-staging-network"
+  workload_deletes_a_role_with_no_boundary:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "iam:DeleteRole"
+    resource: "arn:aws:iam::222222222222:role/deployed/legacy"
+  workload_empties_a_production_bucket:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "s3:DeleteBucket"
+    resource: "arn:aws:s3:::production-uploads-222222222222-us-west-2"
+  workload_changes_a_production_bucket_policy:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "s3:PutBucketPolicy"
+    resource: "arn:aws:s3:::production-uploads-222222222222-us-west-2"
+  workload_reads_another_environments_object:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "s3:GetObject"
+    resource: "arn:aws:s3:::production-uploads-222222222222-us-west-2/report.csv"
+  workload_retags_its_server_into_production:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "ec2:CreateTags"
+    resource: "arn:aws:ec2:us-west-2:222222222222:instance/i-1"
+    context:
+      "aws:RequestTag/Environment":
+        - "production"
+      "aws:TagKeys":
+        - "Environment"
+      "aws:ResourceTag/Environment":
+        - "staging"
+      "aws:ResourceTag/Component":
+        - "compute"
+  workload_claims_an_untagged_server:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "ec2:CreateTags"
+    resource: "arn:aws:ec2:us-west-2:222222222222:instance/i-untagged"
+    context:
+      "aws:RequestTag/Environment":
+        - "staging"
+      "aws:RequestTag/Component":
+        - "compute"
+      "aws:TagKeys":
+        - "Environment"
+        - "Component"
+  workload_removes_the_environment_tag:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "ec2:DeleteTags"
+    resource: "arn:aws:ec2:us-west-2:222222222222:instance/i-1"
+    context:
+      "aws:TagKeys":
+        - "Environment"
+      "aws:ResourceTag/Environment":
+        - "staging"
+      "aws:ResourceTag/Component":
+        - "compute"
+  workload_removes_every_tag_at_once:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "ec2:DeleteTags"
+    resource: "arn:aws:ec2:us-west-2:222222222222:instance/i-1"
+    context:
+      "aws:ResourceTag/Environment":
+        - "staging"
+      "aws:ResourceTag/Component":
+        - "compute"
+  workload_removes_a_keys_component_tag:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "kms:UntagResource"
+    resource: "arn:aws:kms:us-west-2:222222222222:key/k-1"
+    context:
+      "aws:TagKeys":
+        - "Component"
+      "aws:ResourceTag/Environment":
+        - "staging"
+      "aws:ResourceTag/Component":
+        - "keys"
+  workload_terminates_an_untagged_server:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "ec2:TerminateInstances"
+    resource: "arn:aws:ec2:us-west-2:222222222222:instance/i-untagged"
+  workload_schedules_an_untagged_keys_deletion:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "kms:ScheduleKeyDeletion"
+    resource: "arn:aws:kms:us-west-2:222222222222:key/k-untagged"
+  workload_creates_a_database_without_its_environment:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "rds:CreateDBInstance"
+    resource: "arn:aws:rds:us-west-2:222222222222:db:orders"
+  workload_creates_a_key_without_its_environment:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "kms:CreateKey"
+    resource: "*"
+  workload_gets_a_production_secret:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "secretsmanager:GetSecretValue"
+    resource: "arn:aws:secretsmanager:us-west-2:222222222222:secret:db"
+    context:
+      "aws:ResourceTag/Environment":
+        - "production"
+      "aws:ResourceTag/Component":
+        - "databases"
+  workload_creates_a_hosted_zone:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "route53:CreateHostedZone"
+    resource: "*"
+  workload_overwrites_a_claim:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "s3:PutObject"
+    resource: "arn:aws:s3:::example-terraform-state/applied/us-west-2/staging/compute/abc.json"
+  workload_deletes_a_claim:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "s3:DeleteObject"
+    resource: "arn:aws:s3:::example-terraform-state/applied/us-west-2/staging/compute/abc.json"
+  workload_claims_a_network_plan:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "s3:PutObject"
+    resource: "arn:aws:s3:::example-terraform-state/applied/us-west-2/staging/network/abc.json"
+    context:
+      "s3:if-none-match":
+        - "*"
+  network_changes_another_spokes_attachment:
+    policies:
+      - read
+      - network
+      - network-state
+      - network-limits
+      - network-environment
+      - network-ownership
+    action: "ec2:DeleteTransitGatewayVpcAttachment"
+    resource: "arn:aws:ec2:us-west-2:222222222222:transit-gateway-attachment/tgw-attach-prod"
+    context:
+      "aws:ResourceTag/Environment":
+        - "production"
+      "aws:ResourceTag/Component":
+        - "network"
+  network_deletes_another_environments_peering:
+    policies:
+      - read
+      - network
+      - network-state
+      - network-limits
+      - network-environment
+      - network-ownership
+    action: "ec2:DeleteVpcPeeringConnection"
+    resource: "arn:aws:ec2:us-west-2:222222222222:vpc-peering-connection/pcx-prod"
+    context:
+      "aws:ResourceTag/Environment":
+        - "production"
+      "aws:ResourceTag/Component":
+        - "network"
+  a_proposal_overwrites_a_record:
+    policies:
+      - read
+      - propose
+    action: "s3:PutObject"
+    resource: "arn:aws:s3:::example-terraform-state/plans/us-west-2/staging/compute/abc.json"
+  a_proposal_reads_another_environments_secret:
+    policies:
+      - read
+      - propose
+    action: "secretsmanager:GetSecretValue"
+    resource: "arn:aws:secretsmanager:us-west-2:222222222222:secret:db"
+    context:
+      "aws:ResourceTag/Environment":
+        - "production"
+  a_proposal_reads_an_applications_object:
+    policies:
+      - read
+      - propose
+    action: "s3:GetObject"
+    resource: "arn:aws:s3:::staging-uploads/report.csv"
+  a_plan_reads_a_claim:
+    policies:
+      - read
+      - plan
+    action: "s3:GetObject"
+    resource: "arn:aws:s3:::example-terraform-state/applied/us-west-2/staging/compute/abc.json"
+  the_hub_role_retags_its_attachment_into_production:
+    policies:
+      - network-role
+    action: "ec2:CreateTags"
+    resource: "arn:aws:ec2:us-west-2:111111111111:transit-gateway-attachment/tgw-attach-staging"
+    context:
+      "aws:ResourceTag/Environment":
+        - "staging"
+      "aws:RequestTag/Environment":
+        - "production"
+  the_hub_role_removes_its_ownership_tag:
+    policies:
+      - network-role
+    action: "ec2:DeleteTags"
+    resource: "arn:aws:ec2:us-west-2:111111111111:transit-gateway-attachment/tgw-attach-staging"
+    context:
+      "aws:ResourceTag/Environment":
+        - "staging"
+      "aws:TagKeys":
+        - "Environment"
+  the_hub_role_removes_all_tags:
+    policies:
+      - network-role
+    action: "ec2:DeleteTags"
+    resource: "arn:aws:ec2:us-west-2:111111111111:transit-gateway-attachment/tgw-attach-staging"
+    context:
+      "aws:ResourceTag/Environment":
+        - "staging"
+  workload_passes_a_network_dutys_role:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "iam:PassRole"
+    resource: "arn:aws:iam::222222222222:role/deployed/flow-logs"
+    context:
+      "aws:ResourceTag/Environment":
+        - "staging"
+      "aws:ResourceTag/Component":
+        - "network"
+  workload_passes_a_hub_dutys_role:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "iam:PassRole"
+    resource: "arn:aws:iam::222222222222:role/deployed/dns-x"
+    context:
+      "aws:ResourceTag/Environment":
+        - "shared"
+      "aws:ResourceTag/Component":
+        - "dns"
+  network_retags_another_environments_peering:
+    policies:
+      - read
+      - network
+      - network-state
+      - network-limits
+      - network-environment
+      - network-ownership
+    action: "ec2:CreateTags"
+    resource: "arn:aws:ec2:us-west-2:222222222222:vpc-peering-connection/pcx-prod"
+    context:
+      "aws:ResourceTag/Environment":
+        - "production"
+      "aws:ResourceTag/Component":
+        - "network"
+      "aws:RequestTag/Environment":
+        - "staging"
+  a_plan_assumes_the_dns_writer:
+    policies:
+      - read
+      - plan
+    action: "sts:AssumeRole"
+    resource: "arn:aws:iam::111111111111:role/deployed/dns-staging"
+  the_hub_role_disassociates_a_zone:
+    policies:
+      - network-role
+    action: "route53:DisassociateVPCFromHostedZone"
+    resource: "arn:aws:route53:::hostedzone/Z1"
+allowed:
+  workload_launches_a_server:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "ec2:RunInstances"
+    resource: "arn:aws:ec2:us-west-2:222222222222:subnet/subnet-1"
+    context:
+      "aws:ResourceTag/Environment":
+        - "staging"
+      "aws:ResourceTag/Component":
+        - "network"
+      "aws:RequestTag/Environment":
+        - "staging"
+      "aws:RequestTag/Component":
+        - "compute"
+  workload_creates_a_bucket:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "s3:CreateBucket"
+    resource: "arn:aws:s3:::staging-uploads"
+    context:
+      "aws:RequestTag/Environment":
+        - "staging"
+      "aws:RequestTag/Component":
+        - "buckets"
+  workload_uses_a_shared_key:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "kms:GenerateDataKey"
+    resource: "arn:aws:kms:us-west-2:222222222222:key/k-shared"
+    context:
+      "aws:ResourceTag/Environment":
+        - "shared"
+      "aws:ResourceTag/Component":
+        - "session-manager"
+  workload_creates_a_bounded_role:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "iam:CreateRole"
+    resource: "arn:aws:iam::222222222222:role/deployed/staging-orders"
+    context:
+      "iam:PermissionsBoundary":
+        - "arn:aws:iam::222222222222:policy/terraform-boundary-staging-workload"
+      "aws:RequestTag/Environment":
+        - "staging"
+      "aws:RequestTag/Component":
+        - "containers"
+  workload_passes_a_deployed_role:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "iam:PassRole"
+    resource: "arn:aws:iam::222222222222:role/deployed/staging-orders"
+    context:
+      "aws:ResourceTag/Environment":
+        - "staging"
+      "aws:ResourceTag/Component":
+        - "iam"
+  workload_writes_its_state:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "s3:PutObject"
+    resource: "arn:aws:s3:::example-terraform-state/us-west-2/staging/compute/terraform.tfstate"
+  workload_takes_its_lock:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "s3:PutObject"
+    resource: "arn:aws:s3:::example-terraform-state/us-west-2/staging/compute/terraform.tfstate.tflock"
+  workload_takes_its_approved_plan:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "s3:GetObject"
+    resource: "arn:aws:s3:::example-terraform-state/plans/us-west-2/staging/compute/abc.tfplan"
+  workload_writes_records_through_the_dns_role:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "sts:AssumeRole"
+    resource: "arn:aws:iam::111111111111:role/deployed/dns-staging"
+  network_builds_its_vpc:
+    policies:
+      - read
+      - network
+      - network-state
+      - network-limits
+      - network-environment
+      - network-ownership
+    action: "ec2:CreateSubnet"
+    resource: "arn:aws:ec2:us-west-2:222222222222:vpc/vpc-1"
+    context:
+      "aws:ResourceTag/Environment":
+        - "staging"
+      "aws:ResourceTag/Component":
+        - "network"
+      "aws:RequestTag/Environment":
+        - "staging"
+      "aws:RequestTag/Component":
+        - "network"
+  network_attaches_to_the_hub:
+    policies:
+      - read
+      - network
+      - network-state
+      - network-limits
+      - network-environment
+      - network-ownership
+    action: "ec2:CreateTransitGatewayVpcAttachment"
+    resource: "arn:aws:ec2:us-west-2:111111111111:transit-gateway/tgw-1"
+    context:
+      "aws:ResourceTag/Environment":
+        - "shared"
+      "aws:ResourceTag/Component":
+        - "hub"
+      "aws:RequestTag/Environment":
+        - "staging"
+      "aws:RequestTag/Component":
+        - "network"
+  network_assumes_the_hub_role:
+    policies:
+      - read
+      - network
+      - network-state
+      - network-limits
+      - network-environment
+      - network-ownership
+    action: "sts:AssumeRole"
+    resource: "arn:aws:iam::111111111111:role/terraform-network-staging"
+  the_hub_role_joins_its_segment:
+    policies:
+      - network-role
+    action: "ec2:AssociateTransitGatewayRouteTable"
+    resource: "arn:aws:ec2:us-west-2:111111111111:transit-gateway-route-table/tgw-rtb-standard"
+    context:
+      "aws:ResourceTag/Segment":
+        - "standard"
+  the_hub_role_moves_its_own_attachment:
+    policies:
+      - network-role
+    action: "ec2:AssociateTransitGatewayRouteTable"
+    resource: "arn:aws:ec2:us-west-2:111111111111:transit-gateway-attachment/tgw-attach-staging"
+    context:
+      "aws:ResourceTag/Environment":
+        - "staging"
+  the_hub_role_accepts_a_new_attachment:
+    policies:
+      - network-role
+    action: "ec2:AcceptTransitGatewayVpcAttachment"
+    resource: "arn:aws:ec2:us-west-2:111111111111:transit-gateway-attachment/tgw-attach-new"
+  the_hub_role_announces_to_shared:
+    policies:
+      - network-role
+    action: "ec2:EnableTransitGatewayRouteTablePropagation"
+    resource: "arn:aws:ec2:us-west-2:111111111111:transit-gateway-route-table/tgw-rtb-shared"
+    context:
+      "aws:ResourceTag/Segment":
+        - "shared"
+  a_pull_request_reads_staging_state:
+    policies:
+      - read
+      - plan
+    action: "s3:GetObject"
+    resource: "arn:aws:s3:::example-terraform-state/us-west-2/staging/compute/terraform.tfstate"
+  a_proposal_takes_the_lock:
+    policies:
+      - read
+      - propose
+    action: "s3:PutObject"
+    resource: "arn:aws:s3:::example-terraform-state/us-west-2/staging/compute/terraform.tfstate.tflock"
+  a_proposal_stores_its_plan:
+    policies:
+      - read
+      - propose
+    action: "s3:PutObject"
+    resource: "arn:aws:s3:::example-terraform-state/plans/us-west-2/staging/compute/abc.tfplan"
+    context:
+      s3:if-none-match:
+        - '*'
+  network_peers_with_operations:
+    policies:
+      - read
+      - network
+      - network-state
+      - network-limits
+      - network-environment
+      - network-ownership
+    action: "ec2:CreateVpcPeeringConnection"
+    resource: "arn:aws:ec2:us-west-2:222222222222:vpc/vpc-operations"
+    context:
+      "aws:ResourceTag/Environment":
+        - "operations"
+      "aws:ResourceTag/Component":
+        - "network"
+  network_tags_the_peering_it_accepts:
+    policies:
+      - read
+      - network
+      - network-state
+      - network-limits
+      - network-environment
+      - network-ownership
+    action: "ec2:AcceptVpcPeeringConnection"
+    resource: "arn:aws:ec2:us-west-2:222222222222:vpc-peering-connection/pcx-1"
+    context:
+      "aws:ResourceTag/Environment":
+        - "operations"
+      "aws:ResourceTag/Component":
+        - "network"
+  workload_creates_its_keys:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "kms:CreateKey"
+    resource: "*"
+    context:
+      "aws:RequestTag/Environment":
+        - "staging"
+      "aws:RequestTag/Component":
+        - "keys"
+  workload_claims_its_plan_once:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "s3:PutObject"
+    resource: "arn:aws:s3:::example-terraform-state/applied/us-west-2/staging/compute/abc.json"
+    context:
+      "s3:if-none-match":
+        - "*"
+  workload_changes_the_trust_of_its_own_role:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "iam:UpdateAssumeRolePolicy"
+    resource: "arn:aws:iam::222222222222:role/deployed/app"
+    context:
+      "iam:PermissionsBoundary":
+        - "arn:aws:iam::222222222222:policy/terraform-boundary-staging-workload"
+      "aws:ResourceTag/Environment":
+        - "staging"
+      "aws:ResourceTag/Component":
+        - "containers"
+  workload_writes_a_record:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "route53:ChangeResourceRecordSets"
+    resource: "arn:aws:route53:::hostedzone/Z1"
+  workload_terminates_its_server:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "ec2:TerminateInstances"
+    resource: "arn:aws:ec2:us-west-2:222222222222:instance/i-1"
+    context:
+      "aws:ResourceTag/Environment":
+        - "staging"
+      "aws:ResourceTag/Component":
+        - "compute"
+  a_deployed_role_passes_a_deployed_role:
+    policies:
+      - boundary-workload
+    action: "iam:PassRole"
+    resource: "arn:aws:iam::222222222222:role/deployed/eks-node"
+  a_deployed_eks_role_adds_a_node_to_its_profile:
+    policies:
+      - boundary-workload
+    action: "iam:AddRoleToInstanceProfile"
+    resource: "arn:aws:iam::222222222222:instance-profile/eks-abc"
+  a_deployed_role_pulls_a_shared_image:
+    policies:
+      - boundary-workload
+    action: "ecr:BatchGetImage"
+    resource: "arn:aws:ecr:us-west-2:222222222222:repository/app"
+    context:
+      "aws:ResourceTag/Environment":
+        - "shared"
+  a_proposal_stores_a_new_plan:
+    policies:
+      - read
+      - propose
+    action: "s3:PutObject"
+    resource: "arn:aws:s3:::example-terraform-state/plans/us-west-2/staging/compute/new.tfplan"
+    context:
+      "s3:if-none-match":
+        - "*"
+  a_proposal_reads_its_secret:
+    policies:
+      - read
+      - propose
+    action: "secretsmanager:GetSecretValue"
+    resource: "arn:aws:secretsmanager:us-west-2:222222222222:secret:db"
+    context:
+      "aws:ResourceTag/Environment":
+        - "staging"
+  the_hub_role_changes_its_name_tag:
+    policies:
+      - network-role
+    action: "ec2:CreateTags"
+    resource: "arn:aws:ec2:us-west-2:111111111111:transit-gateway-attachment/tgw-attach-staging"
+    context:
+      "aws:ResourceTag/Environment":
+        - "staging"
+      "aws:TagKeys":
+        - "Name"
+  workload_passes_the_iam_stacks_role:
+    policies:
+      - read
+      - workload
+      - workload-state
+      - workload-limits
+      - workload-environment
+      - workload-ownership
+    action: "iam:PassRole"
+    resource: "arn:aws:iam::222222222222:role/deployed/sqlserver"
+    context:
+      "aws:ResourceTag/Environment":
+        - "shared"
+      "aws:ResourceTag/Component":
+        - "iam"
+  a_plan_reads_the_zones_through_its_role:
+    policies:
+      - read
+      - plan
+    action: "sts:AssumeRole"
+    resource: "arn:aws:iam::111111111111:role/terraform-dns-read-staging"
+  a_proposal_reads_the_zones_through_its_role:
+    policies:
+      - read
+      - propose
+    action: "sts:AssumeRole"
+    resource: "arn:aws:iam::111111111111:role/terraform-dns-read-staging"

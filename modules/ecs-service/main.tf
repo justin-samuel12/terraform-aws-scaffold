@@ -8,6 +8,8 @@ resource "aws_cloudwatch_log_group" "service" {
 
 resource "aws_iam_role" "execution" {
   name                 = local.execution_role_name
+  path                 = try(var.role_boundary.path, "/")
+  permissions_boundary = try(var.role_boundary.permissions_boundary, null)
   description          = "ECS starting ${var.name}'s tasks in ${var.environment}, ${var.region}"
   max_session_duration = 3600
   assume_role_policy   = local.assume_role_policy
@@ -30,6 +32,8 @@ resource "aws_iam_role_policy" "execution" {
 
 resource "aws_iam_role" "task" {
   name                 = local.task_role_name
+  path                 = try(var.role_boundary.path, "/")
+  permissions_boundary = try(var.role_boundary.permissions_boundary, null)
   description          = "${var.name}'s containers in ${var.environment}, ${var.region}"
   max_session_duration = 3600
   assume_role_policy   = local.assume_role_policy

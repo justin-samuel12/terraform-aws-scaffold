@@ -1,0 +1,38 @@
+description: A web service for tests
+allows:
+  - count
+  - instance_type
+  - cpu
+  - memory
+  - health_check
+  - members.*.tags
+adds:
+  - vpc_security_group_ids
+requires:
+  - listener_rule
+  - image
+instance_types:
+  default: t3.small
+  allowed:
+    - t3.small
+    - t3.large
+environments:
+  production:
+    instance_types:
+      default: m7i.large
+      allowed:
+        - m7i.large
+        - m7g.large
+service:
+  count: 2
+  cpu: 512
+  memory: 2048
+  vpc_security_group_ids:
+    - web
+  health_check:
+    path: /{app}/status
+    matcher: "200"
+  tags:
+    Name: "{environment}-{app}-{region}"
+    ServerRole: appsvc
+    WorkloadType: services

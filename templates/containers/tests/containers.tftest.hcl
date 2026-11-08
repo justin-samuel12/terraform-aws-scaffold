@@ -180,6 +180,11 @@ run "on_a_blueprint" {
   }
 
   assert {
+    condition     = local.files["payments-api"].runtime_platform.cpu_architecture == "X86_64" && local.files["ledger-api"].runtime_platform.cpu_architecture == "ARM64"
+    error_message = "A service runs on X86_64 unless its own file chooses ARM64."
+  }
+
+  assert {
     condition     = local.files["payments-api"].cpu == 1024 && local.files["payments-api"].memory == 2048 && local.files["ledger-api"].cpu == 512 && local.files["ledger-api"].memory == 1024
     error_message = "cpu and memory are the app's where it gives them, the blueprint's where it does not."
   }

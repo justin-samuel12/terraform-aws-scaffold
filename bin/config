@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -uo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
-cd "${REPO_ROOT}"
+cd "${REPO_ROOT}" || exit 1
 
 G="${CONFIG_DIR}/global.yml"
 missing=0; check=0

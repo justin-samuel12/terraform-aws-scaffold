@@ -72,7 +72,7 @@ resource "aws_autoscaling_group" "group" {
   desired_capacity          = var.desired_capacity
   target_group_arns         = var.target_group_arns
   health_check_type         = length(var.target_group_arns) > 0 ? "ELB" : "EC2"
-  health_check_grace_period = 300
+  health_check_grace_period = 600
   default_instance_warmup   = 300
   enabled_metrics           = ["GroupDesiredCapacity", "GroupInServiceInstances", "GroupMinSize", "GroupMaxSize", "GroupTotalInstances"]
 

@@ -32,6 +32,11 @@ run "single_region" {
   }
 
   assert {
+    condition     = one([for r in aws_s3_bucket_lifecycle_configuration.state.rule : r if r.id == "proposed-plans"]).expiration[0].days == 1 && one([for r in aws_s3_bucket_lifecycle_configuration.state.rule : r if r.id == "proposed-plans"]).filter[0].prefix == "plans/"
+    error_message = "A plan stored for approval, which can hold secrets, is deleted after a day, with every old version of it."
+  }
+
+  assert {
     condition     = length(aws_s3_bucket.replica) == 0 && length(aws_s3_bucket_replication_configuration.state) == 0
     error_message = "No replica unless a replica region is named."
   }

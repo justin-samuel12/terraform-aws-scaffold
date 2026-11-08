@@ -77,7 +77,7 @@ run "refuses_keys_that_are_not_arguments" {
 
   assert {
     condition = alltrue([
-      contains(local.problems, "legacy.yml: keys are runtime, handler, memory_size, timeout, environment, statement, cloudwatch_event_rule, cloudwatch_log_group, event_source_mapping, sns_topic_subscription"),
+      contains(local.problems, "legacy.yml: keys are runtime, handler, memory_size, timeout, architectures, layers, vpc_config, environment, statement, cloudwatch_event_rule, cloudwatch_log_group, event_source_mapping, sns_topic_subscription"),
       contains(local.problems, "legacy.yml: statement is a list; each takes effect, actions, resources, condition, as aws_iam_policy_document does, and needs actions and resources"),
       contains(local.problems, "legacy.yml: event_source_mapping takes event_source_arn, batch_size, maximum_batching_window_in_seconds, function_response_types, with event_source_arn a queue's name in this environment or its ARN"),
     ])
@@ -97,6 +97,54 @@ run "refuses_a_name_in_two_folders" {
   assert {
     condition     = contains(local.problems, "hello.yml is in more than one folder (a/hello.yml, b/hello.yml); a function's name is its file's, so it must be unique")
     error_message = "Two files with one name are refused."
+  }
+
+  expect_failures = [output.arns]
+}
+
+run "on_an_event_in_a_vpc" {
+  command = plan
+
+  variables {
+    config_dir = "tests/in-a-vpc"
+  }
+
+  override_data {
+    target = data.aws_subnet.subnets["private-az1"]
+    values = { id = "subnet-0a" }
+  }
+
+  override_data {
+    target = data.aws_security_group.groups["certificates"]
+    values = { id = "sg-0a" }
+  }
+
+  assert {
+    condition     = length(local.problems) == 0 && local.vpc_configs.renewals.subnet_ids == ["private-az1", "subnet-0b"] && contains(keys(output.arns), "renewals")
+    error_message = "Subnets and groups are named, or given as IDs."
+  }
+
+  assert {
+    condition     = jsondecode(local.event_patterns.renewals).source == ["aws.acm"]
+    error_message = "event_pattern is written as YAML and reaches the rule as JSON."
+  }
+}
+
+run "a_rule_or_vpc_config_that_is_not_native" {
+  command = plan
+
+  variables {
+    config_dir = "tests/in-a-vpc-bad"
+  }
+
+  assert {
+    condition = alltrue([
+      contains(local.problems, "bad.yml: cloudwatch_event_rule takes schedule_expression, event_pattern or both"),
+      contains(local.problems, "bad.yml: vpc_config takes subnet_ids and security_group_ids, as aws_lambda_function does, and needs both"),
+      contains(local.problems, "bad.yml: layers is a list of layer ARNs"),
+      contains(local.problems, "bad.yml: architectures is a list of one, x86_64 or arm64"),
+    ])
+    error_message = "A rule, vpc_config or layer that is not the provider's is named."
   }
 
   expect_failures = [output.arns]

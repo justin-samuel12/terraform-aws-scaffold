@@ -18,6 +18,13 @@ module "blueprint" {
   region      = var.region
 }
 
+check "blueprint_versions" {
+  assert {
+    condition     = length(module.blueprint.warnings) == 0
+    error_message = join("; ", module.blueprint.warnings)
+  }
+}
+
 module "placement" {
   source = "../../modules/placement"
 
@@ -44,6 +51,8 @@ module "app_roles" {
       }]
     }
   }
+
+  role_boundary = module.role_boundary.role_boundary
 }
 
 module "codedeploy_role" {
@@ -57,6 +66,8 @@ module "codedeploy_role" {
       managed_policies = ["service-role/AWSCodeDeployRole"]
     }
   }
+
+  role_boundary = module.role_boundary.role_boundary
 }
 
 module "server_group" {
@@ -193,4 +204,10 @@ module "codedeploy_application" {
   servers_behind_load_balancer = sum(concat([0], [for g in local.application_groups[each.key] : module.server_group[g].size if length(module.server_group[g].target_group_names) > 0]))
   service_role_arn             = module.codedeploy_role[0].arns["codedeploy-${var.environment}-${var.region}"]
   bootstrap                    = module.ip_plan.codedeploy.bootstrap
+}
+
+module "role_boundary" {
+  source = "../../modules/role-boundary"
+
+  duties_file = "${path.module}/../duties.yml"
 }

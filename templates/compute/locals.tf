@@ -153,7 +153,17 @@ locals {
   ami_keys  = ["owners", "filter", "include_deprecated"]
   ami_files = { for path in fileset(local.amis_dir, "*.yml") : trimsuffix(path, ".yml") => yamldecode(file("${local.amis_dir}/${path}")) }
   ami_names = toset([for f in values(local.files) : tostring(f.ami) if can(tostring(f.ami)) && !startswith(try(tostring(f.ami), "ami-"), "ami-")])
-  ami_pins  = { for name, f in local.ami_files : name => [for x in try(tolist(f.filter), []) : try([for v in x.values : tostring(v)], []) if try(x.name, "") == "name"] }
+  named_image_types = {
+    for group, f in local.files : group => distinct(concat([tostring(f.instance_type)], [for s in values(local.servers) : s.type if s.group == group]))
+    if can(tostring(f.instance_type)) && contains(local.ami_names, try(tostring(f.ami), ""))
+  }
+  image_mismatches = local.usable ? flatten([
+    for group, types in local.named_image_types : [
+      for t in types : "${group}.yml: image ${local.files[group].ami} is ${data.aws_ami.images[local.files[group].ami].architecture}, and ${t} runs ${join(", ", data.aws_ec2_instance_type.types[t].supported_architectures)}"
+      if !contains(data.aws_ec2_instance_type.types[t].supported_architectures, data.aws_ami.images[local.files[group].ami].architecture)
+    ]
+  ]) : []
+  ami_pins = { for name, f in local.ami_files : name => [for x in try(tolist(f.filter), []) : try([for v in x.values : tostring(v)], []) if try(x.name, "") == "name"] }
 
   user_data_paths = { for group, f in local.files : group => "${local.scripts_dir}/${trimprefix(f.user_data, "scripts/")}" if can(f.user_data) }
 

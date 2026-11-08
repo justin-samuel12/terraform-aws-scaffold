@@ -17,3 +17,8 @@ output "problems" {
   description = "What is wrong with the files on blueprints, or the blueprints they name; empty when all are usable."
   value       = local.problems
 }
+
+output "warnings" {
+  description = "What still works but should change soon, such as an app on a deprecated blueprint version; templates show these as check warnings."
+  value       = local.warnings
+}

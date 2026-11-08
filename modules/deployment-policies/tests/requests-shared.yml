@@ -1,0 +1,82 @@
+refused:
+  hub_changes_a_staging_server:
+    policies:
+      - read
+      - hub
+      - hub-state
+      - hub-limits
+      - hub-environment
+      - hub-ownership
+    action: "ec2:TerminateInstances"
+    resource: "arn:aws:ec2:us-west-2:111111111111:instance/i-1"
+    context:
+      "aws:ResourceTag/Environment":
+        - "staging"
+      "aws:ResourceTag/Component":
+        - "compute"
+  services_changes_the_hub:
+    policies:
+      - read
+      - services
+      - services-state
+      - services-limits
+      - services-environment
+      - services-ownership
+    action: "ec2:DeleteTransitGateway"
+    resource: "arn:aws:ec2:us-west-2:111111111111:transit-gateway/tgw-1"
+    context:
+      "aws:ResourceTag/Environment":
+        - "shared"
+      "aws:ResourceTag/Component":
+        - "hub"
+  hub_changes_its_own_role:
+    policies:
+      - read
+      - hub
+      - hub-state
+      - hub-limits
+      - hub-environment
+      - hub-ownership
+    action: "iam:PutRolePolicy"
+    resource: "arn:aws:iam::111111111111:role/terraform-apply-shared-hub"
+  hub_writes_iam_state:
+    policies:
+      - read
+      - hub
+      - hub-state
+      - hub-limits
+      - hub-environment
+      - hub-ownership
+    action: "s3:PutObject"
+    resource: "arn:aws:s3:::example-terraform-state/global/shared/iam/terraform.tfstate"
+  a_hub_deployed_role_changes_an_administrators_trust:
+    policies:
+      - boundary-hub
+    action: "iam:UpdateAssumeRolePolicy"
+    resource: "arn:aws:iam::111111111111:role/OrganizationAccountAccessRole"
+allowed:
+  hub_routes_the_hub:
+    policies:
+      - read
+      - hub
+      - hub-state
+      - hub-limits
+      - hub-environment
+      - hub-ownership
+    action: "ec2:CreateTransitGatewayRoute"
+    resource: "arn:aws:ec2:us-west-2:111111111111:transit-gateway-route-table/tgw-rtb-1"
+    context:
+      "aws:ResourceTag/Environment":
+        - "shared"
+      "aws:ResourceTag/Component":
+        - "hub"
+  hub_writes_its_state:
+    policies:
+      - read
+      - hub
+      - hub-state
+      - hub-limits
+      - hub-environment
+      - hub-ownership
+    action: "s3:PutObject"
+    resource: "arn:aws:s3:::example-terraform-state/us-west-2/shared/hub/terraform.tfstate"

@@ -1,0 +1,7 @@
+web/v1:
+  status: retired
+  sha256: 887f736b7f1f7dd053e6433f7a683bc1c72ed11ddd9f0cd24300fe8ac648bff4
+  replaced_by: web/v2
+web/v2:
+  status: current
+  sha256: 2be900d7186b9e4646675b888a7bf4268148d1e911673b96d487af2e80a9c924

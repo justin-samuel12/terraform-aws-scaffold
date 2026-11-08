@@ -36,7 +36,7 @@ variable "profile" {
 }
 
 variable "account_prefixes" {
-  description = "Account ID -> the state keys its environments use, as S3 key patterns (us-east-2/production/*). Each other account may read and write only those. Empty in single-account mode."
+  description = "Account ID -> the state keys its environments use, their stored plans and their apply claims, as S3 key patterns (us-east-2/production/*, plans/us-east-2/production/*, applied/us-east-2/production/*). Each other account may read and write only those. Empty in single-account mode."
   type        = map(list(string))
   default     = {}
 

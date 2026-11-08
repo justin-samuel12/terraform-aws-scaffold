@@ -1,3 +1,4 @@
 *        text=auto
 *.lock   text -diff
 *.md     linguist-documentation
+*.yml    text eol=lf

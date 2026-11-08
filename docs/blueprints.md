@@ -96,7 +96,7 @@ listener_rule:
 
 | Blueprint | For | Load balancer | Reached by | Its tasks' group | The app's file must give |
 |---|---|---|---|---|---|
-| `ecs-service/v1` | HTTP APIs on ECS Fargate (ARM) | `services` (internal) | `path_pattern`, `/<app>/*` | `ecs-services`, `services-lb-clients`, `sqlserver-clients` | `container_definitions`, `listener_rule` |
+| `ecs-service/v1` | HTTP APIs on ECS Fargate | `services` (internal) | `path_pattern`, `/<app>/*` | `ecs-services`, `services-lb-clients`, `sqlserver-clients` | `container_definitions`, `listener_rule` |
 
 Every service's container listens on 8080 (`portMappings` with
 `containerPort: 8080`), which is what the `ecs-services` group admits from the
@@ -132,7 +132,7 @@ memory: 2048
 | Blueprint | For | Instance classes | The database's file must give |
 |---|---|---|---|
 | `sqlserver/v1` | SQL Server Standard 2022: Multi-AZ, TDE, native backups through the `<environment>-sqlserver-backups` role, Eastern time | `db.m6i` and `db.r6i`, large to 2xlarge | `vpc_security_group_ids` |
-| `aurora-postgres/v1` | Aurora PostgreSQL 16: a writer and a reader on Graviton | `db.r7g`, large to 4xlarge | `vpc_security_group_ids` |
+| `aurora-postgres/v1` | Aurora PostgreSQL 16: a writer and a reader, on Graviton by default | `db.r7g` or `db.r7i`, large to 4xlarge | `vpc_security_group_ids` |
 
 Who may connect is decided per database, so each names its own group. A
 database may change its instance class and storage (SQL Server) or class and
@@ -234,10 +234,15 @@ then goes through the stack like any hand-written file: in compute, placement,
 target group, listener rule, DNS and CodeDeploy ([compute](compute.md)).
 
 The boot script is shared, not a copy per blueprint: `scripts/ubuntu.sh` names
-the host from its `Server` tag and starts whatever the image installed (Docker,
-the CodeDeploy and CloudWatch agents). Software belongs in the image, and
-secrets in Vault; a hand-written group can name the same script, or another in
-`scripts/`.
+the host from its `Server` tag, installs every update and the troubleshooting
+tools, and starts the CodeDeploy and CloudWatch agents if the image has them.
+If the updates ask for a restart, the server restarts a minute later and the
+agents start with it. If the updates fail, the boot carries on and the patch
+window catches up, so a package mirror cannot leave a server unnamed.
+`container-app/v1` boots from `scripts/ubuntu-container.sh`, the same script
+with Docker added, and no other server starts Docker. Applications belong in
+the image, and secrets in Vault; a hand-written group can name either script,
+or another in `scripts/`.
 
 ## What an app may change, and how
 
@@ -284,8 +289,9 @@ matcher and protocol stay the blueprint's; and the app's servers are in
 - **Security groups** are added, never replaced, so no app can drop the group
   its load balancer reaches it through. Every blueprint takes them. A server or
   task has at most five, which the plan checks.
-- **Tags** merge and are never refused: an app adds its own and may give one of
-  the blueprint's another value (`WorkloadType`). `members.<server>.tags`
+- **Tags** merge: an app adds its own and may give one of the blueprint's
+  another value (`WorkloadType`), except the platform's own
+  ([below](#what-no-file-can-change)). `members.<server>.tags`
   sets one server's tag outright, winning over the group's. In a blueprint,
   `{server}` fills in each server's name (`DNS: "{server}"`); only a blueprint
   may use it, because a file writes its own values.
@@ -321,12 +327,71 @@ blueprint.
 ## Versions
 
 `backend-service/v1` in a compute file is the file
-`blueprints/compute/backend-service/v1.yml`. A change to what every backend
-service gets is a new file, `v2.yml`, and apps move to it one environment at a
-time, staging first, by changing one line. A blueprint in use is never edited
-in place: that would change every app at once, in every environment, on its
-next plan. A new SQL Server or PostgreSQL version is a new blueprint version
-the same way.
+`blueprints/compute/backend-service/v1.yml`, and that file is a contract: once it
+is released, it never changes, so an app on it never changes unless its own file
+does. Each stack's blueprint folder has a `versions.yml` that lists every
+released version, its status, and the SHA-256 of the file as it was released:
+
+```yaml
+# blueprints/compute/versions.yml, once a v2 has been released
+backend-service/v1:
+  status: deprecated
+  sha256: 237cf08ecbd3e31d1fc5f1769e0a310f8bcb000bca3e7ca3dc6706f908e3ad44
+  replaced_by: backend-service/v2
+  note: v2 runs on m7i; set instance_type to keep t3a
+backend-service/v2:
+  status: current
+  sha256: 9b1e...
+```
+
+Every plan of every stack on blueprints checks it, so a mistake is caught before
+anything reaches AWS:
+
+| You do | The plan says |
+|---|---|
+| Edit a released version | It changed after it was released, and to put the change in the next version, which it names |
+| Use a version that is not in `versions.yml` | It is not released, with the exact line to add once it is reviewed |
+| Use a `deprecated` version | It still works, unchanged, with a warning naming the version to move to and the note |
+| Use a `retired` version | It is refused, naming the version to move to |
+| Mark a version deprecated or retired without `replaced_by`, or replaced by one that is retired or missing | Refused |
+| Delete the file of a version still listed | Refused |
+
+`status` is `current`, `deprecated` or `retired`; `replaced_by` names a released
+version; `note` says what changes for an app that moves. `.gitattributes` keeps
+blueprint files in LF on every checkout, so the SHA-256 is the same on every
+machine.
+
+### Releasing a version
+
+1. Copy the newest version to the next number, `v2.yml`, and change it.
+2. Plan an app on it in staging: the plan refuses it as not released, and prints
+   the line to add.
+3. In the same pull request, add that line to `versions.yml` with
+   `status: current`. The reviewers approve the version and its checksum together.
+
+### Moving an app to a new version
+
+Move one environment at a time, staging first:
+
+1. Change the app's `blueprint:` line to the new version.
+2. Read the version's `note`, and set in the app's file whatever it should keep
+   from the old one, if the new version allows it.
+3. Plan. The plan shows exactly what the move changes for that app; nothing else
+   moves with it.
+4. Once every app has moved, mark the old version `deprecated`, then `retired`
+   when nothing names it. `make render` shows who is still on which version.
+
+A deprecated version keeps working for as long as it is listed. Retiring one is
+the only way a blueprint change can stop an app's plan, and it is a reviewed
+change to `versions.yml`, not an edit to the blueprint.
+
+### What no file can change
+
+The tags the platform sets from where the stack is, `ManagedBy`, `Environment`,
+`Component`, `Repository` and `Team`, cannot be set in a blueprint or an app's
+file, under `tags` or a member's `tags`. The pipeline's permissions keep
+environments and duties apart by those tags ([accounts](accounts.md)), so a file
+that could set `Environment: production` in staging would be a way around them.
 
 ## Seeing it
 
@@ -352,9 +417,11 @@ changes in AWS.
 
 The `blueprint` module (`modules/blueprint`) does the work for all three
 stacks and builds nothing: the stack's files and its blueprint folder go in,
-and the expanded files and anything wrong with them come out. Each stack then
-treats the expanded files as its own and checks them as it checks any file.
-The module's tests, and each stack's, plan apps on the real blueprints.
+and the expanded files, anything wrong with them, and warnings come out. Each
+stack then treats the expanded files as its own and checks them as it checks any
+file, and shows the warnings as a check. The module's tests cover each rule
+above, and check that every released version of the real blueprints is intact;
+each stack's tests plan apps on the real blueprints.
 
 ## When not to use one
 

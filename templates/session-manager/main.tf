@@ -19,4 +19,12 @@ module "session_manager_preferences" {
   log_group   = local.ready ? local.log_group_args : null
 
   create_default_host_role = var.region == module.ip_plan.primary_region
+
+  role_boundary = module.role_boundary.role_boundary
+}
+
+module "role_boundary" {
+  source = "../../modules/role-boundary"
+
+  duties_file = "${path.module}/../duties.yml"
 }

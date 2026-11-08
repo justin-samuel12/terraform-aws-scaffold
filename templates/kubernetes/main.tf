@@ -17,6 +17,8 @@ module "eks_cluster" {
   public_access_cidrs    = local.public_cidrs
   kms_key_arn            = data.aws_kms_key.data[0].arn
   access_entries         = local.access_entries
+
+  role_boundary = module.role_boundary.role_boundary
 }
 
 module "eks_workload_identity" {
@@ -34,4 +36,12 @@ module "eks_workload_identity" {
       statements      = i.statements
     }
   }
+
+  role_boundary = module.role_boundary.role_boundary
+}
+
+module "role_boundary" {
+  source = "../../modules/role-boundary"
+
+  duties_file = "${path.module}/../duties.yml"
 }

@@ -23,6 +23,8 @@ if [[ -d "${CONFIG_SOURCE}/amis" ]]; then cp -R "${CONFIG_SOURCE}/amis" "${WORK}
 for f in "${WORK}"/config/*-*-[0-9].yml; do
     yq -i '(.hub, .vpcs[]) |= (.account_id = (.account_id // "" | select(. != "") // "111111111111") | .team = (.team // "platform"))' "${f}"
 done
+yq -i '.state.bucket = (.state.bucket // "" | select(. != "") // "example-terraform-state")' "${WORK}/config/global.yml"
+yq -i '.pipeline.dedicated_accounts = []' "${WORK}/config/global.yml"
 primary=""
 for f in "${WORK}"/config/*-*-[0-9].yml; do [[ "$(yq -r '.hub.primary // false' "${f}")" == true ]] && primary="$(basename "${f}" .yml)"; done
 

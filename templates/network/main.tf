@@ -16,15 +16,23 @@ module "vpc" {
   nat_gateway_subnets = local.uses_nat && length(local.problems) == 0 ? "public" : null
 
   transit_gateway = local.peered ? null : {
-    id                          = data.aws_ec2_transit_gateway.transit_gateway[0].id
+    id                          = local.transit_gateway_id
     subnets                     = "transit"
-    association_route_table_id  = data.aws_ec2_transit_gateway_route_table.route_tables[local.network.segment].id
-    propagation_route_table_ids = { for table in local.network.propagates_to : table => data.aws_ec2_transit_gateway_route_table.route_tables[table].id }
+    association_route_table_id  = local.parent ? null : data.aws_ec2_transit_gateway_route_table.route_tables[local.network.segment].id
+    propagation_route_table_ids = local.parent ? {} : { for table in local.network.propagates_to : table => data.aws_ec2_transit_gateway_route_table.route_tables[table].id }
     security_group_referencing  = local.network.security_group_referencing
     route_here                  = false
-    shared                      = local.cross_account
+    shared                      = local.cross_account || local.parent
   }
-  transit_gateway_accepted = local.cross_account ? aws_ec2_transit_gateway_vpc_attachment_accepter.network[0].id : null
+  transit_gateway_accepted = local.cross_account && local.ours ? aws_ec2_transit_gateway_vpc_attachment_accepter.network[0].id : null
 
-  depends_on = [aws_ram_resource_share_accepter.network]
+  depends_on = [aws_ram_resource_share_accepter.network, aws_ram_resource_share_accepter.parent]
+
+  role_boundary = module.role_boundary.role_boundary
+}
+
+module "role_boundary" {
+  source = "../../modules/role-boundary"
+
+  duties_file = "${path.module}/../duties.yml"
 }

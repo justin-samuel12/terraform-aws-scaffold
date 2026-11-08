@@ -29,7 +29,7 @@ unit_inputs() {
         test)
             dirs=($(module_closure "${path}"))
             [[ "${path}" == live/* ]] && dirs+=(live/common)
-            dirs+=(tests/config tests/stacks tests/unset)
+            dirs+=(tests/config tests/stacks tests/unset tests/elsewhere tests/config-parent)
             [[ "${path}" == templates/compute ]] && dirs+=(blueprints/compute scripts)
             [[ "${path}" == templates/containers ]] && dirs+=(blueprints/containers)
             [[ "${path}" == templates/databases ]] && dirs+=(blueprints/databases) ;;

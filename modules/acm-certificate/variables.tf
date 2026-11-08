@@ -5,8 +5,12 @@ variable "certificates" {
     subject_alternative_names = optional(list(string), [])
     validation_method         = string
     key_algorithm             = string
-    tags                      = optional(map(string), {})
-    validation_zone           = string
+    options = optional(object({
+      export                                      = optional(string)
+      certificate_transparency_logging_preference = optional(string)
+    }))
+    tags            = optional(map(string), {})
+    validation_zone = string
   }))
 
   validation {

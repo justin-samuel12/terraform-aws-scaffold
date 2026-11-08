@@ -4,6 +4,7 @@ access:
 backups:
   needs:
     - "{region}/{environment}/keys"
+    - global/{environment}/pipeline
 
 baseline:
   needs: []
@@ -31,6 +32,7 @@ compute:
     - global/{environment}/iam
     - global/shared/dns
     - global/{environment}/zones
+    - global/{environment}/pipeline
   when_present:
     - "{region}/{environment}/load-balancers"
 
@@ -40,12 +42,14 @@ databases:
     - "{region}/{environment}/security-groups"
     - "{region}/{environment}/keys"
     - global/shared/iam
+    - global/{environment}/pipeline
   when_present:
     - "{region}/{environment}/buckets"
 
 dns:
   needs:
     - "{each_region}/shared/hub"
+    - global/{environment}/pipeline
 
 documents:
   needs: []
@@ -62,19 +66,24 @@ endpoints:
     - "{region}/{environment}/security-groups"
 
 hub:
-  needs: []
+  needs:
+    - global/{environment}/pipeline
   when_primary:
     - "{other_regions}/shared/hub"
 
 iam:
-  needs: []
+  needs:
+    - global/{environment}/pipeline
 
 keys:
   needs: []
 
 lambda:
-  needs: []
+  needs:
+    - global/{environment}/pipeline
   when_present:
+    - "{region}/{environment}/network"
+    - "{region}/{environment}/security-groups"
     - "{region}/{environment}/messaging"
 
 load-balancers:
@@ -96,9 +105,17 @@ network:
   needs:
     - "{region}/shared/hub"
     - global/shared/dns
+    - global/{environment}/pipeline
+  when_present:
+    - global/shared/pipeline
 
 patching:
   needs: []
+
+pipeline:
+  needs: []
+  when_present:
+    - global/shared/pipeline
 
 records:
   needs:
@@ -114,7 +131,8 @@ security-groups:
     - "{region}/shared/hub"
 
 session-manager:
-  needs: []
+  needs:
+    - global/{environment}/pipeline
 
 storage:
   needs:
@@ -132,12 +150,14 @@ kubernetes:
     - "{region}/{environment}/network"
     - "{region}/{environment}/security-groups"
     - "{region}/{environment}/keys"
+    - global/{environment}/pipeline
 
 containers:
   needs:
     - "{region}/{environment}/network"
     - "{region}/{environment}/security-groups"
     - "{region}/{environment}/keys"
+    - global/{environment}/pipeline
   when_present:
     - "{region}/{environment}/load-balancers"
 
@@ -146,3 +166,5 @@ zones:
     - "{each_region}/{environment}/network"
     - "{each_region}/shared/hub"
     - global/shared/dns
+  when_present:
+    - global/shared/pipeline

@@ -8,6 +8,7 @@ allows:
   - appautoscaling_target.max_capacity
   - statement
   - enable_execute_command
+  - runtime_platform.cpu_architecture
 adds:
   - network_configuration.security_groups
 requires:
@@ -27,7 +28,7 @@ service:
       - services-lb-clients
       - sqlserver-clients
   runtime_platform:
-    cpu_architecture: ARM64
+    cpu_architecture: X86_64
   target_group:
     health_check:
       path: /{app}/status

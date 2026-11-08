@@ -42,7 +42,20 @@ locals {
 
   attached = { for name, f in local.roles : name => [for p in try(concat(f.managed_policy_arns, []), []) : tostring(p)] }
 
+  account_prefix = "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:"
+  outside = flatten([
+    for name, f in local.roles : [
+      for s in try(concat(f.assume_role_policy.statement, []), []) : [
+        for p in try(concat(s.principals, []), []) : [
+          for i in try(concat(p.identifiers, []), []) : "role/${name}.yml: ${try(tostring(p.type), "?")} principal ${i} is outside this account; a role here is trusted by an AWS service, or by this account's own roles and OIDC providers"
+          if !(try(tostring(p.type), "") == "Service" && endswith(tostring(i), ".amazonaws.com")) && !(contains(["AWS", "Federated"], try(tostring(p.type), "")) && startswith(tostring(i), local.account_prefix))
+        ]
+      ]
+    ]
+  ])
+
   problems = concat(
+    local.outside,
     [for key, paths in local.found : "${key}.yml is in more than one folder (${join(", ", sort(paths))}); a ${split("/", key)[0]}'s name is its file's, so it must be unique" if length(paths) > 1],
     [for path in local.paths : "${path}: a file belongs in role/ (an aws_iam_role), policy/ (an aws_iam_policy) or instance-profile/ (an aws_iam_instance_profile)" if length(split("/", path)) == 1 || !contains(local.kinds, split("/", path)[0])],
     [for name, f in local.roles : "role/${name}.yml: keys are ${join(", ", local.role_keys)}" if !alltrue([for k in try(keys(f), ["?"]) : contains(local.role_keys, k)])],

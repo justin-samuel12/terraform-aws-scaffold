@@ -2,6 +2,8 @@ resource "aws_iam_role" "roles" {
   for_each = var.roles
 
   name                 = each.key
+  path                 = try(var.role_boundary.path, "/")
+  permissions_boundary = try(var.role_boundary.permissions_boundary, null)
   description          = each.value.description
   max_session_duration = 3600
 

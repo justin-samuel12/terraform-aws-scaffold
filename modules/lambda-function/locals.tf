@@ -1,4 +1,5 @@
 locals {
+  has_rule        = var.schedule_expression != null || var.event_pattern != null
   environment_tag = try(data.aws_default_tags.current.tags["Environment"], "")
   name_prefix     = local.environment_tag == "" ? "" : "${title(local.environment_tag)} - "
   short_name      = trimprefix(var.name, "${local.environment_tag}-")

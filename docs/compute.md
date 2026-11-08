@@ -460,6 +460,10 @@ is exact: `most_recent`, `name_regex` and wildcards are refused, because a searc
 could give a new server a different image with no change in Git. A new image is a
 reviewed commit to this one file. An image you bake must carry the same name in
 every region it is copied to, and be shared with every account that uses it.
+
+The image also decides the architecture. Instance types and images may be `x86_64`
+or `arm64`, and the plan refuses a named image on an instance type that cannot run
+it. An `ami-` ID is not looked up, so it is not checked.
 `include_deprecated: true` keeps an older image usable after AWS deprecates it. An
 `ami-` ID still passes through as it is.
 

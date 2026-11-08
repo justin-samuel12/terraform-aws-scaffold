@@ -16,6 +16,13 @@ module "blueprint" {
   region      = var.region
 }
 
+check "blueprint_versions" {
+  assert {
+    condition     = length(module.blueprint.warnings) == 0
+    error_message = join("; ", module.blueprint.warnings)
+  }
+}
+
 module "ecs_cluster" {
   source = "../../modules/ecs-cluster"
   count  = local.usable && length(local.files) > 0 ? 1 : 0
@@ -35,6 +42,8 @@ module "codedeploy_role" {
       managed_policies = ["AWSCodeDeployRoleForECS"]
     }
   }
+
+  role_boundary = module.role_boundary.role_boundary
 }
 
 module "ecs_service" {
@@ -110,4 +119,12 @@ module "ecs_service" {
     termination_wait_time_in_minutes = try(tonumber(each.value.deployment_group.blue_green_deployment_config.terminate_blue_instances_on_deployment_success.termination_wait_time_in_minutes), null)
   }
   codedeploy_role_arn = local.controller[each.key] == "CODE_DEPLOY" ? module.codedeploy_role[0].arns["codedeploy-ecs-${var.environment}-${var.region}"] : null
+
+  role_boundary = module.role_boundary.role_boundary
+}
+
+module "role_boundary" {
+  source = "../../modules/role-boundary"
+
+  duties_file = "${path.module}/../duties.yml"
 }

@@ -44,8 +44,9 @@ resource "aws_ssm_document" "preferences" {
 resource "aws_iam_role" "default_host" {
   count = var.create_default_host_role ? 1 : 0
 
-  name = "AWSSystemsManagerDefaultEC2InstanceManagementRole"
-  path = "/service-role/"
+  name                 = "AWSSystemsManagerDefaultEC2InstanceManagementRole"
+  permissions_boundary = try(var.role_boundary.permissions_boundary, null)
+  path                 = "/service-role/"
 
   assume_role_policy = jsonencode({
     Version   = "2012-10-17"

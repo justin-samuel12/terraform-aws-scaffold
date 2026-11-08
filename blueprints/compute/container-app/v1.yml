@@ -50,7 +50,7 @@ group:
     - monitoring-agent
   root_block_device:
     volume_size: 75
-  user_data: scripts/ubuntu.sh
+  user_data: scripts/ubuntu-container.sh
   target_group:
     port: 443
     protocol: HTTPS

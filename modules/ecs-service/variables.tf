@@ -317,3 +317,12 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "role_boundary" {
+  description = "Where every IAM role, instance profile and policy this module creates goes, and the permission boundary each role carries: the deploying duty's, so a role can never do more than the pipeline lets that duty do. null: path / and no boundary."
+  type = object({
+    path                 = string
+    permissions_boundary = string
+  })
+  default = null
+}

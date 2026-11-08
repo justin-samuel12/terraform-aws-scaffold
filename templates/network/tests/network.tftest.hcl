@@ -318,3 +318,33 @@ run "refuses_a_name_that_looks_like_an_id" {
 
   expect_failures = [output.vpc_id]
 }
+
+run "attaches_to_a_parents_transit_gateway" {
+  command = plan
+
+  override_data {
+    target = data.aws_ec2_transit_gateway.parent[0]
+    values = { id = "tgw-0123456789abcdef0" }
+  }
+
+  variables {
+    environment = "production"
+    region      = "us-east-2"
+    config_path = "../../tests/config-parent"
+  }
+
+  assert {
+    condition     = local.transit_gateway_id == "tgw-0123456789abcdef0" && length(data.aws_ec2_transit_gateway.transit_gateway) == 0
+    error_message = "Production attaches to the parent's gateway, named in config/, and looks for no gateway of the hub's."
+  }
+
+  assert {
+    condition     = length(aws_ec2_transit_gateway_route_table_association.network) == 0 && length(aws_ec2_transit_gateway_route_table_propagation.network) == 0 && length(aws_ec2_transit_gateway_vpc_attachment_accepter.network) == 0 && length(data.aws_ec2_transit_gateway_route_table.route_tables) == 0
+    error_message = "Accepting the attachment and choosing its route tables are the parent's: this repository does none of it."
+  }
+
+  assert {
+    condition     = length(aws_ram_resource_share_accepter.parent) == 1
+    error_message = "The environment accepts the parent's share of the gateway."
+  }
+}

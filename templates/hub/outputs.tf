@@ -1,11 +1,11 @@
 output "transit_gateway_id" {
-  description = "This region's hub."
-  value       = module.transit_gateway.transit_gateway_id
+  description = "This region's Transit Gateway: the hub's own, or the parent organization's it attaches to."
+  value       = local.transit_gateway_id
 }
 
 output "route_table_ids" {
-  description = "Hub route table name -> id."
-  value       = module.transit_gateway.route_table_ids
+  description = "Hub route table name -> id; empty where a parent organization runs the Transit Gateway and its route tables."
+  value       = local.route_table_ids
 }
 
 output "network" {

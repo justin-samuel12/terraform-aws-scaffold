@@ -6,6 +6,7 @@ module "ip_plan" {
 
 module "transit_gateway" {
   source = "../../modules/transit-gateway"
+  count  = local.parent ? 0 : 1
 
   name            = "tgw-01"
   amazon_side_asn = local.network.amazon_side_asn
@@ -47,22 +48,28 @@ module "vpc" {
   nat_gateway_subnets = "public"
 
   transit_gateway = {
-    id                         = module.transit_gateway.transit_gateway_id
+    id                         = local.transit_gateway_id
     subnets                    = "transit"
-    association_route_table_id = module.transit_gateway.route_table_ids["shared"]
+    association_route_table_id = local.parent ? null : local.route_table_ids["shared"]
     security_group_referencing = local.network.security_group_referencing
+    route_here                 = !local.parent
+    shared                     = local.parent
   }
+
+  depends_on = [aws_ram_resource_share_accepter.parent]
+
+  role_boundary = module.role_boundary.role_boundary
 }
 
 module "vpn" {
   source   = "../../modules/vpn"
-  for_each = merge({}, [for name, site in module.ip_plan.sites : { for ip in site.ip_addresses : "${name}/${ip}" => { site = name, ip_address = ip, bgp_asn = site.bgp_asn } }]...)
+  for_each = local.parent ? {} : merge({}, [for name, site in module.ip_plan.sites : { for ip in site.ip_addresses : "${name}/${ip}" => { site = name, ip_address = ip, bgp_asn = site.bgp_asn } }]...)
 
   name                        = each.value.site
-  transit_gateway_id          = module.transit_gateway.transit_gateway_id
+  transit_gateway_id          = local.transit_gateway_id
   customer_gateway            = { ip_address = each.value.ip_address, bgp_asn = each.value.bgp_asn }
-  association_route_table_id  = module.transit_gateway.route_table_ids["shared"]
-  propagation_route_table_ids = module.transit_gateway.route_table_ids
+  association_route_table_id  = local.route_table_ids["shared"]
+  propagation_route_table_ids = local.route_table_ids
 }
 
 module "prefix_list" {
@@ -103,9 +110,9 @@ module "peering" {
 
   requester = {
     region             = var.region
-    transit_gateway_id = module.transit_gateway.transit_gateway_id
-    route_table_id     = module.transit_gateway.route_table_ids["shared"]
-    routes             = { for table in local.tables : table => { route_table_id = module.transit_gateway.route_table_ids[table], cidrs = flatten([for segment in local.reach[table] : local.cidrs[each.key][segment]]) } }
+    transit_gateway_id = local.transit_gateway_id
+    route_table_id     = local.route_table_ids["shared"]
+    routes             = { for table in local.tables : table => { route_table_id = local.route_table_ids[table], cidrs = flatten([for segment in local.reach[table] : local.cidrs[each.key][segment]]) } }
   }
 
   accepter = {
@@ -114,6 +121,12 @@ module "peering" {
     route_table_id     = data.aws_ec2_transit_gateway_route_table.peers["${each.key}/shared"].id
     routes             = { for table in local.tables : table => { route_table_id = data.aws_ec2_transit_gateway_route_table.peers["${each.key}/${table}"].id, cidrs = flatten([for segment in local.reach[table] : local.cidrs[var.region][segment]]) } }
   }
+}
+
+resource "aws_ram_resource_share_accepter" "parent" {
+  count = local.parent && local.network.transit_gateway.share_arn != null ? 1 : 0
+
+  share_arn = local.network.transit_gateway.share_arn
 }
 
 resource "aws_ram_resource_share" "network" {
@@ -137,4 +150,10 @@ resource "aws_ram_principal_association" "network" {
 
   resource_share_arn = aws_ram_resource_share.network[0].arn
   principal          = each.key
+}
+
+module "role_boundary" {
+  source = "../../modules/role-boundary"
+
+  duties_file = "${path.module}/../duties.yml"
 }

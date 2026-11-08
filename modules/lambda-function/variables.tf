@@ -82,6 +82,38 @@ variable "schedule_expression" {
   }
 }
 
+variable "event_pattern" {
+  description = "An EventBridge rule's event_pattern, as JSON; null for none."
+  type        = string
+  default     = null
+}
+
+variable "architectures" {
+  description = "aws_lambda_function's architectures: x86_64 or arm64, one of them; null leaves it to the provider, x86_64."
+  type        = list(string)
+  default     = null
+
+  validation {
+    condition     = var.architectures == null || (length(coalesce(var.architectures, [])) == 1 && alltrue([for a in coalesce(var.architectures, []) : contains(["x86_64", "arm64"], a)]))
+    error_message = "architectures is one of x86_64 or arm64."
+  }
+}
+
+variable "layers" {
+  description = "The ARNs of the layers the function uses."
+  type        = list(string)
+  default     = []
+}
+
+variable "vpc_config" {
+  description = "aws_lambda_function's vpc_config: the subnets and security groups the function runs in; null keeps it outside any VPC."
+  type = object({
+    subnet_ids         = list(string)
+    security_group_ids = list(string)
+  })
+  default = null
+}
+
 variable "retention_in_days" {
   description = "How long the function's log group keeps its logs."
   type        = number
@@ -116,4 +148,13 @@ variable "topics" {
     filter_policy_scope = optional(string)
   }))
   default = {}
+}
+
+variable "role_boundary" {
+  description = "Where every IAM role, instance profile and policy this module creates goes, and the permission boundary each role carries: the deploying duty's, so a role can never do more than the pipeline lets that duty do. null: path / and no boundary."
+  type = object({
+    path                 = string
+    permissions_boundary = string
+  })
+  default = null
 }

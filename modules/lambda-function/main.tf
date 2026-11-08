@@ -1,5 +1,7 @@
 resource "aws_iam_role" "function" {
-  name = "lambda-${var.name}-${data.aws_region.current.region}"
+  name                 = "lambda-${var.name}-${data.aws_region.current.region}"
+  path                 = try(var.role_boundary.path, "/")
+  permissions_boundary = try(var.role_boundary.permissions_boundary, null)
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -19,6 +21,13 @@ resource "aws_iam_role_policy" "function" {
   policy = jsonencode({ Version = "2012-10-17", Statement = local.statements })
 }
 
+resource "aws_iam_role_policy_attachment" "vpc" {
+  count = var.vpc_config == null ? 0 : 1
+
+  role       = aws_iam_role.function.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+}
+
 resource "aws_cloudwatch_log_group" "function" {
   name              = "/aws/lambda/${var.name}"
   retention_in_days = var.retention_in_days
@@ -31,11 +40,20 @@ resource "aws_lambda_function" "function" {
   role             = aws_iam_role.function.arn
   runtime          = var.runtime
   handler          = var.handler
-  architectures    = ["arm64"]
+  architectures    = var.architectures
   memory_size      = var.memory_size
   timeout          = var.timeout
   filename         = data.archive_file.code.output_path
   source_code_hash = data.archive_file.code.output_base64sha256
+  layers           = var.layers
+
+  dynamic "vpc_config" {
+    for_each = var.vpc_config == null ? [] : [var.vpc_config]
+    content {
+      subnet_ids         = vpc_config.value.subnet_ids
+      security_group_ids = vpc_config.value.security_group_ids
+    }
+  }
 
   dynamic "environment" {
     for_each = length(var.environment) > 0 ? [var.environment] : []
@@ -51,35 +69,36 @@ resource "aws_lambda_function" "function" {
 
   tags = { Name = "${local.name_prefix}${local.short_name}" }
 
-  depends_on = [aws_iam_role_policy.function]
+  depends_on = [aws_iam_role_policy.function, aws_iam_role_policy_attachment.vpc]
 }
 
-resource "aws_cloudwatch_event_rule" "schedule" {
-  count = var.schedule_expression == null ? 0 : 1
+resource "aws_cloudwatch_event_rule" "rule" {
+  count = local.has_rule ? 1 : 0
 
   name                = "lambda-${var.name}"
   schedule_expression = var.schedule_expression
+  event_pattern       = var.event_pattern
 
   tags = { Name = "${local.name_prefix}${local.short_name}" }
 }
 
-resource "aws_cloudwatch_event_target" "schedule" {
-  count = var.schedule_expression == null ? 0 : 1
+resource "aws_cloudwatch_event_target" "rule" {
+  count = local.has_rule ? 1 : 0
 
-  rule = aws_cloudwatch_event_rule.schedule[0].name
+  rule = aws_cloudwatch_event_rule.rule[0].name
   arn  = aws_lambda_function.function.arn
 
-  depends_on = [aws_lambda_permission.schedule]
+  depends_on = [aws_lambda_permission.rule]
 }
 
-resource "aws_lambda_permission" "schedule" {
-  count = var.schedule_expression == null ? 0 : 1
+resource "aws_lambda_permission" "rule" {
+  count = local.has_rule ? 1 : 0
 
-  statement_id  = "schedule"
+  statement_id  = "rule"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.function.function_name
   principal     = "events.amazonaws.com"
-  source_arn    = aws_cloudwatch_event_rule.schedule[0].arn
+  source_arn    = aws_cloudwatch_event_rule.rule[0].arn
 }
 
 resource "aws_lambda_event_source_mapping" "queue" {
@@ -93,7 +112,7 @@ resource "aws_lambda_event_source_mapping" "queue" {
 
   tags = { Name = "${local.name_prefix}${local.short_name}" }
 
-  depends_on = [aws_iam_role_policy.function]
+  depends_on = [aws_iam_role_policy.function, aws_iam_role_policy_attachment.vpc]
 }
 
 resource "aws_lambda_permission" "topics" {

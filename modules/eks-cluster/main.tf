@@ -1,5 +1,7 @@
 resource "aws_iam_role" "cluster" {
   name                 = "${var.name}-eks-cluster-${data.aws_region.current.region}"
+  path                 = try(var.role_boundary.path, "/")
+  permissions_boundary = try(var.role_boundary.permissions_boundary, null)
   description          = "EKS running the ${var.name} cluster's control plane and Auto Mode"
   max_session_duration = 3600
 
@@ -37,6 +39,8 @@ resource "aws_iam_role_policy" "cluster_kms" {
 
 resource "aws_iam_role" "node" {
   name                 = "${var.name}-eks-node-${data.aws_region.current.region}"
+  path                 = try(var.role_boundary.path, "/")
+  permissions_boundary = try(var.role_boundary.permissions_boundary, null)
   description          = "The servers EKS Auto Mode runs for the ${var.name} cluster"
   max_session_duration = 3600
 

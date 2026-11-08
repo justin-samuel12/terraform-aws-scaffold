@@ -25,6 +25,13 @@ spec:
         app: reports-worker
     spec:
       serviceAccountName: reports-worker
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: reports-worker
           image: 111111111111.dkr.ecr.us-east-1.amazonaws.com/reports-worker:2.0.0

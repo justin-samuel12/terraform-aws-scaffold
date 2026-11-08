@@ -54,3 +54,28 @@ run "refused" {
 
   expect_failures = [output.arns]
 }
+
+run "a_role_is_trusted_only_from_inside_the_account" {
+  command = plan
+
+  override_data {
+    target = data.aws_caller_identity.current
+    values = { account_id = "222222222222" }
+  }
+
+  override_data {
+    target = data.aws_partition.current
+    values = { partition = "aws" }
+  }
+
+  variables {
+    config_dir = "tests/outside"
+  }
+
+  assert {
+    condition     = length(local.outside) == 2 && anytrue([for p in local.outside : strcontains(p, "principal * is outside")]) && anytrue([for p in local.outside : strcontains(p, "999999999999")])
+    error_message = "A wildcard and another account are refused; this account's role and a service are not: ${jsonencode(local.outside)}."
+  }
+
+  expect_failures = [output.arns]
+}

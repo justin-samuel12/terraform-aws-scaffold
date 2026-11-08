@@ -9,7 +9,10 @@ mock_provider "aws" {
     defaults = { arn = "arn:aws:iam::111111111111:policy/shared" }
   }
   mock_data "aws_ami" {
-    defaults = { id = "ami-0aaaaaaaaaaaaaaaa", root_device_name = "/dev/xvda" }
+    defaults = { id = "ami-0aaaaaaaaaaaaaaaa", root_device_name = "/dev/xvda", architecture = "x86_64" }
+  }
+  mock_data "aws_ec2_instance_type" {
+    defaults = { supported_architectures = ["x86_64"] }
   }
   mock_data "aws_subnets" {
     defaults = { ids = ["subnet-ops-1", "subnet-ops-2", "subnet-ops-3"] }
@@ -401,8 +404,13 @@ run "the_blueprints" {
   }
 
   assert {
-    condition     = endswith(local.user_data_paths["sso"], "/scripts/ubuntu.sh") && local.user_data_paths["grafana"] == local.user_data_paths["accounts-service"]
-    error_message = "Every blueprint boots from the one shared script, scripts/ubuntu.sh."
+    condition     = endswith(local.user_data_paths["sso"], "/scripts/ubuntu.sh") && local.user_data_paths["admin-portal"] == local.user_data_paths["accounts-service"] && local.user_data_paths["sso"] == local.user_data_paths["accounts-service"]
+    error_message = "Every blueprint without Docker boots from the one shared script, scripts/ubuntu.sh."
+  }
+
+  assert {
+    condition     = endswith(local.user_data_paths["grafana"], "/scripts/ubuntu-container.sh") && !strcontains(file(local.user_data_paths["sso"]), "docker") && replace(file(local.user_data_paths["grafana"]), "for unit in docker ", "for unit in ") == file(local.user_data_paths["sso"])
+    error_message = "Only container-app servers start Docker, and their script differs from scripts/ubuntu.sh in nothing else."
   }
 
   assert {
@@ -686,6 +694,22 @@ run "a_named_image" {
     condition     = length(local.problems) == 0 && contains(keys(data.aws_ami.images), "ubuntu-2404") && length(data.aws_ami.images) == 1
     error_message = "A name is found through its file in config/amis/, and an ami- id passes through with no lookup."
   }
+}
+
+run "an_image_the_instance_type_cannot_run" {
+  command = plan
+
+  variables {
+    config_dir = "tests/named-images"
+    amis_dir   = "tests/amis-good"
+  }
+
+  override_data {
+    target = data.aws_ami.images["ubuntu-2404"]
+    values = { id = "ami-0aaaaaaaaaaaaaaaa", root_device_name = "/dev/xvda", architecture = "arm64" }
+  }
+
+  expect_failures = [output.servers]
 }
 
 run "refuses_an_image_that_can_change_by_itself" {

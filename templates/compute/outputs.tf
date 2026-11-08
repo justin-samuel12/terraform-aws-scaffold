@@ -11,6 +11,11 @@ output "servers" {
     condition     = local.usable
     error_message = "The group files are not usable: ${join("; ", local.problems)}."
   }
+
+  precondition {
+    condition     = length(local.image_mismatches) == 0
+    error_message = "An image and an instance type do not share an architecture: ${join("; ", local.image_mismatches)}."
+  }
 }
 
 output "codedeploy_applications" {

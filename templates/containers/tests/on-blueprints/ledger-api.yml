@@ -11,3 +11,5 @@ listener_rule:
     path_pattern:
       values:
         - /ledger/*
+runtime_platform:
+  cpu_architecture: ARM64

@@ -1,0 +1,3 @@
+backend-service/v1:
+  status: current
+  sha256: c2a4a905f0bb70d684018b258583e94ce6c36f3b6ced9c69bd89734b7852f885

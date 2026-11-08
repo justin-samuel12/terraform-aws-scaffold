@@ -1,4 +1,4 @@
-description: Aurora PostgreSQL 16, a writer and a reader on Graviton
+description: Aurora PostgreSQL 16, a writer and a reader, on Graviton by default
 allows:
   - instance_class
   - instances
@@ -11,6 +11,10 @@ instance_classes:
     - db.r7g.xlarge
     - db.r7g.2xlarge
     - db.r7g.4xlarge
+    - db.r7i.large
+    - db.r7i.xlarge
+    - db.r7i.2xlarge
+    - db.r7i.4xlarge
 database:
   engine: aurora-postgresql
   engine_version: "16.6"

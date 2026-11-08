@@ -2,6 +2,8 @@ resource "aws_iam_role" "rds_custom" {
   count = local.any_custom ? 1 : 0
 
   name                 = local.instance_prefix
+  path                 = try(module.role_boundary.role_boundary.path, "/")
+  permissions_boundary = try(module.role_boundary.role_boundary.permissions_boundary, null)
   description          = "RDS Custom for SQL Server servers in ${var.environment}"
   max_session_duration = 3600
 
@@ -35,6 +37,7 @@ resource "aws_iam_instance_profile" "rds_custom" {
   count = local.any_custom ? 1 : 0
 
   name = local.instance_prefix
+  path = try(module.role_boundary.role_boundary.path, "/")
   role = aws_iam_role.rds_custom[0].name
 
   tags = { Name = "${title(var.environment)} - ${local.instance_prefix}" }

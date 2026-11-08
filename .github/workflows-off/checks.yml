@@ -41,11 +41,11 @@
 #           fetch-depth: 0
 #           persist-credentials: false
 #       - run: bin/ci doctor
-#       - run: make fmt-check lint check-order
+#       - run: make fmt-check lint check-order security
 #       - run: bin/backends --check
 #       - run: bin/diagram --check
 #       - run: bin/workflows check
-#       - run: shellcheck -x bin/ci bin/workflows tests/ci/run.sh
+#       - run: shellcheck -x bin/ci bin/github bin/workflows tests/ci/run.sh
 #       - run: tests/ci/run.sh
 #       - run: gitleaks git --config .gitleaks.toml --redact --no-banner --log-level error
 #

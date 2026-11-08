@@ -14,8 +14,8 @@ run "scheduled_function" {
   command = plan
 
   assert {
-    condition     = aws_lambda_function.function.architectures == tolist(["arm64"]) && aws_cloudwatch_log_group.function.retention_in_days == 365 && aws_lambda_function.function.memory_size == null && aws_lambda_function.function.timeout == null
-    error_message = "Graviton, with its own log group kept as long as asked; memory and timeout are the provider's unless given."
+    condition     = var.architectures == null && aws_cloudwatch_log_group.function.retention_in_days == 365 && aws_lambda_function.function.memory_size == null && aws_lambda_function.function.timeout == null
+    error_message = "The architecture is left to the provider, with its own log group kept as long as asked; memory and timeout are the provider's unless given."
   }
 
   assert {
@@ -24,7 +24,7 @@ run "scheduled_function" {
   }
 
   assert {
-    condition     = aws_cloudwatch_event_rule.schedule[0].schedule_expression == "rate(1 day)" && length(aws_lambda_permission.schedule) == 1
+    condition     = aws_cloudwatch_event_rule.rule[0].schedule_expression == "rate(1 day)" && length(aws_lambda_permission.rule) == 1
     error_message = "A schedule runs it, and only that schedule may invoke it."
   }
 }
@@ -38,7 +38,7 @@ run "queue_consumer" {
   }
 
   assert {
-    condition     = aws_lambda_event_source_mapping.queue[0].batch_size == 5 && aws_lambda_event_source_mapping.queue[0].function_response_types == toset(["ReportBatchItemFailures"]) && length(aws_cloudwatch_event_rule.schedule) == 0
+    condition     = aws_lambda_event_source_mapping.queue[0].batch_size == 5 && aws_lambda_event_source_mapping.queue[0].function_response_types == toset(["ReportBatchItemFailures"]) && length(aws_cloudwatch_event_rule.rule) == 0
     error_message = "The queue triggers the function in batches, and failed messages are reported one by one."
   }
 
@@ -110,4 +110,26 @@ run "rejects_everything_on_everything" {
   }
 
   expect_failures = [var.statements]
+}
+
+run "event_driven_in_a_vpc" {
+  command = plan
+
+  variables {
+    schedule_expression = null
+    event_pattern       = "{\"source\":[\"aws.acm\"]}"
+    architectures       = ["arm64"]
+    layers              = ["arn:aws:lambda:us-east-2:111111111111:layer:cryptography:1"]
+    vpc_config          = { subnet_ids = ["subnet-1", "subnet-2"], security_group_ids = ["sg-1"] }
+  }
+
+  assert {
+    condition     = aws_cloudwatch_event_rule.rule[0].event_pattern == var.event_pattern && aws_cloudwatch_event_rule.rule[0].schedule_expression == null && length(aws_lambda_permission.rule) == 1
+    error_message = "An event pattern runs it, and only that rule may invoke it."
+  }
+
+  assert {
+    condition     = aws_lambda_function.function.vpc_config[0].security_group_ids == toset(["sg-1"]) && length(aws_iam_role_policy_attachment.vpc) == 1 && length(aws_lambda_function.function.layers) == 1 && aws_lambda_function.function.architectures == tolist(["arm64"])
+    error_message = "A function in a VPC keeps its subnets, groups and layers, and may manage its network interfaces."
+  }
 }

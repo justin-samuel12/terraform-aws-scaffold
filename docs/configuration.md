@@ -95,9 +95,12 @@ vpcs:
 | Key | Meaning |
 |---|---|
 | `sites`, `prefix_lists`, `dns` (in `global.yml`) | The networks reached over a VPN, each with its VPN address, BGP ASN, ranges and forwarded domains, and `enabled` ([network](network.md#sites)); named address groups for security group rules ([security groups](security-groups.md#prefix-lists)); DNS between AWS and the sites ([network](network.md#dns-with-the-sites)), and the private hosted zones every VPC attaches to ([global](global.md#dns)) |
-| `state.bucket`, `state.region`, `state.key` (in `global.yml`) | The one S3 bucket holding every stack's state, the region it lives in, and the shape of each stack's key (default: its path, such as `us-east-2/operations/network/terraform.tfstate`) |
+| `state.bucket`, `state.region`, `state.key` (in `global.yml`) | The one S3 bucket holding every stack's state, the region it lives in, and the shape of each stack's key (default: the stack's name, such as `us-east-2/operations/network/terraform.tfstate`) |
+| `pipeline.github_repository`, `pipeline.branch` (in `global.yml`) | The GitHub repository, `owner/name`, whose workflows may assume the pipeline's roles, and the protected branch plans are proposed from ([CI/CD](ci-cd.md#aws-credentials)) |
+| `pipeline.dedicated_accounts` (in `global.yml`) | Environments that must have an account of their own: the pipeline builds no roles while one shares its account. `[production]` when left out; `[]` accepts every environment sharing ([accounts](accounts.md#sharing-an-account)). An environment's name may not start with another's and a hyphen, and the state bucket's may not start with any environment's |
+| `pipeline.approvals`, `pipeline.reviewers` (in `global.yml`) | How many approvals a pull request needs, and, per environment, the GitHub logins or `org/team`s who approve its applies; `bin/github` writes them to GitHub ([CI/CD](ci-cd.md#turning-it-on)) |
 | `zones` | The availability zones every VPC in the region spans, by zone ID: at least two, numbered `az1` to `az6`. A zone ID is the same physical zone in every account, unlike a name such as `us-east-2a`, which AWS shuffles per account. Each tier gets one subnet per zone, named with its zone ID (`vpc-01-private-use2-az1`). Adding a zone only adds subnets; removing one is refused until done on purpose ([network](network.md#adding-and-removing-zones)) |
-| `hub` | The `shared` environment in this region: the Transit Gateway hub and its egress VPC ([network](network.md#ip-plan)) |
+| `hub` | The `shared` environment in this region: the Transit Gateway hub and its egress VPC, or with `transit_gateway.owner: parent` the gateway of another organization it attaches to ([network](network.md#ip-plan)) |
 | `vpcs.<environment>` | That environment's VPC in this region ([network](network.md#ip-plan)) |
 | `account_id` | The only account the environment's stacks may run in. Optional when `config/global.yml` has one (below); quoted: unquoted, YAML reads `012345678901` as a number and drops the leading zero |
 | `team` | Becomes the `Team` tag on everything the environment builds. Optional; without it the plan warns |
@@ -408,16 +411,16 @@ it applies can differ from what was reviewed. VPCs, subnets and Transit Gateways
 
 ## Creating a stack
 
-A stack is a folder under `live/` with a link to each file in `live/common/`, so
-it reads its identity and its settings, and its own `.tf` files:
+A stack is a folder under `live/` with a copy of each file in `live/common/`, a
+`stack.tf` naming it, and its own `.tf` files:
 
 ```bash
 make stack STACK=us-west-2/staging/network
 ```
 
-That runs `bin/stack`, which creates the folder, writes its `backend.tf`, and links every file in
-`live/common/` (`../../../common/`: every stack is three levels deep, including
-`global/shared/<component>`). It accepts `<region>/<environment>/<component>` or
+That runs `bin/stack`, which creates the folder and writes its `stack.tf`, its
+`backend.tf` and its copies of `live/common/` (every stack is three levels deep,
+including `global/shared/<component>`). It accepts `<region>/<environment>/<component>` or
 `global/<environment>/<component>`. When `templates/<component>/` exists, it also writes a
 `main.tf` that calls the template with the stack's region, and its environment
 when the template takes one (a hub does not: it belongs to its region), and an

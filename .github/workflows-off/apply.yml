@@ -1,4 +1,5 @@
 # name: Apply
+# run-name: "Apply ${{ inputs.stack }} ${{ inputs.digest || '(propose)' }}"
 #
 # on:
 #   workflow_dispatch:
@@ -7,15 +8,16 @@
 #         description: "The stack: <region>/<environment>/<component>"
 #         required: true
 #         type: string
-#       expected:
-#         description: "The plan's summary line, exactly: Plan: 3 to add, 0 to change, 0 to destroy."
-#         required: true
+#       digest:
+#         description: "Leave empty to plan the stack and store the plan for review. To apply, the digest that review approved: exactly that plan is applied."
+#         required: false
 #         type: string
+#         default: ""
 #
 # permissions: {}
 #
 # concurrency:
-#   group: terraform-apply
+#   group: terraform-apply-${{ inputs.stack }}
 #   cancel-in-progress: false
 #
 # defaults:
@@ -23,9 +25,79 @@
 #     shell: bash
 #
 # jobs:
-#   apply:
-#     name: Apply one stack
+#   route:
+#     name: Check the request
 #     if: vars.APPLY_ENABLED == 'true' && github.ref == 'refs/heads/master' && contains(fromJSON(vars.APPLY_ACTORS || '[]'), github.triggering_actor)
+#     runs-on:
+#       - self-hosted
+#       - linux
+#       - terraform-trusted
+#     timeout-minutes: 5
+#     permissions:
+#       contents: read
+#       actions: read
+#     env:
+#       STACK: ${{ inputs.stack }}
+#       DIGEST: ${{ inputs.digest }}
+#       GH_TOKEN: ${{ github.token }}
+#     outputs:
+#       environment: ${{ steps.route.outputs.environment }}
+#     steps:
+#       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+#         with:
+#           persist-credentials: false
+#       - id: route
+#         name: Name the stack's environment
+#         run: |
+#           [[ "$STACK" =~ ^(global|[a-z]{2}-[a-z]+-[0-9])/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*$ && -f "live/$STACK/main.tf" ]] || { echo "::error::$STACK is not a stack"; exit 1; }
+#           [[ -z "$DIGEST" || "$DIGEST" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::the digest is the 64-character SHA-256 the proposing run printed"; exit 1; }
+#           echo "environment=$(cut -d/ -f2 <<<"$STACK")" >>"$GITHUB_OUTPUT"
+#       - name: Show the reviewer exactly what this run would apply
+#         if: inputs.digest != ''
+#         run: |
+#           bin/ci describe "$STACK" "$DIGEST" "$RUNNER_TEMP/describe"
+#           cat "$RUNNER_TEMP/describe/report.md" >>"$GITHUB_STEP_SUMMARY"
+#
+#   propose:
+#     name: Plan and store for review
+#     needs: route
+#     if: inputs.digest == ''
+#     runs-on:
+#       - self-hosted
+#       - linux
+#       - terraform-apply
+#     timeout-minutes: 60
+#     permissions:
+#       contents: read
+#       id-token: write
+#     env:
+#       STACK: ${{ inputs.stack }}
+#     steps:
+#       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+#         with:
+#           persist-credentials: false
+#       - run: bin/ci doctor
+#       - run: bin/ci credentials propose "$RUNNER_TEMP/aws" >>"$GITHUB_ENV"
+#       - id: propose
+#         run: |
+#           bin/ci propose "$STACK" "$RUNNER_TEMP/proposal"
+#           if [[ -f "$RUNNER_TEMP/proposal/digest" ]]; then echo "digest=$(cat "$RUNNER_TEMP/proposal/digest")" >>"$GITHUB_OUTPUT"; fi
+#       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+#         if: steps.propose.outputs.digest != ''
+#         with:
+#           name: proposal-${{ steps.propose.outputs.digest }}
+#           path: ${{ runner.temp }}/proposal/public/
+#           retention-days: 1
+#           if-no-files-found: error
+#       - name: Show what changes and the digest on this run
+#         if: always()
+#         run: if [[ -f "$RUNNER_TEMP/proposal/report.md" ]]; then cat "$RUNNER_TEMP/proposal/report.md" >>"$GITHUB_STEP_SUMMARY"; fi
+#
+#   apply:
+#     name: Apply the approved plan
+#     needs: route
+#     if: inputs.digest != ''
+#     environment: ${{ needs.route.outputs.environment }}
 #     runs-on:
 #       - self-hosted
 #       - linux
@@ -33,12 +105,20 @@
 #     timeout-minutes: 120
 #     permissions:
 #       contents: read
+#       actions: read
+#       id-token: write
 #     env:
 #       STACK: ${{ inputs.stack }}
-#       EXPECTED: ${{ inputs.expected }}
+#       DIGEST: ${{ inputs.digest }}
+#       DEPLOY_ENVIRONMENT: ${{ needs.route.outputs.environment }}
 #     steps:
 #       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 #         with:
+#           fetch-depth: 0
 #           persist-credentials: false
 #       - run: bin/ci doctor
-#       - run: bin/ci apply "$STACK" "$EXPECTED"
+#       - run: bin/ci credentials apply "$RUNNER_TEMP/aws" "$STACK" >>"$GITHUB_ENV"
+#       - name: Apply, after confirming who approved this run
+#         env:
+#           GH_TOKEN: ${{ github.token }}
+#         run: bin/ci apply "$STACK" "$DIGEST"

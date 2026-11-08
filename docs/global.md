@@ -140,12 +140,12 @@ there. `resolve_all_private` lists the environments whose VPCs resolve every
 environment's private names, through the hub: the command center.
 
 ```
-example.com              public    the hub's: my-staging.example.com, my.example.com, …
-otherbrand.com                  public    the hub's: app-staging.otherbrand.com, …
-example.internal               private   the hub's, attached to every VPC: names they all share
-staging.example.internal       private   staging's own account, attached to its VPCs and the hubs
-production.example.internal    private   production's own account, the same
-operations.example.internal    private   operations' own account, the same
+example.com                   public    the hub's: my-staging.example.com, my.example.com, …
+otherbrand.com                public    the hub's: app-staging.otherbrand.com, …
+example.internal              private   the hub's, attached to every VPC: names they all share
+staging.example.internal      private   staging's own account, attached to its VPCs and the hubs
+production.example.internal   private   production's own account, the same
+operations.example.internal   private   operations' own account, the same
 ```
 
 The environments' zones are not delegated from `example.internal`: private
@@ -158,13 +158,13 @@ own zone and `ldap.example.internal` in the hub's, and gets nothing for
   name resolves to its internal load balancer's private address, reachable only
   through the hub, so a free public certificate covers it. Every name is
   written in full in a listener rule's `condition.host_header.values`
-  (`my-staging.example.com`), and its DNS record is a file of its own in the environment's records
-  stack, naming the zone. Names are the environments' to keep
-  apart: the environment goes in the name.
+  (`my-staging.example.com`), and its DNS record is a file of its own in the
+  environment's records stack, naming the zone. Names are the environments' to
+  keep apart: the environment goes in the name.
 - **Machines** have private names, in `<environment>.example.internal`, seen
   from the environment's own VPCs and the hubs. A server's `DNS` tag is its
   name there, written by its compute stack without asking
-  (`survey01.staging.example.internal`); a record with no `zone` goes there too,
+  (`app01.staging.example.internal`); a record with no `zone` goes there too,
   written with the environment's own account. A record in the hub's
   `example.internal` names it, like a public one.
 - **Certificates are files,** one per certificate in the certificates stack's
@@ -326,7 +326,11 @@ route53_record:
 One file per certificate, named after it, in `aws_acm_certificate`'s own
 arguments: `domain_name`, `subject_alternative_names`, `validation_method`
 (`DNS`, the only method that renews by itself), `key_algorithm` (`RSA_2048`,
-`EC_prime256v1` and the other ACM algorithms) and `tags`, all written. 
+`EC_prime256v1` and the other ACM algorithms), `options` and `tags`, all written.
+`options.export: ENABLED` lets the certificate and its private key be exported
+for a server that terminates TLS itself. It is set when the certificate is
+issued, AWS charges for it at issue and at each renewal, and an exported copy
+is not renewed for you: fetch it again and put it on the server.
 `route53_record` is the resource that proves the certificate: its `zone_id` is the
 public hosted zone, by name, that the DNS validation records go in, through the
 hub's account. The plan refuses any other key and a name that is not in that
@@ -415,12 +419,18 @@ statement:
       - arn:aws:s3:::example-reports/*
 ```
 
-`runtime`, `handler`, `memory_size`, `timeout` and `environment` are
-`aws_lambda_function`'s; left out, `memory_size` and `timeout` are the
-provider's (128 MB, 3 seconds). `cloudwatch_log_group.retention_in_days` is
+`runtime`, `handler`, `memory_size`, `timeout`, `architectures`, `layers`,
+`vpc_config` and `environment` are `aws_lambda_function`'s; left out,
+`memory_size`, `timeout` and `architectures` are the provider's (128 MB,
+3 seconds, `x86_64`). `architectures` is a list of one, `x86_64` or `arm64`. `cloudwatch_log_group.retention_in_days` is
 required: how long the function's own log group keeps its logs, 365 unless
-there is a reason for another period. `cloudwatch_event_rule.schedule_expression`
-runs the function on an EventBridge schedule, which alone may invoke it.
+there is a reason for another period. `cloudwatch_event_rule` runs the function
+from an EventBridge rule, which alone may invoke it: `schedule_expression` for a
+schedule, `event_pattern` for events, written as YAML in EventBridge's own
+shape. `layers` lists layer ARNs, built for the function's architecture.
+`vpc_config` places the function in the environment's VPC, for one that must
+reach something private: `subnet_ids` and `security_group_ids`, by name
+(`private-az1`, the group's file) or ID. Give it subnets in at least two zones.
 `event_source_mapping` takes messages from a queue and `sns_topic_subscription`
 subscribes the function to topics, each by the queue's or topic's name in this
 environment or its ARN ([messaging](messaging.md#sending-and-reading)).
@@ -429,7 +439,7 @@ environment or its ARN ([messaging](messaging.md#sending-and-reading)).
 
 Each function gets its own role, allowed to write its own log group plus the
 statements in its file (and, with `event_source_mapping`, to read its queue).
-Functions run on Graviton (arm64) with JSON logs. The code is zipped with fixed
+Functions write JSON logs. The code is zipped with fixed
 file modes, so a different umask on another machine is not a code change. The
 plan refuses a key that is not one of these, two files with one name, an
 environment variable whose name looks like a secret (password, token, key,

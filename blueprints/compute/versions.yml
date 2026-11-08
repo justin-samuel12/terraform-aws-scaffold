@@ -1,0 +1,12 @@
+backend-service/v1:
+  status: current
+  sha256: 237cf08ecbd3e31d1fc5f1769e0a310f8bcb000bca3e7ca3dc6706f908e3ad44
+container-app/v1:
+  status: current
+  sha256: 00fd0cda1a239b1602de46dd94245c970649f349f5c2355b5722c3229b927fee
+frontend/v1:
+  status: current
+  sha256: 799a771e622f7da9c52a4cb14bf551e1ec4ce058b099c6e2e1ea7861e59ce7ca
+staff-app/v1:
+  status: current
+  sha256: a3b685c4f794683ebebefdc268f1d39ac2df1a440bfaf76bcbcc1a54a0e2911a

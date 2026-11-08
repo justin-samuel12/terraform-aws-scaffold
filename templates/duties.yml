@@ -1,0 +1,144 @@
+hub:
+  description: The hub in each region, its Transit Gateway, route tables, VPN, peering between hubs, the resolver and the shared zones
+  environments: shared
+  components:
+    - hub
+    - dns
+  actions:
+    - ec2:*
+    - ds:*
+    - ram:*
+    - route53:*
+    - route53resolver:*
+    - logs:*
+    - secretsmanager:*
+    - kms:*
+  uses: []
+
+services:
+  description: Shared services an account keeps for itself and others, such as image repositories, log buckets, Session Manager and the account baseline
+  environments: any
+  components:
+    - baseline
+    - cloudfront
+    - documents
+    - domain-join
+    - ecr
+    - logging
+    - session-manager
+  actions:
+    - access-analyzer:*
+    - cloudfront:*
+    - ecr:*
+    - kms:*
+    - logs:*
+    - s3:*
+    - s3:PutAccountPublicAccessBlock
+    - ssm:*
+    - secretsmanager:*
+    - wafv2:*
+    - ec2:EnableEbsEncryptionByDefault
+    - ec2:DisableEbsEncryptionByDefault
+    - ec2:ModifyEbsDefaultKmsKeyId
+    - ec2:ResetEbsDefaultKmsKeyId
+    - ec2:EnableSnapshotBlockPublicAccess
+    - ec2:DisableSnapshotBlockPublicAccess
+  uses: []
+  roles:
+    - service-role/AWSSystemsManagerDefaultEC2InstanceManagementRole
+
+iam:
+  description: Roles, policies and instance profiles written as files in a stack's config/iam folder
+  environments: any
+  components:
+    - iam
+  actions: []
+  uses: []
+
+network:
+  description: An environment's own VPC, its endpoints and private zones, and its attachment to the hub; the hub's side goes through terraform-network-<environment>
+  environments: spokes
+  components:
+    - network
+    - endpoints
+    - zones
+  actions:
+    - ec2:*
+    - logs:*
+    - ram:AcceptResourceShareInvitation
+    - ram:GetResourceShareInvitations
+    - route53:*
+    - route53resolver:*
+  uses:
+    - ec2:CreateTransitGatewayVpcAttachment
+    - ec2:DeleteTransitGatewayVpcAttachment
+    - ec2:ModifyTransitGatewayVpcAttachment
+    - ec2:CreateVpcPeeringConnection
+    - ec2:AcceptVpcPeeringConnection
+    - route53resolver:AssociateResolverRule
+    - route53resolver:DisassociateResolverRule
+    - ram:AcceptResourceShareInvitation
+  across:
+    - ec2:CreateVpcPeeringConnection
+    - ec2:AcceptVpcPeeringConnection
+
+workload:
+  description: Everything an environment runs on its network, servers, containers, databases, queues, keys, certificates and records
+  environments: spokes
+  components:
+    - access
+    - backups
+    - buckets
+    - certificates
+    - compute
+    - containers
+    - databases
+    - keys
+    - kubernetes
+    - lambda
+    - load-balancers
+    - messaging
+    - patching
+    - records
+    - security-groups
+    - storage
+    - waf
+  actions:
+    - acm:*
+    - application-autoscaling:*
+    - autoscaling:*
+    - backup:*
+    - backup-storage:*
+    - cloudwatch:*
+    - codedeploy:*
+    - ec2:*
+    - ecs:*
+    - eks:*
+    - elasticfilesystem:*
+    - elasticloadbalancing:*
+    - events:*
+    - kms:*
+    - lambda:*
+    - logs:*
+    - rds:*
+    - route53:ChangeResourceRecordSets
+    - s3:*
+    - secretsmanager:*
+    - sns:*
+    - sqs:*
+    - ssm:*
+    - wafv2:*
+  uses:
+    - ec2:RunInstances
+    - ec2:CreateSecurityGroup
+    - ec2:CreateNetworkInterface
+    - ec2:AssociateIamInstanceProfile
+    - ec2:ReplaceIamInstanceProfileAssociation
+
+pipeline:
+  description: The pipeline's own roles, its OIDC provider and the permission boundary; applied by a person, never by the pipeline
+  environments: any
+  components:
+    - pipeline
+  actions: []
+  uses: []

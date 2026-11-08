@@ -1,0 +1,8 @@
+domain_name: "*.example.com"
+validation_method: DNS
+key_algorithm: RSA_2048
+options:
+  export: true-ish
+  exportable: true
+route53_record:
+  zone_id: example.com

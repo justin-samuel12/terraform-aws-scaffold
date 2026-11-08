@@ -17,15 +17,12 @@ component="$(basename "${stack}")"
 name="$(tr '-' '_' <<<"${component}")"
 
 mkdir -p "${dir}"
-for f in live/common/*.tf; do
-    ln -s "${to_live}common/$(basename "${f}")" "${dir}/$(basename "${f}")"
-done
 rm -f "$(dirname "${dir}")/.gitkeep" "${dir}/.gitkeep"
 
 "${REPO_ROOT}/bin/backends" "${dir}" >/dev/null
 
 if [[ ! -d "templates/${component}" ]]; then
-    echo "created ${dir}, linked to live/common (no template for ${component})"
+    echo "created ${dir}, with live/common's files (no template for ${component})"
     exit 0
 fi
 

@@ -4,6 +4,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
 OFF=".github/workflows-off"
+ACTIONLINT_IMAGE="${ACTIONLINT_IMAGE:-rhysd/actionlint:1.7.7@sha256:887a259a5a534f3c4f36cb02dca341673c6089431057242cdc931e9f133147e9}"
 
 target_of() {
     case "$1" in
@@ -32,14 +33,24 @@ cmd_check() {
         check_yaml "${name}" "${work}/${name}"
         echo "ok    ${name}"
     done
+    mkdir -p "${work}/.github/workflows"
+    for f in "${work}"/*.yml; do
+        if [[ "$(basename "${f}")" != dependabot.yml ]]; then cp "${f}" "${work}/.github/workflows/"; fi
+    done
+    printf 'self-hosted-runner:\n  labels:\n    - terraform-check\n    - terraform-trusted\n    - terraform-plan\n    - terraform-apply\n' >"${work}/.github/actionlint.yaml"
+    local files
+    files="$(cd "${work}" && ls .github/workflows/*.yml)"
     if command -v actionlint >/dev/null; then
-        mkdir -p "${work}/.github/workflows"
-        for f in "${work}"/*.yml; do
-            if [[ "$(basename "${f}")" != dependabot.yml ]]; then cp "${f}" "${work}/.github/workflows/"; fi
-        done
-        (cd "${work}" && actionlint -config-file /dev/null .github/workflows/*.yml)
+        # shellcheck disable=SC2086
+        (cd "${work}" && actionlint -config-file .github/actionlint.yaml ${files})
+        echo "ok    actionlint $(actionlint -version | head -1)"
+    elif command -v docker >/dev/null && docker info >/dev/null 2>&1; then
+        # shellcheck disable=SC2086
+        docker run --rm --network none -v "${work}:/repo:ro" -w /repo "${ACTIONLINT_IMAGE}" -config-file .github/actionlint.yaml ${files}
+        echo "ok    actionlint (${ACTIONLINT_IMAGE%@*})"
     else
-        echo "note  actionlint is not installed; the workflows' YAML was checked, their expressions were not"
+        echo "bin/workflows: actionlint is not installed and Docker is not running: the workflows' YAML was checked, their expressions, permissions and shell were not. brew install actionlint, or start Docker." >&2
+        exit 1
     fi
 }
 

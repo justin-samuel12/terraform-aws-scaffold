@@ -6,6 +6,15 @@ resource "aws_acm_certificate" "certificates" {
   validation_method         = each.value.validation_method
   key_algorithm             = each.value.key_algorithm
 
+  dynamic "options" {
+    for_each = each.value.options == null ? [] : [each.value.options]
+
+    content {
+      export                                      = options.value.export
+      certificate_transparency_logging_preference = options.value.certificate_transparency_logging_preference
+    }
+  }
+
   tags = merge(each.value.tags, { Name = "${local.name_prefix}${each.key}" })
 
   lifecycle {

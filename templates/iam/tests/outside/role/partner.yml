@@ -1,0 +1,18 @@
+description: A role an outside account could assume
+assume_role_policy:
+  statement:
+    - actions:
+        - sts:AssumeRole
+      principals:
+        - type: AWS
+          identifiers:
+            - "*"
+        - type: AWS
+          identifiers:
+            - arn:aws:iam::999999999999:root
+        - type: AWS
+          identifiers:
+            - arn:aws:iam::222222222222:role/ops
+        - type: Service
+          identifiers:
+            - ec2.amazonaws.com

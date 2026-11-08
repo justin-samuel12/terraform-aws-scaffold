@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "dependencies": {
+    "@cloud-copilot/iam-simulate": "0.1.173",
+    "@cloud-copilot/iam-data": "0.22.202611071"
+  }
+}

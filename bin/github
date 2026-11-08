@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "${REPO_ROOT}"
+source bin/lib/common.sh
+
+RULESET_NAME="infrastructure"
+CHECKS='["Static", "Units"]'
+SUBJECT='{"use_default": false, "include_claim_keys": ["repo", "context", "job_workflow_ref"]}'
+
+usage() {
+    cat >&2 <<'TEXT'
+usage: bin/github plan      what the repository's settings should be, as the GitHub API takes them (read-only, offline)
+       bin/github verify    compare them with the repository's settings on GitHub (read-only; needs gh auth)
+       bin/github apply     write them to GitHub (asks first; needs a repository administrator's gh auth)
+TEXT
+    exit 2
+}
+
+setting() { yq -r "$1" "${CONFIG_DIR}/global.yml"; }
+
+repository="$(setting '.pipeline.github_repository // ""')"
+branch="$(setting '.pipeline.branch // ""')"
+approvals="$(setting '.pipeline.approvals // 1')"
+[[ "${repository}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "bin/github: pipeline.github_repository in config/global.yml is owner/name." >&2; exit 1; }
+[[ -n "${branch}" ]] || { echo "bin/github: pipeline.branch in config/global.yml is the protected branch." >&2; exit 1; }
+[[ "${approvals}" =~ ^[1-9]$ ]] || { echo "bin/github: pipeline.approvals in config/global.yml is 1 to 9." >&2; exit 1; }
+
+reviewers_of() { yq -r ".pipeline.reviewers[\"$1\"] // [] | .[]" "${CONFIG_DIR}/global.yml"; }
+
+ruleset() {
+    jq -n --arg name "${RULESET_NAME}" --arg ref "refs/heads/${branch}" --argjson approvals "${approvals}" --argjson checks "${CHECKS}" '{
+        name: $name,
+        target: "branch",
+        enforcement: "active",
+        bypass_actors: [],
+        conditions: { ref_name: { include: [$ref], exclude: [] } },
+        rules: [
+            { type: "deletion" },
+            { type: "non_fast_forward" },
+            { type: "required_linear_history" },
+            { type: "pull_request", parameters: {
+                required_approving_review_count: $approvals,
+                dismiss_stale_reviews_on_push: true,
+                require_code_owner_review: true,
+                require_last_push_approval: true,
+                required_review_thread_resolution: true,
+                allowed_merge_methods: ["squash", "rebase"] } },
+            { type: "required_status_checks", parameters: {
+                strict_required_status_checks_policy: true,
+                required_status_checks: [$checks[] | { context: . }] } }
+        ]
+    }'
+}
+
+workflow_permissions() { jq -n '{ default_workflow_permissions: "read", can_approve_pull_request_reviews: false }'; }
+
+environment_settings() {
+    local env="$1" ids="$2"
+    jq -n --argjson reviewers "${ids}" --argjson self "$([[ "${env}" == plan ]] && echo false || echo true)" '{
+        wait_timer: 0,
+        prevent_self_review: $self,
+        reviewers: $reviewers,
+        deployment_branch_policy: { protected_branches: false, custom_branch_policies: true }
+    }'
+}
+
+reviewer_ids() {
+    local env="$1" who id list="[]"
+    while read -r who; do
+        [[ -n "${who}" ]] || continue
+        if [[ "${who}" == */* ]]; then
+            id="$(gh api "orgs/${who%%/*}/teams/${who#*/}" --jq .id)"
+            list="$(jq -c --argjson id "${id}" '. + [{ type: "Team", id: $id }]' <<<"${list}")"
+        else
+            id="$(gh api "users/${who}" --jq .id)"
+            list="$(jq -c --argjson id "${id}" '. + [{ type: "User", id: $id }]' <<<"${list}")"
+        fi
+    done < <(reviewers_of "${env}")
+    echo "${list}"
+}
+
+cmd_plan() {
+    local env
+    echo "Repository ${repository}, protected branch ${branch}"
+    echo
+    echo "Ruleset on ${branch} (POST repos/${repository}/rulesets):"
+    ruleset
+    echo
+    echo "Workflow permissions (PUT repos/${repository}/actions/permissions/workflow):"
+    workflow_permissions
+    echo
+    echo "OIDC subject, which the pipeline's AWS roles trust (PUT repos/${repository}/actions/oidc/customization/sub):"
+    jq . <<<"${SUBJECT}"
+    for env in plan $(environments); do
+        echo
+        echo "Environment ${env} (PUT repos/${repository}/environments/${env}), deployable only from ${branch}, reviewers: $(reviewers_of "${env}" | paste -sd, - | sed 's/^$/none named in pipeline.reviewers/')"
+        environment_settings "${env}" '[]'
+    done
+}
+
+check() { if [[ "$2" == "$3" ]]; then ok "$1"; else bad "$1: GitHub has ${2:-nothing}, wanted $3"; FAILED=1; fi; }
+
+cmd_verify() {
+    local id live env want got policies rule key
+    FAILED=0
+    head1 "Ruleset on ${branch}"
+    id="$(gh api "repos/${repository}/rulesets" --jq ".[] | select(.name == \"${RULESET_NAME}\") | .id" | head -1)"
+    if [[ -z "${id}" ]]; then
+        bad "no ruleset named ${RULESET_NAME}: run bin/github apply"
+        FAILED=1
+    else
+        live="$(gh api "repos/${repository}/rulesets/${id}")"
+        check "enforced" "$(jq -r .enforcement <<<"${live}")" active
+        check "nobody bypasses it" "$(jq -c '.bypass_actors // []' <<<"${live}")" "[]"
+        check "it protects ${branch}" "$(jq -c '.conditions.ref_name.include' <<<"${live}")" "[\"refs/heads/${branch}\"]"
+        want="$(ruleset | jq -S '[.rules[] | {type, parameters: (.parameters // {})}] | sort_by(.type)')"
+        got="$(jq -S '[.rules[] | {type, parameters: (.parameters // {})}] | sort_by(.type)' <<<"${live}")"
+        for rule in $(jq -r '.[].type' <<<"${want}"); do
+            check "rule ${rule}" "$(jq -r --arg t "${rule}" 'any(.[]; .type == $t)' <<<"${got}")" true
+            for key in $(jq -r --arg t "${rule}" '.[] | select(.type == $t) | .parameters | keys[]' <<<"${want}"); do
+                check "  ${key}" "$(jq -cS --arg t "${rule}" --arg k "${key}" '.[] | select(.type == $t) | .parameters[$k]' <<<"${got}")" "$(jq -cS --arg t "${rule}" --arg k "${key}" '.[] | select(.type == $t) | .parameters[$k]' <<<"${want}")"
+            done
+        done
+    fi
+    head1 "Workflow permissions"
+    live="$(gh api "repos/${repository}/actions/permissions/workflow")"
+    check "the default token is read-only" "$(jq -r .default_workflow_permissions <<<"${live}")" read
+    check "workflows cannot approve pull requests" "$(jq -r .can_approve_pull_request_reviews <<<"${live}")" false
+    head1 "OIDC subject"
+    live="$(gh api "repos/${repository}/actions/oidc/customization/sub" 2>/dev/null || echo '{}')"
+    check "tokens name the workflow file, which the AWS roles trust" "$(jq -cS '{use_default, include_claim_keys}' <<<"${live}")" "$(jq -cS . <<<"${SUBJECT}")"
+    for env in plan $(environments); do
+        head1 "Environment ${env}"
+        live="$(gh api "repos/${repository}/environments/${env}" 2>/dev/null || echo '{}')"
+        check "it exists" "$(jq -r '.name // ""' <<<"${live}")" "${env}"
+        if [[ "${env}" != plan ]]; then
+            check "the person who started a run cannot approve it" "$(jq -r '[.protection_rules[]? | select(.type == "required_reviewers") | .prevent_self_review] | first // false' <<<"${live}")" true
+            check "it has reviewers" "$(jq -r '[.protection_rules[]? | select(.type == "required_reviewers") | .reviewers[]?] | length > 0' <<<"${live}")" true
+        fi
+        check "only chosen branches deploy to it" "$(jq -r '.deployment_branch_policy.custom_branch_policies // false' <<<"${live}")" true
+        policies="$(gh api "repos/${repository}/environments/${env}/deployment-branch-policies" --jq '[.branch_policies[].name] | sort | join(",")' 2>/dev/null || true)"
+        check "the one branch is ${branch}" "${policies}" "${branch}"
+    done
+    echo
+    if [[ "${FAILED}" == 0 ]]; then ok "GitHub matches config/global.yml"; else bad "GitHub differs from config/global.yml: bin/github apply, or change it by hand and run this again"; fi
+    return "${FAILED}"
+}
+
+cmd_apply() {
+    local id env ids
+    cmd_plan
+    echo
+    if [[ "${GITHUB_APPLY_CONFIRMED:-}" != yes ]]; then
+        ask_yes "Write these settings to ${repository} on GitHub?" n || { echo "Nothing was changed."; exit 1; }
+    fi
+    id="$(gh api "repos/${repository}/rulesets" --jq ".[] | select(.name == \"${RULESET_NAME}\") | .id" | head -1)"
+    if [[ -n "${id}" ]]; then
+        ruleset | gh api --method PUT "repos/${repository}/rulesets/${id}" --input - >/dev/null
+    else
+        ruleset | gh api --method POST "repos/${repository}/rulesets" --input - >/dev/null
+    fi
+    workflow_permissions | gh api --method PUT "repos/${repository}/actions/permissions/workflow" --input - >/dev/null
+    gh api --method PUT "repos/${repository}/actions/oidc/customization/sub" --input - <<<"${SUBJECT}" >/dev/null
+    for env in plan $(environments); do
+        ids="$(reviewer_ids "${env}")"
+        [[ "${ids}" != "[]" || "${env}" == plan ]] || warn "${env} has no reviewers in pipeline.reviewers: nobody can approve its applies until it does"
+        environment_settings "${env}" "${ids}" | gh api --method PUT "repos/${repository}/environments/${env}" --input - >/dev/null
+        if ! gh api "repos/${repository}/environments/${env}/deployment-branch-policies" --jq '.branch_policies[].name' | grep -Fxq "${branch}"; then
+            jq -n --arg b "${branch}" '{ name: $b, type: "branch" }' | gh api --method POST "repos/${repository}/environments/${env}/deployment-branch-policies" --input - >/dev/null
+        fi
+    done
+    echo
+    cmd_verify
+}
+
+case "${1:-}" in
+    plan) cmd_plan ;;
+    verify) cmd_verify ;;
+    apply) cmd_apply ;;
+    *) usage ;;
+esac

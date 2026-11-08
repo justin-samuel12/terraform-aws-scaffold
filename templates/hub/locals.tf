@@ -4,13 +4,17 @@ locals {
 
   network = module.ip_plan.networks["shared/${var.region}"]
   tables  = ["restricted", "standard", "shared"]
+  parent  = local.network.transit_gateway.owner == "parent"
+
+  transit_gateway_id = local.parent ? data.aws_ec2_transit_gateway.parent[0].id : module.transit_gateway[0].transit_gateway_id
+  route_table_ids    = local.parent ? {} : module.transit_gateway[0].route_table_ids
 
   private_ranges = concat([module.ip_plan.internal_cidr], [for c in module.ip_plan.site_cidrs : c if !startswith(c, "10.")])
 
   dns_tier  = contains(keys(local.network.subnets), "dns")
   directory = local.network.primary && local.dns_tier && module.ip_plan.directory != null
 
-  peer_regions = local.network.primary ? sort([for key, n in module.ip_plan.networks : split("/", key)[1] if n.purpose == "egress" && split("/", key)[1] != var.region]) : []
+  peer_regions = local.network.primary && !local.parent ? sort([for key, n in module.ip_plan.networks : split("/", key)[1] if n.purpose == "egress" && split("/", key)[1] != var.region && n.transit_gateway.owner == "self"]) : []
   reach        = { restricted = ["restricted", "shared"], standard = ["standard", "shared"], shared = ["restricted", "standard", "shared"] }
   cidrs = {
     for region in concat([var.region], local.peer_regions) : region => {
@@ -23,7 +27,7 @@ locals {
     if split("/", key)[1] == var.region && n.purpose == "spoke" && n.connectivity == "transit_gateway" && n.account_id != "" && n.account_id != local.network.account_id
   ]))
   share_resources = merge(
-    { "transit-gateway" = module.transit_gateway.transit_gateway_arn },
+    local.parent ? {} : { "transit-gateway" = module.transit_gateway[0].transit_gateway_arn },
     { for name in keys(module.ip_plan.prefix_lists) : "prefix-list/${name}" => module.prefix_list.arns[name] },
     local.dns_tier ? { for domain, arn in module.route53_resolver[0].rule_arns : "resolver-rule/${domain}" => arn } : {},
   )

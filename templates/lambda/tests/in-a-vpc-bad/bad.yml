@@ -1,0 +1,14 @@
+runtime: python3.12
+handler: app.handler
+layers:
+  - cryptography:1
+vpc_config:
+  network: operations
+cloudwatch_event_rule:
+  pattern:
+    source:
+      - aws.acm
+cloudwatch_log_group:
+  retention_in_days: 365
+architectures:
+  - sparc

@@ -34,7 +34,9 @@ for r in $(region_files); do
         acct="$(account_for "${env}")"
         [[ "${acct}" =~ ^[0-9]{12}$ && "${acct}" != "${ACCOUNT_ID}" ]] || continue
         for loc in "${r}" global; do
-            prefixes="$(jq -c --arg a "${acct}" --arg p "$(pattern_for "${loc}" "${env}" "${acct}")" '.[$a] = ((.[$a] // []) + [$p] | unique)' <<<"${prefixes}")"
+            for p in "$(pattern_for "${loc}" "${env}" "${acct}")" "plans/${loc}/${env}/*" "applied/${loc}/${env}/*"; do
+                prefixes="$(jq -c --arg a "${acct}" --arg p "${p}" '.[$a] = ((.[$a] // []) + [$p] | unique)' <<<"${prefixes}")"
+            done
         done
     done
 done

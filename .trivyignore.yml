@@ -1,0 +1,5 @@
+misconfigurations:
+  - id: AVD-AWS-0132
+    paths:
+      - bootstrap/main.tf
+    statement: The state bucket is encrypted with S3-managed keys, versioned, TLS-only, and reached only by each environment's own pipeline roles on its own keys. A customer managed key would add a second, independent permission on every state read; it is a planned change to bootstrap, recorded in docs/threat-model.md, not yet made.

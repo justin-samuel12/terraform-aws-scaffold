@@ -11,6 +11,13 @@ module "blueprint" {
   region      = data.aws_region.current.region
 }
 
+check "blueprint_versions" {
+  assert {
+    condition     = length(module.blueprint.warnings) == 0
+    error_message = join("; ", module.blueprint.warnings)
+  }
+}
+
 module "monitoring_role" {
   source = "../../modules/iam-role"
   count  = local.monitored ? 1 : 0
@@ -22,6 +29,8 @@ module "monitoring_role" {
       managed_policies = ["service-role/AmazonRDSEnhancedMonitoringRole"]
     }
   }
+
+  role_boundary = module.role_boundary.role_boundary
 }
 
 module "rds_instance" {
@@ -74,4 +83,10 @@ module "rds_cluster" {
   vpc_security_group_ids             = [for g in try(each.value.vpc_security_group_ids, []) : lookup(local.group_id, tostring(g), tostring(g))]
   kms_key_arn                        = data.aws_kms_key.data[0].arn
   monitoring_role_arn                = module.monitoring_role[0].arns["rds-monitoring-${var.environment}-${data.aws_region.current.region}"]
+}
+
+module "role_boundary" {
+  source = "../../modules/role-boundary"
+
+  duties_file = "${path.module}/../duties.yml"
 }

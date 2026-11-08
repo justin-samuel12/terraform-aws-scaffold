@@ -18,7 +18,7 @@ if [[ "${1:-}" == --one ]]; then
         test)
             ok=0
             [[ "${path}" == modules/* || "${path}" == templates/* ]] && cp tests/lock/.terraform.lock.hcl "${path}/.terraform.lock.hcl"
-            for attempt in 1 2 3; do
+            for _ in 1 2 3; do
                 if (cd "${path}" && terraform init -backend=false -input=false -no-color >"${log}" 2>&1); then ok=1; break; fi
                 sleep 3
             done

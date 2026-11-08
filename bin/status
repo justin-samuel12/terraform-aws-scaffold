@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -uo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
-cd "${REPO_ROOT}"
+cd "${REPO_ROOT}" || exit 1
 
 OFFLINE=0; [[ "${1:-}" == --offline ]] && OFFLINE=1
 NEXT=""

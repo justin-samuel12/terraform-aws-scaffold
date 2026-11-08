@@ -66,10 +66,44 @@ locals {
     )
   }
 
+  registry_file = "${var.dir}/versions.yml"
+  registry      = try(yamldecode(file(local.registry_file)), null)
+  released      = can(keys(local.registry)) ? local.registry : {}
+  statuses      = ["current", "deprecated", "retired"]
+  release_keys  = ["status", "sha256", "replaced_by", "note"]
+  file_digest   = { for ref in distinct(concat(values(local.refs), keys(local.released))) : ref => fileexists("${var.dir}/${ref}.yml") ? filesha256("${var.dir}/${ref}.yml") : null if can(regex(local.pattern, ref)) }
+  status        = { for ref, r in local.released : ref => try(tostring(r.status), "") }
+  replaced_by   = { for ref, r in local.released : ref => try(tostring(r.replaced_by), "") }
+  next_version = {
+    for ref in keys(local.file_digest) : ref => "${split("/", ref)[0]}/v${max(0, [for v in fileset("${var.dir}/${split("/", ref)[0]}", "v*.yml") : tonumber(trimsuffix(trimprefix(v, "v"), ".yml"))]...) + 1}"
+  }
+  reserved_tags = ["ManagedBy", "Environment", "Component", "Repository", "Team"]
+  tag_sets = flatten([
+    for name, ref in local.refs : concat(
+      [{ where = "${name}.yml: tags", keys = try(keys(var.files[name].tags), []) }],
+      [for member, m in try(var.files[name].members, {}) : { where = "${name}.yml: members.${member}.tags", keys = try(keys(m.tags), []) }],
+      [{ where = "${var.label}/${ref}.yml: ${var.body}.tags", keys = try(keys(local.blueprints[ref][var.body].tags), []) }],
+    )
+  ])
+
+  warnings = flatten([
+    for name, ref in local.refs : "${name}.yml: blueprint ${ref} is deprecated; move the app to ${local.replaced_by[ref]} (docs/blueprints.md#moving-an-app-to-a-new-version)${try(": ${tostring(local.released[ref].note)}", "")}"
+    if try(local.status[ref], "") == "deprecated"
+  ])
+
   sections    = concat(["description", "allows", "adds", "requires", "environments", var.body], values(var.choices), var.sections)
   versions_of = { for ref in distinct(values(local.refs)) : ref => [for v in fileset("${var.dir}/${split("/", ref)[0]}", "v*.yml") : trimsuffix(v, ".yml")] }
 
   problems = concat(
+    length(local.refs) > 0 && local.registry == null ? ["${var.label}/versions.yml is missing or unreadable: it lists every released blueprint version with its status and sha256, so a released version can never change under the apps on it"] : [],
+    [for ref, r in local.released : "${var.label}/versions.yml: ${ref} takes ${join(", ", local.release_keys)}" if !can(regex(local.pattern, ref)) || !alltrue([for k in try(keys(r), ["?"]) : contains(local.release_keys, k)])],
+    [for ref, r in local.released : "${var.label}/versions.yml: ${ref} has status current, deprecated or retired" if !contains(local.statuses, local.status[ref])],
+    [for ref, r in local.released : "${var.label}/versions.yml: ${ref} is ${local.status[ref]}, so it names the version that replaces it in replaced_by, a released version that is not retired" if contains(["deprecated", "retired"], local.status[ref]) && !(contains(keys(local.released), local.replaced_by[ref]) && try(local.status[local.replaced_by[ref]], "") != "retired")],
+    [for ref, r in local.released : "${var.label}/versions.yml: ${ref} is released, but ${var.label}/${ref}.yml does not exist; a released version is never deleted while it is listed" if can(regex(local.pattern, ref)) && try(local.file_digest[ref], null) == null],
+    [for ref, r in local.released : "${var.label}/${ref}.yml changed after it was released (it is now sha256 ${local.file_digest[ref]}; versions.yml has ${try(tostring(r.sha256), "none")}). A released version never changes, so the apps on it never change without asking: put the change in ${local.next_version[ref]}.yml and release that" if try(local.file_digest[ref], null) != null && try(tostring(r.sha256), "") != try(local.file_digest[ref], "")],
+    distinct([for name, ref in local.refs : "${name}.yml: blueprint ${ref} is not released. Once it is reviewed, add it to ${var.label}/versions.yml as ${ref}: { status: current, sha256: ${local.file_digest[ref]} }" if local.registry != null && try(local.file_digest[ref], null) != null && !contains(keys(local.released), ref)]),
+    [for name, ref in local.refs : "${name}.yml: blueprint ${ref} is retired; move the app to ${local.replaced_by[ref]} (docs/blueprints.md#moving-an-app-to-a-new-version)" if try(local.status[ref], "") == "retired"],
+    distinct(flatten([for t in local.tag_sets : [for k in t.keys : "${t.where}.${k} is set by the platform from where the stack is, never in a file: the pipeline's permissions and every lookup rely on it" if contains(local.reserved_tags, k)]])),
     [for name, ref in local.refs : "${name}.yml: blueprint ${ref} is <name>/v<number>, such as ${var.example}" if !can(regex(local.pattern, ref))],
     [
       for name, ref in local.refs : "${name}.yml: blueprint ${ref} not found: ${var.label}/${split("/", ref)[0]}/ has ${length(local.versions_of[ref]) == 0 ? "nothing" : join(", ", local.versions_of[ref])}"

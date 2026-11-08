@@ -201,8 +201,10 @@ resource "aws_cloudwatch_log_group" "flow_log" {
 }
 
 resource "aws_iam_role" "flow_log" {
-  name               = "flow-logs-${aws_vpc.vpc.id}"
-  assume_role_policy = local.flow_log_assume_policy
+  name                 = "flow-logs-${aws_vpc.vpc.id}"
+  path                 = try(var.role_boundary.path, "/")
+  permissions_boundary = try(var.role_boundary.permissions_boundary, null)
+  assume_role_policy   = local.flow_log_assume_policy
 
   tags = { Name = "${local.name_prefix}Flow Logs" }
 }

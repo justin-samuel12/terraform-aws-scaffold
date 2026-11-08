@@ -4,9 +4,15 @@ resource "aws_ram_resource_share_accepter" "network" {
   share_arn = data.aws_ram_resource_share.network[0].arn
 }
 
+resource "aws_ram_resource_share_accepter" "parent" {
+  count = local.parent && local.network.transit_gateway.share_arn != null ? 1 : 0
+
+  share_arn = local.network.transit_gateway.share_arn
+}
+
 resource "aws_ec2_transit_gateway_vpc_attachment_accepter" "network" {
   provider = aws.hub
-  count    = local.cross_account ? 1 : 0
+  count    = local.cross_account && local.ours ? 1 : 0
 
   transit_gateway_attachment_id                   = module.vpc.transit_gateway_attachment_id
   transit_gateway_default_route_table_association = false
@@ -17,7 +23,7 @@ resource "aws_ec2_transit_gateway_vpc_attachment_accepter" "network" {
 
 resource "aws_ec2_transit_gateway_route_table_association" "network" {
   provider = aws.hub
-  count    = local.peered ? 0 : 1
+  count    = local.ours ? 1 : 0
 
   transit_gateway_attachment_id  = module.vpc.transit_gateway_attachment_id
   transit_gateway_route_table_id = data.aws_ec2_transit_gateway_route_table.route_tables[local.network.segment].id
@@ -27,7 +33,7 @@ resource "aws_ec2_transit_gateway_route_table_association" "network" {
 
 resource "aws_ec2_transit_gateway_route_table_propagation" "network" {
   provider = aws.hub
-  for_each = local.peered ? toset([]) : toset(local.network.propagates_to)
+  for_each = local.ours ? toset(local.network.propagates_to) : toset([])
 
   transit_gateway_attachment_id  = module.vpc.transit_gateway_attachment_id
   transit_gateway_route_table_id = data.aws_ec2_transit_gateway_route_table.route_tables[each.key].id
